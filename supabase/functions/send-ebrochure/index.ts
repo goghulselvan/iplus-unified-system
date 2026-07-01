@@ -65,7 +65,7 @@ serve(async (req) => {
     // Get active project's brochure URL
     const { data: project } = await supabaseAdmin
       .from("olympiad_projects")
-      .select("brochure_url, project_name, project_year")
+      .select("id, brochure_url, project_name, project_year")
       .eq("is_active", true)
       .maybeSingle();
 
@@ -124,10 +124,11 @@ serve(async (req) => {
     await supabaseAdmin.from("communications").insert({
       school_id: schoolId,
       communication_type: "WhatsApp",
-      details: `E-Brochure sent to ${phone}${contactName ? ` (${contactName})` : ""}`,
+      message: `E-Brochure sent to ${phone}${contactName ? ` (${contactName})` : ""}`,
       contacted_person_name: contactName ?? null,
       contacted_mobile_no: phone,
-      created_by: user.id,
+      user_id: user.id,
+      project_id: project.id ?? null,
     }).then(({ error }) => { if (error) console.error("Failed to log communication:", error); });
 
     // Save contact to school's additional_contacts if requested
