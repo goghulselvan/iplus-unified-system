@@ -85,6 +85,9 @@ serve(async (req) => {
 
     console.log(`Superadmin ${requestingUser.id} deleting user ${userId}`)
 
+    // Delete profile first to avoid orphaned rows
+    await supabaseAdmin.from('profiles').delete().eq('user_id', userId)
+
     // Delete user from Supabase Auth
     const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(userId)
 

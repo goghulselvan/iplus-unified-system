@@ -104,18 +104,6 @@ serve(async (req) => {
       console.error('Profile insert failed:', profileInsertError)
     }
 
-    await supabaseAdmin.from('security_audit_logs').insert({
-      user_id: requestingUser.id,
-      action: 'USER_CREATED',
-      table_name: 'auth.users',
-      record_id: newUser.user.id,
-      new_values: {
-        created_user_email: email,
-        created_user_role: role ?? 'manager',
-        created_at: new Date().toISOString(),
-      },
-    })
-
     return new Response(
       JSON.stringify({ success: true, userId: newUser.user.id }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }

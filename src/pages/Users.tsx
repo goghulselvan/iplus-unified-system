@@ -133,7 +133,10 @@ const Users = () => {
           assignedDistricts: createForm.assignedDistricts,
         },
       });
-      if (error) throw new Error(data?.error || error.message);
+      if (error) {
+        const body = await (error as any).context?.json?.().catch(() => null);
+        throw new Error(body?.error || data?.error || error.message);
+      }
       if (!data?.success) throw new Error(data?.error || 'Failed to create user');
       await fetchUsers();
       setCreateOpen(false);

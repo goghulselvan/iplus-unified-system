@@ -188,18 +188,6 @@ serve(async (req) => {
       if (profile.role !== 'superadmin') {
         console.error(`Unauthorized backup attempt by user ${user.id} with role ${profile.role}`)
         
-        // Log unauthorized attempt
-        await supabaseAuth.from('security_audit_logs').insert({
-          user_id: user.id,
-          action: 'UNAUTHORIZED_BACKUP_ATTEMPT',
-          table_name: 'database_backups',
-          old_values: null,
-          new_values: { 
-            attempted_at: new Date().toISOString(),
-            user_role: profile.role 
-          }
-        })
-
         return new Response(
           JSON.stringify({ 
             success: false, 
@@ -327,45 +315,6 @@ serve(async (req) => {
 
     if (recordError) {
       console.error('Failed to record backup metadata:', recordError)
-    }
-
-    // ===== AUDIT LOGGING: Log successful backup =====
-    const auditAction = isScheduledBackup ? 'SCHEDULED_DATABASE_BACKUP' : 'MANUAL_DATABASE_BACKUP_TRIGGERED'
-    
-    if (supabaseAuth) {
-      await supabaseAuth.from('security_audit_logs').insert({
-        user_id: userId,
-        action: auditAction,
-        table_name: 'database_backups',
-        old_values: null,
-        new_values: { 
-          filename,
-          file_size: fileSize,
-          total_records: totalRecords,
-          backup_type: backupType,
-          timestamp: new Date().toISOString(),
-          username
-        }
-      })
-      console.log(`✅ Backup logged to security audit: ${auditAction}`)
-    } else {
-      // For scheduled backups, log using service role
-      const supabaseService = createClient(supabaseUrl, supabaseServiceKey)
-      await supabaseService.from('security_audit_logs').insert({
-        user_id: userId, // Use the system UUID
-        action: auditAction,
-        table_name: 'database_backups',
-        old_values: null,
-        new_values: { 
-          filename,
-          file_size: fileSize,
-          total_records: totalRecords,
-          backup_type: backupType,
-          timestamp: new Date().toISOString(),
-          scheduled: true
-        }
-      })
-      console.log(`✅ Scheduled backup logged to security audit`)
     }
 
     // Clean up old backups (keep only last 7 days)
