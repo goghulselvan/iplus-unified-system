@@ -2560,7 +2560,7 @@ export type Database = {
       communication_type: "Phone" | "Email" | "WhatsApp"
       consent_status: "Yes" | "No"
       contacted_status: "Yes" | "No"
-      courier_status: "Sent" | "Returned"
+      courier_status: "Sent" | "Delivered" | "Returned"
       interest_status: "Interested" | "Not Interested"
       name_list_status: "Pending" | "Received" | "Uploaded"
       payment_status: "Pending" | "Received" | "Partial"
@@ -2705,7 +2705,7 @@ export const Constants = {
       communication_type: ["Phone", "Email", "WhatsApp"],
       consent_status: ["Yes", "No"],
       contacted_status: ["Yes", "No"],
-      courier_status: ["Sent", "Returned"],
+      courier_status: ["Sent", "Delivered", "Returned"],
       interest_status: ["Interested", "Not Interested"],
       name_list_status: ["Pending", "Received", "Uploaded"],
       payment_status: ["Pending", "Received", "Partial"],

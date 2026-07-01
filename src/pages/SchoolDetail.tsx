@@ -18,7 +18,9 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ArrowLeft, Calendar, Clock, MessageSquare, User, Phone, Mail, Edit, Save, X, Download, Bot } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, MessageSquare, User, Phone, Mail, Edit, Save, X, Download, Bot, Send, Plus, Trash2 } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { format } from 'date-fns';
 import WorkflowEditor from '@/components/workflow/WorkflowEditor';
 import ConsentFormManager from '@/components/consent/ConsentFormManager';
@@ -82,6 +84,15 @@ const SchoolDetail = () => {
   
   const [followUpDate, setFollowUpDate] = useState('');
   const [followUpTime, setFollowUpTime] = useState('');
+
+  // E-Brochure send dialog
+  const [ebrochureOpen, setEbrochureOpen] = useState(false);
+  const [ebrochurePhoneMode, setEbrochurePhoneMode] = useState<'mobile1' | 'mobile2' | 'manual'>('mobile1');
+  const [ebrochureManual, setEbrochureManual] = useState('');
+  const [ebrochureContactName, setEbrochureContactName] = useState('');
+  const [ebrochureContactRole, setEbrochureContactRole] = useState('');
+  const [ebrochureSaveContact, setEbrochureSaveContact] = useState(false);
+  const [ebrochureSending, setEbrochureSending] = useState(false);
 
   // Fetch school data when component mounts or ID changes
   useEffect(() => {
@@ -344,6 +355,58 @@ const SchoolDetail = () => {
     setEditForm({});
   };
 
+  const handleSendEbrochure = async () => {
+    if (!school || !id) return;
+    let phone: string | null | undefined;
+    if (ebrochurePhoneMode === 'mobile1') phone = school.mobile1;
+    else if (ebrochurePhoneMode === 'mobile2') phone = school.mobile2;
+    else if (ebrochurePhoneMode === 'manual') phone = ebrochureManual;
+    else if (ebrochurePhoneMode.startsWith('contact_')) {
+      const idx = parseInt(ebrochurePhoneMode.split('_')[1]);
+      phone = (school as any).additional_contacts?.[idx]?.mobile;
+    }
+    if (!phone) {
+      toast({ title: 'Error', description: 'Please enter or select a valid phone number', variant: 'destructive' });
+      return;
+    }
+    setEbrochureSending(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await supabase.functions.invoke('send-ebrochure', {
+        body: {
+          schoolId: id,
+          phone,
+          schoolName: school.school_name,
+          district: school.district,
+          state: school.state,
+          saveContact: ebrochureSaveContact && ebrochurePhoneMode === 'manual',
+          contactName: ebrochureContactName || undefined,
+          contactRole: ebrochureContactRole || undefined,
+        },
+      });
+      if (res.error) {
+        const body = await (res.error as any).context?.json?.().catch(() => null);
+        throw new Error(body?.error || res.error.message);
+      }
+      if (!res.data?.success) throw new Error(res.data?.error || 'Send failed');
+      toast({ title: 'E-Brochure sent!', description: `Sent to ${phone}` });
+      setEbrochureOpen(false);
+      setEbrochureManual('');
+      setEbrochureContactName('');
+      setEbrochureContactRole('');
+      setEbrochureSaveContact(false);
+      // Refresh school to pick up updated additional_contacts
+      if (ebrochureSaveContact && ebrochurePhoneMode === 'manual') {
+        const { data } = await supabase.from('schools').select('*').eq('id', id).single();
+        if (data) setSchool(data as any);
+      }
+    } catch (err: any) {
+      toast({ title: 'Send failed', description: err.message, variant: 'destructive' });
+    } finally {
+      setEbrochureSending(false);
+    }
+  };
+
   const handleAddCommunication = async () => {
     if (!newCommunication.message.trim() || !id) return;
 
@@ -526,12 +589,87 @@ const SchoolDetail = () => {
                 <Download className="h-4 w-4 mr-2" />
                 Export Ledger
               </Button>
+              <Button variant="default" onClick={() => setEbrochureOpen(true)}>
+                <Send className="h-4 w-4 mr-2" />
+                Send E-Brochure
+              </Button>
               <WorkflowStatusBadge school={school} />
             </div>
           </div>
         </div>
 
         <WorkflowPipeline school={school} />
+
+        {/* E-Brochure Send Dialog */}
+        <Dialog open={ebrochureOpen} onOpenChange={setEbrochureOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Send E-Brochure via WhatsApp</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 pt-2">
+              <div>
+                <Label className="text-sm font-medium mb-2 block">Select WhatsApp number</Label>
+                <RadioGroup value={ebrochurePhoneMode} onValueChange={(v) => setEbrochurePhoneMode(v as any)} className="space-y-2">
+                  <div className="flex items-center gap-3 border rounded-md px-3 py-2">
+                    <RadioGroupItem value="mobile1" id="eb_m1" />
+                    <Label htmlFor="eb_m1" className="cursor-pointer flex-1">
+                      <span className="text-xs text-muted-foreground">Mobile 1</span>
+                      <p className="font-medium">{school.mobile1 || <span className="text-muted-foreground italic">Not set</span>}</p>
+                    </Label>
+                  </div>
+                  <div className="flex items-center gap-3 border rounded-md px-3 py-2">
+                    <RadioGroupItem value="mobile2" id="eb_m2" />
+                    <Label htmlFor="eb_m2" className="cursor-pointer flex-1">
+                      <span className="text-xs text-muted-foreground">Mobile 2 (WhatsApp)</span>
+                      <p className="font-medium">{school.mobile2 || <span className="text-muted-foreground italic">Not set</span>}</p>
+                    </Label>
+                  </div>
+                  {(school as any).additional_contacts?.map((c: any, i: number) => (
+                    <div key={i} className="flex items-center gap-3 border rounded-md px-3 py-2">
+                      <RadioGroupItem value={`contact_${i}`} id={`eb_c${i}`} />
+                      <Label htmlFor={`eb_c${i}`} className="cursor-pointer flex-1">
+                        <span className="text-xs text-muted-foreground">{c.role || 'Contact'} — {c.name}</span>
+                        <p className="font-medium">{c.mobile}</p>
+                      </Label>
+                    </div>
+                  ))}
+                  <div className="flex items-center gap-3 border rounded-md px-3 py-2">
+                    <RadioGroupItem value="manual" id="eb_manual" />
+                    <Label htmlFor="eb_manual" className="cursor-pointer">Enter manually</Label>
+                  </div>
+                </RadioGroup>
+              </div>
+
+              {ebrochurePhoneMode === 'manual' && (
+                <div className="space-y-3 border-l-2 border-primary pl-3">
+                  <div>
+                    <Label htmlFor="eb_number" className="text-xs">Phone Number</Label>
+                    <Input id="eb_number" value={ebrochureManual} onChange={(e) => setEbrochureManual(e.target.value)} placeholder="10-digit mobile number" className="mt-1" />
+                  </div>
+                  <div>
+                    <Label htmlFor="eb_cname" className="text-xs">Contact Name (optional)</Label>
+                    <Input id="eb_cname" value={ebrochureContactName} onChange={(e) => setEbrochureContactName(e.target.value)} placeholder="e.g., Principal Ravi" className="mt-1" />
+                  </div>
+                  <div>
+                    <Label htmlFor="eb_crole" className="text-xs">Role (optional)</Label>
+                    <Input id="eb_crole" value={ebrochureContactRole} onChange={(e) => setEbrochureContactRole(e.target.value)} placeholder="e.g., Principal, Coordinator" className="mt-1" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input type="checkbox" id="eb_save" checked={ebrochureSaveContact} onChange={(e) => setEbrochureSaveContact(e.target.checked)} className="rounded" />
+                    <Label htmlFor="eb_save" className="text-xs cursor-pointer">Save this number to school's contacts</Label>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <Button variant="outline" className="flex-1" onClick={() => setEbrochureOpen(false)}>Cancel</Button>
+                <Button className="flex-1" onClick={handleSendEbrochure} disabled={ebrochureSending}>
+                  {ebrochureSending ? 'Sending...' : 'Send E-Brochure'}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         <Tabs defaultValue="details" className="space-y-6">
           <TabsList className="flex-wrap h-auto gap-1">
@@ -657,6 +795,22 @@ const SchoolDetail = () => {
                         </div>
                       </div>
                     </div>
+
+                    {/* Additional Contacts */}
+                    {((school as any).additional_contacts?.length > 0) && (
+                      <div>
+                        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-4">Additional Contacts</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {(school as any).additional_contacts.map((c: any, i: number) => (
+                            <div key={i} className="border rounded-md p-3">
+                              <p className="text-xs text-muted-foreground">{c.role || 'Contact'}</p>
+                              <p className="text-sm font-medium">{c.name}</p>
+                              <p className="text-sm text-muted-foreground">{c.mobile}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     {/* Teachers */}
                     <div>

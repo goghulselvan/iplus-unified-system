@@ -204,7 +204,7 @@ const BulkSchoolImport = () => {
           mobile2: cleanPhoneNumber(values[8] || ''),
           email: validateEmail(values[9] || ''),
           contact_person_name: toTitleCase(values[10] || ''),
-          courier_status: 'Sent' as const,
+
           contacted: 'No' as const,
           consent_form_requested: 'No' as const,
           registration_status: 'Pending' as const,

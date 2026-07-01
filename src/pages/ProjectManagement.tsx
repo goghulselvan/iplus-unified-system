@@ -8,11 +8,29 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Plus, Settings, Users, Calendar, CheckCircle, Circle, Pencil } from 'lucide-react';
+import { Plus, Settings, Users, Calendar, CheckCircle, Circle, Pencil, Upload, FileText } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { useOlympiadProjects, useOlympiadSubjects, useCreateProject, useUpdateProject, useCreateSubject, useUpdateSubject, useSetActiveProject, OlympiadProject, OlympiadSubject } from '@/hooks/useOlympiadProjects';
 import { toast } from 'sonner';
 import Navbar from '@/components/layout/Navbar';
+import { supabase } from '@/integrations/supabase/client';
+
+const SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1Y2plZ2dmY2x6dGtiYnVwYWF2Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTQ3OTU3MiwiZXhwIjoyMDk1MDU1NTcyfQ.lRfQAGLh_jLSqJ8SPfEvwVGwyUumf4AXQF1nobmmgCk";
+
+async function uploadBrochure(file: File, projectYear: number): Promise<string> {
+  const path = `project-brochures/brochure-${projectYear}.pdf`;
+  const res = await fetch(`https://eucjeggfclztkbbupaav.supabase.co/storage/v1/object/brand-assets/${path}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+      'Content-Type': 'application/pdf',
+      'x-upsert': 'true',
+    },
+    body: file,
+  });
+  if (!res.ok) throw new Error('Failed to upload brochure');
+  return `https://eucjeggfclztkbbupaav.supabase.co/storage/v1/object/public/brand-assets/${path}`;
+}
 
 const ProjectManagement = () => {
   const [isProjectDialogOpen, setIsProjectDialogOpen] = useState(false);
@@ -23,6 +41,9 @@ const ProjectManagement = () => {
   const [editClasses, setEditClasses] = useState<string[]>([]);
   const [editIsActive, setEditIsActive] = useState(true);
   const [editAlphabeticalCode, setEditAlphabeticalCode] = useState('');
+  const [createBrochureFile, setCreateBrochureFile] = useState<File | null>(null);
+  const [editBrochureFile, setEditBrochureFile] = useState<File | null>(null);
+  const [uploadingBrochure, setUploadingBrochure] = useState(false);
 
   const { data: projects, isLoading } = useOlympiadProjects();
   const { data: subjects } = useOlympiadSubjects(selectedProjectForSubjects, { includeInactive: true });
@@ -70,33 +91,52 @@ const ProjectManagement = () => {
     e.preventDefault();
     if (!editingProject) return;
     const formData = new FormData(e.currentTarget);
+    const year = parseInt(formData.get('project_year') as string);
     try {
+      setUploadingBrochure(true);
+      let brochureUrl = editingProject.brochure_url;
+      if (editBrochureFile) {
+        brochureUrl = await uploadBrochure(editBrochureFile, year);
+      }
       await updateProject.mutateAsync({
         id: editingProject.id,
         project_name: formData.get('project_name') as string,
-        project_year: parseInt(formData.get('project_year') as string),
+        project_year: year,
+        brochure_url: brochureUrl ?? undefined,
       });
       setEditingProject(null);
+      setEditBrochureFile(null);
     } catch (error) {
       console.error('Failed to update project:', error);
+      toast.error('Failed to update project');
+    } finally {
+      setUploadingBrochure(false);
     }
   };
 
   const handleCreateProject = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    
-    const projectData = {
-      project_name: formData.get('project_name') as string,
-      project_year: parseInt(formData.get('project_year') as string),
-    };
-
+    const year = parseInt(formData.get('project_year') as string);
     try {
-      await createProject.mutateAsync(projectData);
+      setUploadingBrochure(true);
+      let brochureUrl: string | undefined;
+      if (createBrochureFile) {
+        brochureUrl = await uploadBrochure(createBrochureFile, year);
+      }
+      await createProject.mutateAsync({
+        project_name: formData.get('project_name') as string,
+        project_year: year,
+        brochure_url: brochureUrl,
+      });
       setIsProjectDialogOpen(false);
+      setCreateBrochureFile(null);
       (e.target as HTMLFormElement).reset();
     } catch (error) {
       console.error('Failed to create project:', error);
+      toast.error('Failed to create project');
+    } finally {
+      setUploadingBrochure(false);
     }
   };
 
@@ -185,8 +225,30 @@ const ProjectManagement = () => {
                   required
                 />
               </div>
-              <Button type="submit" className="w-full" disabled={createProject.isPending}>
-                {createProject.isPending ? 'Creating...' : 'Create Project'}
+              <div>
+                <Label htmlFor="create_brochure">E-Brochure PDF (optional)</Label>
+                <div className="mt-1 flex items-center gap-3">
+                  <label htmlFor="create_brochure" className="flex items-center gap-2 cursor-pointer border border-dashed border-input rounded-md px-4 py-2 text-sm text-muted-foreground hover:bg-muted/50 transition-colors">
+                    <Upload className="h-4 w-4" />
+                    {createBrochureFile ? createBrochureFile.name : 'Choose PDF'}
+                  </label>
+                  <input
+                    id="create_brochure"
+                    type="file"
+                    accept="application/pdf"
+                    className="hidden"
+                    onChange={(e) => setCreateBrochureFile(e.target.files?.[0] ?? null)}
+                  />
+                  {createBrochureFile && (
+                    <span className="text-xs text-muted-foreground">
+                      {(createBrochureFile.size / 1024 / 1024).toFixed(1)} MB
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">PDF only. Keep under 5 MB for WhatsApp delivery.</p>
+              </div>
+              <Button type="submit" className="w-full" disabled={createProject.isPending || uploadingBrochure}>
+                {uploadingBrochure ? 'Uploading brochure...' : createProject.isPending ? 'Creating...' : 'Create Project'}
               </Button>
             </form>
           </DialogContent>
@@ -216,6 +278,7 @@ const ProjectManagement = () => {
                   <TableHead>Status</TableHead>
                   <TableHead>Project Name</TableHead>
                   <TableHead>Year</TableHead>
+                  <TableHead>Brochure</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
@@ -238,6 +301,15 @@ const ProjectManagement = () => {
                     </TableCell>
                     <TableCell className="font-medium">{project.project_name}</TableCell>
                     <TableCell>{project.project_year}</TableCell>
+                    <TableCell>
+                      {project.brochure_url ? (
+                        <a href={project.brochure_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-primary text-sm hover:underline">
+                          <FileText className="h-4 w-4" /> View
+                        </a>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Not uploaded</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       {new Date(project.created_at).toLocaleDateString()}
                     </TableCell>
@@ -444,8 +516,37 @@ const ProjectManagement = () => {
                   required
                 />
               </div>
-              <Button type="submit" className="w-full" disabled={updateProject.isPending}>
-                {updateProject.isPending ? 'Saving...' : 'Save Changes'}
+              <div>
+                <Label>E-Brochure PDF</Label>
+                {editingProject.brochure_url && !editBrochureFile && (
+                  <div className="flex items-center gap-2 mt-1 mb-2 text-sm text-muted-foreground">
+                    <FileText className="h-4 w-4 text-green-600" />
+                    <span className="text-green-700 font-medium">Brochure uploaded</span>
+                    <a href={editingProject.brochure_url} target="_blank" rel="noopener noreferrer" className="underline text-primary text-xs">View</a>
+                  </div>
+                )}
+                <div className="flex items-center gap-3">
+                  <label htmlFor="edit_brochure" className="flex items-center gap-2 cursor-pointer border border-dashed border-input rounded-md px-4 py-2 text-sm text-muted-foreground hover:bg-muted/50 transition-colors">
+                    <Upload className="h-4 w-4" />
+                    {editBrochureFile ? editBrochureFile.name : 'Replace PDF'}
+                  </label>
+                  <input
+                    id="edit_brochure"
+                    type="file"
+                    accept="application/pdf"
+                    className="hidden"
+                    onChange={(e) => setEditBrochureFile(e.target.files?.[0] ?? null)}
+                  />
+                  {editBrochureFile && (
+                    <span className="text-xs text-muted-foreground">
+                      {(editBrochureFile.size / 1024 / 1024).toFixed(1)} MB
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">Replaces the existing brochure. Keep under 5 MB for WhatsApp delivery.</p>
+              </div>
+              <Button type="submit" className="w-full" disabled={updateProject.isPending || uploadingBrochure}>
+                {uploadingBrochure ? 'Uploading brochure...' : updateProject.isPending ? 'Saving...' : 'Save Changes'}
               </Button>
             </form>
           )}

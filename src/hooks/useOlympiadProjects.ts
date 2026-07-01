@@ -7,6 +7,7 @@ export interface OlympiadProject {
   project_name: string;
   project_year: number;
   is_active: boolean;
+  brochure_url?: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -92,7 +93,7 @@ export const useCreateProject = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (data: { project_name: string; project_year: number }) => {
+    mutationFn: async (data: { project_name: string; project_year: number; brochure_url?: string }) => {
       const { data: result, error } = await supabase
         .from('olympiad_projects')
         .insert([{
@@ -119,7 +120,7 @@ export const useUpdateProject = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (data: { id: string; project_name: string; project_year: number }) => {
+    mutationFn: async (data: { id: string; project_name: string; project_year: number; brochure_url?: string }) => {
       const { id, ...updates } = data;
       const { data: result, error } = await supabase
         .from('olympiad_projects')

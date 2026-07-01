@@ -24,7 +24,8 @@ export type School = {
   mobile2?: string;
   email?: string;
   contact_person_name?: string;
-  courier_status: 'Sent' | 'Returned';
+  courier_status: 'Sent' | 'Delivered' | 'Returned' | null;
+  additional_contacts?: Array<{ name: string; mobile: string; role?: string }> | null;
   contacted: 'Yes' | 'No';
   registration_interest?: 'Interested' | 'Not Interested';
   consent_form_requested: 'Yes' | 'No';
