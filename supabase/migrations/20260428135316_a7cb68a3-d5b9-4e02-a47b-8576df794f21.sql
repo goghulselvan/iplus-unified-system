@@ -1,0 +1,1 @@
+UPDATE public.whatsapp_templates SET language_code = 'en_GB', updated_at = now() WHERE id = 'fc35a69c-c1ce-47da-917a-f170611dbf1a';

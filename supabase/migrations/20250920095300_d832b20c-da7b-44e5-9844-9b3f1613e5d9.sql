@@ -1,0 +1,65 @@
+-- Update the get_dashboard_metrics_by_project function to include name_list_uploaded
+DROP FUNCTION IF EXISTS public.get_dashboard_metrics_by_project(uuid);
+
+CREATE OR REPLACE FUNCTION public.get_dashboard_metrics_by_project(target_project_id uuid DEFAULT NULL)
+RETURNS TABLE(
+  total_schools bigint, 
+  courier_sent bigint, 
+  courier_returned bigint, 
+  contacted_yes bigint, 
+  contacted_no bigint, 
+  registration_interested bigint, 
+  registration_not_interested bigint, 
+  consent_requested bigint, 
+  consent_form_sent_total bigint, 
+  consent_form_sent_physical bigint, 
+  consent_form_sent_digital bigint, 
+  registration_confirmed bigint, 
+  registration_in_progress bigint, 
+  name_list_received bigint, 
+  name_list_uploaded bigint,
+  payment_received bigint, 
+  question_paper_sent bigint, 
+  answer_sheet_received bigint, 
+  result_sent bigint, 
+  total_registrations bigint
+)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  WITH school_metrics AS (
+    SELECT 
+      COUNT(*) as total_schools,
+      COUNT(*) FILTER (WHERE courier_status = 'Sent') as courier_sent,
+      COUNT(*) FILTER (WHERE courier_status = 'Returned') as courier_returned,
+      COUNT(*) FILTER (WHERE contacted = 'Yes') as contacted_yes,
+      COUNT(*) FILTER (WHERE contacted = 'No') as contacted_no,
+      COUNT(*) FILTER (WHERE registration_interest = 'Interested') as registration_interested,
+      COUNT(*) FILTER (WHERE registration_interest = 'Not Interested') as registration_not_interested,
+      COUNT(*) FILTER (WHERE consent_form_requested = 'Yes') as consent_requested,
+      COUNT(*) FILTER (WHERE consent_form_sent IN ('Sent', 'Sent Digitally')) as consent_form_sent_total,
+      COUNT(*) FILTER (WHERE consent_form_sent = 'Sent') as consent_form_sent_physical,
+      COUNT(*) FILTER (WHERE consent_form_sent = 'Sent Digitally') as consent_form_sent_digital,
+      COUNT(*) FILTER (WHERE registration_status = 'Confirmed') as registration_confirmed,
+      COUNT(*) FILTER (WHERE registration_status = 'In Progress') as registration_in_progress,
+      COUNT(*) FILTER (WHERE name_list_status = 'Received') as name_list_received,
+      COUNT(*) FILTER (WHERE name_list_status = 'Uploaded') as name_list_uploaded,
+      COUNT(*) FILTER (WHERE payment_status = 'Received') as payment_received,
+      COUNT(*) FILTER (WHERE question_paper_sent = 'Sent') as question_paper_sent,
+      COUNT(*) FILTER (WHERE answer_sheet_status = 'Received') as answer_sheet_received,
+      COUNT(*) FILTER (WHERE result_status = 'Sent') as result_sent
+    FROM public.schools
+    WHERE (target_project_id IS NULL OR current_project_id = target_project_id)
+  ),
+  registration_metrics AS (
+    SELECT 
+      COALESCE(COUNT(*), 0) as total_registrations
+    FROM public.student_registrations sr
+    WHERE (target_project_id IS NULL OR sr.project_id = target_project_id)
+  )
+  SELECT 
+    sm.*,
+    rm.total_registrations
+  FROM school_metrics sm, registration_metrics rm;
+$function$;

@@ -1,0 +1,7 @@
+project_id = "eucjeggfclztkbbupaav"
+
+[functions.delete-user]
+verify_jwt = false
+
+[functions.lookup-participant]
+verify_jwt = false
