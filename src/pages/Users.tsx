@@ -89,6 +89,7 @@ const Users = () => {
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
+        .not('user_id', 'is', null)
         .order('created_at', { ascending: true });
       if (error) throw error;
       setUsers((data as Profile[]) || []);
