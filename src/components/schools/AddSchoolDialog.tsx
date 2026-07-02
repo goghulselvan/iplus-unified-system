@@ -144,17 +144,15 @@ export function AddSchoolDialog({ open, onOpenChange, onCreated, mode = 'registe
       }
 
       const { error: wfErr } = await supabase.from('school_project_workflow').insert({
-        school_id:       schoolId,
-        project_id:      activeProject.id,
+        school_id:           schoolId,
+        project_id:          activeProject.id,
         registration_status: isInterested ? 'Pending' : 'In Progress',
-        registration_interest: isInterested ? 'Interested' : undefined,
+        registration_interest: 'Interested',
         contacted: 'Yes',
       });
       if (wfErr) throw wfErr;
 
-      if (isInterested) {
-        await supabase.from('schools').update({ registration_interest: 'Interested' }).eq('id', schoolId);
-      }
+      await supabase.from('schools').update({ registration_interest: 'Interested' }).eq('id', schoolId);
 
       await supabase.from('prospect_schools')
         .update({ stage: isInterested ? 'interested' : 'registered', linked_to_crm: true }).eq('id', selected.id);
@@ -218,17 +216,15 @@ export function AddSchoolDialog({ open, onOpenChange, onCreated, mode = 'registe
 
       // Create workflow
       const { error: wfErr } = await supabase.from('school_project_workflow').insert({
-        school_id:       newSchool.id,
-        project_id:      activeProject.id,
-        registration_status: isInterested ? 'Pending' : 'In Progress',
-        registration_interest: isInterested ? 'Interested' : undefined,
+        school_id:            newSchool.id,
+        project_id:           activeProject.id,
+        registration_status:  isInterested ? 'Pending' : 'In Progress',
+        registration_interest: 'Interested',
         contacted: 'Yes',
       });
       if (wfErr) throw wfErr;
 
-      if (isInterested) {
-        await supabase.from('schools').update({ registration_interest: 'Interested' }).eq('id', newSchool.id);
-      }
+      await supabase.from('schools').update({ registration_interest: 'Interested' }).eq('id', newSchool.id);
 
       if (isInterested) {
         setCreatedInfo({ schoolId: newSchool.id, phone: manual.mobile || null, email: manual.email || null, name: manual.school_name });
