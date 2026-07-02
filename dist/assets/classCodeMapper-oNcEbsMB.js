@@ -1,0 +1,1 @@
+const n=o=>{const t={LKG:14,UKG:15,1:1,2:2,3:3,4:4,5:5,6:6,7:7,8:8,9:9,10:10,11:11,12:12},e=o.toUpperCase().trim(),r=t[e];if(r===void 0)throw new Error(`Invalid class name: ${o}`);return r};export{n as getClassCode};
