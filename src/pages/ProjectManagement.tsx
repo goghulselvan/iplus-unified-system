@@ -15,21 +15,13 @@ import { toast } from 'sonner';
 import Navbar from '@/components/layout/Navbar';
 import { supabase } from '@/integrations/supabase/client';
 
-const SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1Y2plZ2dmY2x6dGtiYnVwYWF2Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTQ3OTU3MiwiZXhwIjoyMDk1MDU1NTcyfQ.lRfQAGLh_jLSqJ8SPfEvwVGwyUumf4AXQF1nobmmgCk";
-
 async function uploadBrochure(file: File, projectYear: number): Promise<string> {
   const path = `project-brochures/brochure-${projectYear}.pdf`;
-  const res = await fetch(`https://eucjeggfclztkbbupaav.supabase.co/storage/v1/object/brand-assets/${path}`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-      'Content-Type': 'application/pdf',
-      'x-upsert': 'true',
-    },
-    body: file,
-  });
-  if (!res.ok) throw new Error('Failed to upload brochure');
-  return `https://eucjeggfclztkbbupaav.supabase.co/storage/v1/object/public/brand-assets/${path}`;
+  const { error } = await supabase.storage
+    .from('brand-assets')
+    .upload(path, file, { contentType: 'application/pdf', upsert: true });
+  if (error) throw new Error(`Failed to upload brochure: ${error.message}`);
+  return supabase.storage.from('brand-assets').getPublicUrl(path).data.publicUrl;
 }
 
 const ProjectManagement = () => {
