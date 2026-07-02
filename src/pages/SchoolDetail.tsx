@@ -85,6 +85,10 @@ const SchoolDetail = () => {
   const [followUpDate, setFollowUpDate] = useState('');
   const [followUpTime, setFollowUpTime] = useState('');
 
+  // Mobile field handler — digits only, max 10
+  const onMobileChange = (field: string, val: string) =>
+    setEditForm(prev => ({ ...prev, [field]: val.replace(/\D/g, '').slice(0, 10) }));
+
   // E-Brochure send dialog
   const [ebrochureOpen, setEbrochureOpen] = useState(false);
   const [ebrochurePhoneMode, setEbrochurePhoneMode] = useState<'mobile1' | 'mobile2' | 'manual'>('mobile1');
@@ -974,16 +978,22 @@ const SchoolDetail = () => {
                         <Label htmlFor="mobile1">Mobile 1</Label>
                         <Input
                           id="mobile1"
+                          type="tel"
+                          maxLength={10}
                           value={editForm.mobile1 || ''}
-                          onChange={(e) => setEditForm({...editForm, mobile1: e.target.value})}
+                          onChange={(e) => onMobileChange('mobile1', e.target.value)}
+                          placeholder="10 digits only"
                         />
                       </div>
                       <div>
                         <Label htmlFor="mobile2">WhatsApp No.</Label>
                         <Input
                           id="mobile2"
+                          type="tel"
+                          maxLength={10}
                           value={editForm.mobile2 || ''}
-                          onChange={(e) => setEditForm({...editForm, mobile2: e.target.value})}
+                          onChange={(e) => onMobileChange('mobile2', e.target.value)}
+                          placeholder="10 digits only"
                         />
                       </div>
                     </div>
@@ -1029,8 +1039,11 @@ const SchoolDetail = () => {
                           <Label htmlFor="corr_mobile">Correspondent Mobile</Label>
                           <Input
                             id="corr_mobile"
+                            type="tel"
+                            maxLength={10}
                             value={editForm.corr_mobile || ''}
-                            onChange={(e) => setEditForm({...editForm, corr_mobile: e.target.value})}
+                            onChange={(e) => onMobileChange('corr_mobile', e.target.value)}
+                            placeholder="10 digits only"
                           />
                         </div>
                         <div>
@@ -1045,8 +1058,11 @@ const SchoolDetail = () => {
                           <Label htmlFor="principal_mobile">Principal Mobile</Label>
                           <Input
                             id="principal_mobile"
+                            type="tel"
+                            maxLength={10}
                             value={editForm.principal_mobile || ''}
-                            onChange={(e) => setEditForm({...editForm, principal_mobile: e.target.value})}
+                            onChange={(e) => onMobileChange('principal_mobile', e.target.value)}
+                            placeholder="10 digits only"
                           />
                         </div>
                         <div>
@@ -1061,8 +1077,11 @@ const SchoolDetail = () => {
                           <Label htmlFor="coord_mobile">Coordinator Mobile</Label>
                           <Input
                             id="coord_mobile"
+                            type="tel"
+                            maxLength={10}
                             value={editForm.coord_mobile || ''}
-                            onChange={(e) => setEditForm({...editForm, coord_mobile: e.target.value})}
+                            onChange={(e) => onMobileChange('coord_mobile', e.target.value)}
+                            placeholder="10 digits only"
                           />
                         </div>
                       </div>

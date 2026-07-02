@@ -420,8 +420,13 @@ export function AddSchoolDialog({ open, onOpenChange, onCreated, mode = 'registe
               </div>
               <div className="space-y-1.5">
                 <Label>Mobile</Label>
-                <Input placeholder="10-digit number" value={manual.mobile}
-                  onChange={e => setManual(m => ({ ...m, mobile: e.target.value }))} />
+                <Input
+                  type="tel"
+                  maxLength={10}
+                  placeholder="10-digit number"
+                  value={manual.mobile}
+                  onChange={e => setManual(m => ({ ...m, mobile: e.target.value.replace(/\D/g, '').slice(0, 10) }))}
+                />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
