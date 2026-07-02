@@ -367,11 +367,29 @@ export const useSchoolsPaginated = (scopeProjectId?: string) => {
       }
 
       if (error) throw error;
-      
-      setSchools(prev => prev.map(school => 
+
+      setSchools(prev => prev.map(school =>
         school.id === id ? { ...school, ...normalizedUpdates } : school
       ));
-      
+
+      // Sync contact fields back to prospect_schools — school-provided data is authoritative
+      const CONTACT_FIELD_MAP: Record<string, string> = {
+        mobile1:              'mobile',
+        email:                'email',
+        contact_person_name:  'principal_name',
+        pincode:              'pincode',
+        school_address:       'address',
+      };
+      const prospectUpdate: Record<string, any> = {};
+      for (const [schoolField, prospectField] of Object.entries(CONTACT_FIELD_MAP)) {
+        if (schoolField in updates) prospectUpdate[prospectField] = (data as any)?.[schoolField] ?? null;
+      }
+      if (Object.keys(prospectUpdate).length > 0 && (data as any)?.prospect_school_id) {
+        await supabase.from('prospect_schools')
+          .update(prospectUpdate)
+          .eq('id', (data as any).prospect_school_id);
+      }
+
       toast({
         title: 'Success',
         description: isManualEdit ? 'School details updated successfully (Manual Edit)' : 'School updated successfully',
