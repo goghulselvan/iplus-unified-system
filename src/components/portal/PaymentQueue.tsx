@@ -60,7 +60,7 @@ export function PaymentQueue() {
       // Auto-send email + WA to school
       const submission = submissions.find(s => s.id === submissionId);
       if (submission) {
-        const templateKey = result.payment_status === 'Partial' ? 'payment_partial' : 'payment_confirmation';
+        const templateKey = result.payment_status === 'Partial' ? 'payment_partial' : 'payment_received';
         supabase.auth.getUser().then(({ data: { user: u } }) => {
           Promise.allSettled([
             supabase.functions.invoke('send-template-email', {

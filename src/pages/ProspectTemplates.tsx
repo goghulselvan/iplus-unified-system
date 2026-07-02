@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { Plus, Mail, MessageSquare, Clock, CheckCircle, XCircle, FileText, Eye, Edit, Archive } from 'lucide-react';
+import { WhatsAppTemplatesContent } from '@/pages/WhatsAppTemplates';
 
 type Template = {
   id: string; name: string; description: string | null; category: string;
@@ -206,50 +207,10 @@ export default function ProspectTemplates() {
         )}
 
         {tab === 'whatsapp' && (
-          <WhatsAppTemplateList />
+          <WhatsAppTemplatesContent category="marketing" />
         )}
       </div>
     </ProspectLayout>
   );
 }
 
-function WhatsAppTemplateList() {
-  const [templates, setTemplates] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    supabase.from('whatsapp_templates').select('*').order('created_at', { ascending: false })
-      .then(({ data }) => { setTemplates(data || []); setLoading(false); });
-  }, []);
-
-  return loading ? (
-    <div className="text-center py-20 text-gray-400 text-lg">Loading…</div>
-  ) : templates.length === 0 ? (
-    <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-gray-200">
-      <MessageSquare className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-      <p className="text-gray-600 text-lg font-medium">No WhatsApp templates</p>
-      <p className="text-gray-400 mt-1">Templates are submitted via AskEVA and approved by Meta</p>
-    </div>
-  ) : (
-    <div className="space-y-4">
-      {templates.map(t => (
-        <div key={t.id} className="bg-white rounded-2xl border border-gray-200 p-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-3 mb-2">
-                <h3 className="text-lg font-bold text-gray-900">{t.template_name || t.name}</h3>
-                <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
-                  t.status === 'approved' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-700'
-                }`}>{t.status || 'Pending'}</span>
-                <span className="px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-600">
-                  {t.category || 'UTILITY'}
-                </span>
-              </div>
-              {t.body && <p className="text-base text-gray-600 whitespace-pre-line">{t.body}</p>}
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}

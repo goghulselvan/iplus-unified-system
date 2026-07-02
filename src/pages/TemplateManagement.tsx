@@ -10,7 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Mail, MessageSquare, Plus, CheckCircle2, AlertCircle, Edit2, Workflow, Megaphone } from "lucide-react";
+import { Mail, MessageSquare, Plus, CheckCircle2, AlertCircle, Edit2, Trash2, Workflow, Megaphone } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveProject, useOlympiadProjects } from "@/hooks/useOlympiadProjects";
 import { useCommunicationTemplates, CommunicationTemplate } from "@/hooks/useCommunicationTemplates";
@@ -23,20 +23,106 @@ import {
 
 // ── Workflow template definitions (key = same for email + WA) ──────────────
 const WORKFLOW_KEYS = [
-  { key: "registration_confirmation",        name: "Registration Confirmed",       trigger: "Registration Status → Confirmed" },
-  { key: "name_list_received",               name: "Name List Received",           trigger: "Name List Status → Received" },
-  { key: "payment_confirmation",             name: "Payment Confirmed",            trigger: "Payment Status → Received" },
-  { key: "payment_partial",                  name: "Payment Partial",              trigger: "Payment Status → Partial (WA only)" },
-  { key: "question_paper_sent",              name: "Question Papers Sent",         trigger: "Question Paper Sent → Sent" },
-  { key: "answer_sheet_received",            name: "Answer Sheets Received",       trigger: "Answer Sheet Status → Received" },
-  { key: "results_sent",                     name: "Results Dispatched",           trigger: "Result Status → Sent" },
-  { key: "portal_registration_approved",     name: "Portal Access Approved",       trigger: "Portal Registration → Approved" },
-  { key: "portal_registration_rejected",     name: "Portal Registration Rejected", trigger: "Portal Registration → Rejected" },
-  { key: "exam_slot_confirmed",              name: "Exam Slot Confirmed",          trigger: "School selects exam slot" },
-  { key: "registration_interest_acknowledged", name: "Interest Acknowledged",       trigger: "Registration Interest → Interested (WA only)" },
+  { key: "interest_acknowledged",        name: "Interest Acknowledged",        trigger: "Registration Interest → Interested (WA only)" },
+  { key: "registration_confirmed",       name: "Registration Confirmed",       trigger: "Registration Status → Confirmed" },
+  { key: "payment_received",             name: "Payment Confirmed",            trigger: "Payment Status → Received" },
+  { key: "payment_partial",              name: "Payment Partial",              trigger: "Payment Status → Partial (WA only)" },
+  { key: "name_list_received",           name: "Name List Received",           trigger: "Name List Status → Received" },
+  { key: "question_paper_sent_wa",       name: "Question Papers Sent",         trigger: "Question Paper Sent → Sent" },
+  { key: "answer_sheet_received_wa",     name: "Answer Sheets Received",       trigger: "Answer Sheet Status → Received" },
+  { key: "result_sent_wa",               name: "Results Dispatched",           trigger: "Result Status → Sent" },
+  { key: "portal_registration_approved", name: "Portal Access Approved",       trigger: "Portal Registration → Approved" },
+  { key: "portal_registration_rejected", name: "Portal Registration Rejected", trigger: "Portal Registration → Rejected" },
+  { key: "exam_slot_confirmed",          name: "Exam Slot Confirmed",          trigger: "School selects exam slot" },
 ];
 
 type Category = "workflow" | "marketing";
+
+const EMAIL_DEFAULTS: Record<string, { subject: string; body: string }> = {
+  interest_acknowledged: {
+    subject: "Thank You for Your Interest — {project_name} {project_year}",
+    body: `<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background-color:#f4f4f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#f4f4f7;">
+  <tr><td align="center" style="padding:20px 10px;">
+    <table width="600" cellpadding="0" cellspacing="0" role="presentation" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+
+      <!-- Header -->
+      <tr><td style="background:linear-gradient(135deg,#7C3AED 0%,#4F46E5 100%);padding:40px 32px 36px;text-align:center;">
+        <div style="font-size:11px;font-weight:600;letter-spacing:3px;color:rgba(255,255,255,0.7);text-transform:uppercase;margin-bottom:16px;">iPlus Olympiads</div>
+        <div style="font-size:30px;font-weight:700;color:#ffffff;line-height:1.25;margin-bottom:12px;">Thank You for<br/>Your Interest!</div>
+        <div style="font-size:13px;color:rgba(255,255,255,0.8);font-style:italic;">Ignite Genius. Inspire Excellence.</div>
+      </td></tr>
+
+      <!-- Status banner -->
+      <tr><td style="background:#f5f3ff;border-bottom:1px solid #ede9fe;padding:12px 32px;text-align:center;">
+        <span style="font-size:11px;font-weight:700;letter-spacing:2px;color:#4F46E5;text-transform:uppercase;">&#10003;&nbsp;&nbsp;INTEREST ACKNOWLEDGED</span>
+      </td></tr>
+
+      <!-- Body -->
+      <tr><td style="padding:32px 32px 8px;">
+        <p style="margin:0 0 16px;font-size:16px;font-weight:700;color:#1a1a2e;">Dear {contact_person},</p>
+        <p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#374151;">Thank you for expressing your interest in <strong>{project_name} {project_year}</strong>. We are delighted to have <strong>{school_name}</strong> as part of India's No. 1 Progressive Olympiad platform.</p>
+        <p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#374151;">Every participant receives a <strong>skill-based analytical report</strong> with individual strengths, areas for improvement, and rankings at school and national level. Students also earn medals, merit certificates, and national recognition.</p>
+      </td></tr>
+
+      <!-- Details card -->
+      <tr><td style="padding:8px 32px 16px;">
+        <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="border:1px solid #e5e7eb;border-left:3px solid #4F46E5;border-radius:8px;overflow:hidden;">
+          <tr><td style="padding:16px 20px;">
+            <div style="font-size:10px;font-weight:700;letter-spacing:2px;color:#4F46E5;text-transform:uppercase;margin-bottom:12px;">Interest Details</div>
+            <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+              <tr>
+                <td style="padding:5px 0;font-size:13px;color:#6b7280;width:35%;">School</td>
+                <td style="padding:5px 0;font-size:13px;font-weight:600;color:#111827;">{school_name}</td>
+              </tr>
+              <tr>
+                <td style="padding:5px 0;font-size:13px;color:#6b7280;">SS No.</td>
+                <td style="padding:5px 0;font-size:13px;font-weight:600;color:#111827;">{ss_no}</td>
+              </tr>
+              <tr>
+                <td style="padding:5px 0;font-size:13px;color:#6b7280;">Programme</td>
+                <td style="padding:5px 0;font-size:13px;font-weight:600;color:#111827;">{project_name} {project_year}</td>
+              </tr>
+              <tr>
+                <td style="padding:5px 0;font-size:13px;color:#6b7280;">District</td>
+                <td style="padding:5px 0;font-size:13px;font-weight:600;color:#111827;">{district}, {state}</td>
+              </tr>
+            </table>
+          </td></tr>
+        </table>
+      </td></tr>
+
+      <!-- Body continued -->
+      <tr><td style="padding:8px 32px 24px;">
+        <p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#374151;">Our team will be in touch shortly to guide you through the registration process. The registration deadline is <strong>20 August 2026</strong>. In the meantime, please ensure your student data is ready for submission.</p>
+      </td></tr>
+
+      <!-- CTA -->
+      <tr><td style="padding:0 32px 32px;text-align:center;">
+        <a href="https://iplusedu.in/school/register" style="display:inline-block;background:linear-gradient(135deg,#7C3AED 0%,#4F46E5 100%);color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:14px 32px;border-radius:8px;">Register Your School &rarr;</a>
+      </td></tr>
+
+      <!-- Footer -->
+      <tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:24px 32px;text-align:center;">
+        <div style="font-size:14px;font-weight:600;color:#4F46E5;margin-bottom:6px;">iPlus Olympiads</div>
+        <div style="font-size:12px;color:#6b7280;line-height:1.8;">
+          Ivar Pro Learn for Universal Success Pvt. Ltd.<br/>
+          115, GST Road, Guduvancheri, Chennai 603 202<br/>
+          <a href="mailto:support@iplusedu.in" style="color:#4F46E5;text-decoration:none;">support@iplusedu.in</a>&nbsp;|&nbsp;<a href="tel:+918111066556" style="color:#4F46E5;text-decoration:none;">+91 81110 66556</a>
+        </div>
+        <div style="font-size:11px;color:#9ca3af;margin-top:10px;">&copy; 2026 iPlus Olympiads. All rights reserved.</div>
+      </td></tr>
+
+    </table>
+  </td></tr>
+</table>
+</body>
+</html>`,
+  },
+};
 
 function StatusPill({ active, label }: { active: boolean | null; label: string }) {
   if (active === null) return (
@@ -83,7 +169,7 @@ export default function TemplateManagement() {
 
   const { templates: emailTemplates, loading: emailLoading, fetchTemplates: refetchEmail } =
     useCommunicationTemplates(projectId, category);
-  const { templates: waTemplates, loading: waLoading, fetchTemplates: refetchWA } =
+  const { templates: waTemplates, loading: waLoading, fetchTemplates: refetchWA, deleteTemplate: deleteWaTemplate } =
     useWhatsAppTemplates(projectId, category);
 
   useEffect(() => {
@@ -111,10 +197,11 @@ export default function TemplateManagement() {
       })();
 
   const openEdit = (key: string, name: string, email: CommunicationTemplate | null, wa: WhatsAppTemplate | null) => {
+    const defaults = !email ? EMAIL_DEFAULTS[key] : undefined;
     setEditKey(key);
     setEditName(name);
-    setEmailSubject(email?.subject || "");
-    setEmailBody(email?.email_body || "");
+    setEmailSubject(email?.subject || defaults?.subject || "");
+    setEmailBody(email?.email_body || defaults?.body || "");
     setEmailActive(email?.is_active ?? true);
     setEmailId(email?.id || null);
     setEmailPreview(false);
@@ -133,6 +220,20 @@ export default function TemplateManagement() {
     setWaAskevaName(""); setWaLang("en"); setWaType("text"); setWaActive(true); setWaId(null);
     setEmailPreview(false);
     setSheetOpen(true);
+  };
+
+  const handleDelete = async (email: CommunicationTemplate | null, wa: WhatsAppTemplate | null, name: string) => {
+    if (!window.confirm(`Delete template "${name}"? This cannot be undone.`)) return;
+    if (email?.id) {
+      const { error } = await supabase.from("communication_templates").delete().eq("id", email.id);
+      if (error) { toast({ title: "Error deleting email template", description: error.message, variant: "destructive" }); return; }
+    }
+    if (wa?.id) {
+      await deleteWaTemplate(wa.id);
+    }
+    if (!wa?.id) toast({ title: "Template deleted" });
+    refetchEmail();
+    refetchWA();
   };
 
   const { data: { user } } = { data: { user: null as any } };
@@ -312,15 +413,27 @@ export default function TemplateManagement() {
                       <StatusPill active={row.wa ? row.wa.is_active : null} label="wa" />
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 px-2 text-xs"
-                        onClick={() => openEdit(row.key, row.name, row.email, row.wa)}
-                      >
-                        <Edit2 className="h-3.5 w-3.5 mr-1" />
-                        {row.email || row.wa ? "Edit" : "Setup"}
-                      </Button>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => openEdit(row.key, row.name, row.email, row.wa)}
+                        >
+                          <Edit2 className="h-3.5 w-3.5 mr-1" />
+                          {row.email || row.wa ? "Edit" : "Setup"}
+                        </Button>
+                        {(row.email || row.wa) && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0 text-red-400 hover:text-red-600 hover:bg-red-50"
+                            onClick={() => handleDelete(row.email, row.wa, row.name)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

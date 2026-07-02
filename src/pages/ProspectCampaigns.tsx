@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import ProspectLayout from '@/components/prospect/ProspectLayout';
 import { Button } from '@/components/ui/button';
-import { Plus, Mail, MessageSquare, Send, Clock, CheckCircle, XCircle, FileText, ArrowRight } from 'lucide-react';
+import { Plus, Mail, MessageSquare, Send, Clock, CheckCircle, XCircle, FileText, Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -29,6 +29,13 @@ export default function ProspectCampaigns() {
   const { toast } = useToast();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading]     = useState(true);
+
+  const deleteCampaign = async (id: string, name: string) => {
+    if (!window.confirm(`Delete campaign "${name}"? This cannot be undone.`)) return;
+    const { error } = await supabase.from('campaigns').delete().eq('id', id);
+    if (error) toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    else { toast({ title: 'Campaign deleted' }); setCampaigns(c => c.filter(x => x.id !== id)); }
+  };
 
   const fetchCampaigns = async () => {
     setLoading(true);
@@ -90,8 +97,17 @@ export default function ProspectCampaigns() {
                       {c.description && <p className="text-sm text-gray-500 truncate mb-2">{c.description}</p>}
                       {c.email_subject && <p className="text-xs text-gray-400 mb-3">Subject: {c.email_subject}</p>}
                     </div>
-                    <div className="text-right text-xs text-gray-400 flex-shrink-0">
-                      {new Date(c.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-xs text-gray-400">
+                        {new Date(c.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </span>
+                      <Button
+                        size="sm" variant="ghost"
+                        className="h-7 w-7 p-0 text-red-400 hover:text-red-600 hover:bg-red-50"
+                        onClick={(e) => { e.stopPropagation(); deleteCampaign(c.id, c.name); }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
                   </div>
 

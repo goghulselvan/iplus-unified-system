@@ -15,19 +15,73 @@ import { Mail, Plus, Edit, Trash2, Eye, Save } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 
 const TEMPLATE_TYPES = [
-  { value: "registration_confirmation", label: "Registration Confirmation" },
-  { value: "name_list_received", label: "Name List Received" },
-  { value: "payment_confirmation", label: "Payment Confirmation" },
-  { value: "question_paper_sent", label: "Question Paper Sent" },
-  { value: "answer_sheet_received", label: "Answer Sheet Received" },
-  { value: "results_sent", label: "Results Sent" },
+  { value: "interest_acknowledged",        label: "Interest Acknowledged" },
+  { value: "registration_confirmed",       label: "Registration Confirmed" },
+  { value: "payment_received",             label: "Payment Received" },
+  { value: "payment_partial",              label: "Payment Partial" },
+  { value: "name_list_received",           label: "Name List Received" },
+  { value: "question_paper_sent_wa",       label: "Question Paper Sent" },
+  { value: "answer_sheet_received_wa",     label: "Answer Sheets Received" },
+  { value: "result_sent_wa",               label: "Results Sent" },
   { value: "portal_registration_approved", label: "Portal: Registration Approved" },
   { value: "portal_registration_rejected", label: "Portal: Registration Rejected" },
-  { value: "exam_slot_confirmed", label: "Portal: Exam Slot Confirmed" },
+  { value: "exam_slot_confirmed",          label: "Portal: Exam Slot Confirmed" },
 ];
 
 const DEFAULT_TEMPLATES = {
-  registration_confirmation: {
+  interest_acknowledged: {
+    subject: "Thank You for Your Interest — {project_name} {project_year}",
+    email_body: `<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background-color:#f4f4f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#f4f4f7;">
+  <tr><td align="center" style="padding:20px 10px;">
+    <table width="600" cellpadding="0" cellspacing="0" role="presentation" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+      <tr><td style="background:linear-gradient(135deg,#7C3AED 0%,#4F46E5 100%);padding:40px 32px 36px;text-align:center;">
+        <div style="font-size:11px;font-weight:600;letter-spacing:3px;color:rgba(255,255,255,0.7);text-transform:uppercase;margin-bottom:16px;">iPlus Olympiads</div>
+        <div style="font-size:30px;font-weight:700;color:#ffffff;line-height:1.25;margin-bottom:12px;">Thank You for<br/>Your Interest!</div>
+        <div style="font-size:13px;color:rgba(255,255,255,0.8);font-style:italic;">Ignite Genius. Inspire Excellence.</div>
+      </td></tr>
+      <tr><td style="background:#f5f3ff;border-bottom:1px solid #ede9fe;padding:12px 32px;text-align:center;">
+        <span style="font-size:11px;font-weight:700;letter-spacing:2px;color:#4F46E5;text-transform:uppercase;">&#10003;&nbsp;&nbsp;INTEREST ACKNOWLEDGED</span>
+      </td></tr>
+      <tr><td style="padding:32px 32px 8px;">
+        <p style="margin:0 0 16px;font-size:16px;font-weight:700;color:#1a1a2e;">Dear {contact_person},</p>
+        <p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#374151;">Thank you for expressing your interest in <strong>{project_name} {project_year}</strong>. We are delighted to have <strong>{school_name}</strong> as part of India's No. 1 Progressive Olympiad platform.</p>
+        <p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#374151;">Every participant receives a <strong>skill-based analytical report</strong> with individual strengths, areas for improvement, and rankings at school and national level. Students also earn medals, merit certificates, and national recognition.</p>
+      </td></tr>
+      <tr><td style="padding:8px 32px 16px;">
+        <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="border:1px solid #e5e7eb;border-left:3px solid #4F46E5;border-radius:8px;overflow:hidden;">
+          <tr><td style="padding:16px 20px;">
+            <div style="font-size:10px;font-weight:700;letter-spacing:2px;color:#4F46E5;text-transform:uppercase;margin-bottom:12px;">Interest Details</div>
+            <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+              <tr><td style="padding:5px 0;font-size:13px;color:#6b7280;width:35%;">School</td><td style="padding:5px 0;font-size:13px;font-weight:600;color:#111827;">{school_name}</td></tr>
+              <tr><td style="padding:5px 0;font-size:13px;color:#6b7280;">SS No.</td><td style="padding:5px 0;font-size:13px;font-weight:600;color:#111827;">{ss_no}</td></tr>
+              <tr><td style="padding:5px 0;font-size:13px;color:#6b7280;">Programme</td><td style="padding:5px 0;font-size:13px;font-weight:600;color:#111827;">{project_name} {project_year}</td></tr>
+              <tr><td style="padding:5px 0;font-size:13px;color:#6b7280;">District</td><td style="padding:5px 0;font-size:13px;font-weight:600;color:#111827;">{district}, {state}</td></tr>
+            </table>
+          </td></tr>
+        </table>
+      </td></tr>
+      <tr><td style="padding:8px 32px 24px;">
+        <p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#374151;">Our team will be in touch shortly to guide you through the registration process. The registration deadline is <strong>20 August 2026</strong>. In the meantime, please ensure your student data is ready for submission.</p>
+      </td></tr>
+      <tr><td style="padding:0 32px 32px;text-align:center;">
+        <a href="https://iplusedu.in/school/register" style="display:inline-block;background:linear-gradient(135deg,#7C3AED 0%,#4F46E5 100%);color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:14px 32px;border-radius:8px;">Register Your School &rarr;</a>
+      </td></tr>
+      <tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:24px 32px;text-align:center;">
+        <div style="font-size:14px;font-weight:600;color:#4F46E5;margin-bottom:6px;">iPlus Olympiads</div>
+        <div style="font-size:12px;color:#6b7280;line-height:1.8;">Ivar Pro Learn for Universal Success Pvt. Ltd.<br/>115, GST Road, Guduvancheri, Chennai 603 202<br/><a href="mailto:support@iplusedu.in" style="color:#4F46E5;text-decoration:none;">support@iplusedu.in</a>&nbsp;|&nbsp;<a href="tel:+918111066556" style="color:#4F46E5;text-decoration:none;">+91 81110 66556</a></div>
+        <div style="font-size:11px;color:#9ca3af;margin-top:10px;">&copy; 2026 iPlus Olympiads. All rights reserved.</div>
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body>
+</html>`,
+  },
+  registration_confirmed: {
     subject: "Registration Confirmed - {project_name} {project_year}",
     email_body: `<p>Dear {contact_person},</p>
 <p>Thank you for registering <strong>{school_name}</strong> (SS No: {ss_no}) for {project_name} {project_year}.</p>
@@ -55,7 +109,7 @@ const DEFAULT_TEMPLATES = {
 <p>For queries, contact us at info@iplusedu.in</p>
 <p>Best regards,<br/>IPLUS Education Team</p>`,
   },
-  payment_confirmation: {
+  payment_received: {
     subject: "Payment Received - {project_name} {project_year}",
     email_body: `<p>Dear {contact_person},</p>
 <p>We confirm receipt of payment for <strong>{school_name}</strong> (SS No: {ss_no}).</p>
@@ -69,7 +123,7 @@ const DEFAULT_TEMPLATES = {
 <p>Thank you for your prompt payment.</p>
 <p>Best regards,<br/>IPLUS Education Team</p>`,
   },
-  question_paper_sent: {
+  question_paper_sent_wa: {
     subject: "Question Papers Dispatched - {project_name} {project_year}",
     email_body: `<p>Dear {contact_person},</p>
 <p>This is to inform you that question papers for <strong>{school_name}</strong> (SS No: {ss_no}) have been dispatched via courier.</p>
@@ -78,7 +132,7 @@ const DEFAULT_TEMPLATES = {
 <p>For any queries, contact us at info@iplusedu.in</p>
 <p>Best regards,<br/>IPLUS Education Team</p>`,
   },
-  answer_sheet_received: {
+  answer_sheet_received_wa: {
     subject: "Answer Sheets Received - {project_name} {project_year}",
     email_body: `<p>Dear {contact_person},</p>
 <p>We acknowledge receipt of answer sheets from <strong>{school_name}</strong> (SS No: {ss_no}).</p>
@@ -87,7 +141,7 @@ const DEFAULT_TEMPLATES = {
 <p>Thank you for your cooperation.</p>
 <p>Best regards,<br/>IPLUS Education Team</p>`,
   },
-  results_sent: {
+  result_sent_wa: {
     subject: "Results Announced - {project_name} {project_year}",
     email_body: `<p>Dear {contact_person},</p>
 <p>The results for <strong>{school_name}</strong> (SS No: {ss_no}) have been published.</p>

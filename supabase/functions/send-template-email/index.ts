@@ -36,156 +36,57 @@ function cleanEmail(email: string): string {
 
 // Wrap email body in branded HTML template
 function wrapBrandedEmail(contentHTML: string, schoolName?: string): string {
-  // Logo with fallback to text - will use Supabase storage URL when available
-  const logoHTML = `
-    <svg width="200" height="70" viewBox="0 0 400 140" xmlns="http://www.w3.org/2000/svg" style="margin-bottom: 15px;">
-      <!-- Background box -->
-      <rect x="10" y="10" width="380" height="120" rx="8" fill="#1E3A8A" stroke="#FCD34D" stroke-width="4"/>
-
-      <!-- Brain + hand icon -->
-      <g transform="translate(30, 30)">
-        <!-- Brain -->
-        <circle cx="20" cy="20" r="15" fill="none" stroke="white" stroke-width="2"/>
-        <circle cx="15" cy="15" r="3" fill="white"/>
-        <circle cx="25" cy="18" r="2" fill="white"/>
-        <circle cx="20" cy="25" r="2" fill="white"/>
-        <!-- Hand -->
-        <path d="M 35 35 L 40 20 M 40 20 L 45 22 M 40 20 L 42 28 M 40 20 L 38 30" stroke="white" stroke-width="2" fill="none"/>
-        <!-- Star -->
-        <path d="M 55 10 L 58 18 L 67 18 L 60 23 L 63 31 L 55 26 L 47 31 L 50 23 L 43 18 L 52 18 Z" fill="#FCD34D"/>
-      </g>
-
-      <!-- Text -->
-      <text x="100" y="50" font-family="Arial, sans-serif" font-size="32" font-weight="bold" fill="white">iPlus</text>
-      <text x="100" y="75" font-family="Arial, sans-serif" font-size="24" font-weight="bold" fill="white">OLYMPIADS</text>
-    </svg>
-  `;
+  const preheader = schoolName
+    ? `iPlus Olympiads — a message for ${schoolName}`
+    : `iPlus Olympiads`;
 
   return `<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            background-color: #f5f5f5;
-            margin: 0;
-            padding: 0;
-        }
-        .email-container {
-            max-width: 600px;
-            margin: 20px auto;
-            background-color: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-            overflow: hidden;
-        }
-        .email-header {
-            background: linear-gradient(135deg, ${BRAND_COLORS.dark_blue} 0%, ${BRAND_COLORS.primary} 100%);
-            padding: 30px 20px;
-            text-align: center;
-            border-bottom: 4px solid ${BRAND_COLORS.accent};
-        }
-        .email-logo {
-            max-height: 80px;
-            margin-bottom: 15px;
-        }
-        .email-tagline {
-            color: ${BRAND_COLORS.accent};
-            font-size: 13px;
-            font-weight: 600;
-            letter-spacing: 1px;
-            text-transform: uppercase;
-            margin: 10px 0 0 0;
-        }
-        .email-content {
-            padding: 40px 30px;
-        }
-        .email-content h1 {
-            color: ${BRAND_COLORS.dark_blue};
-            font-size: 24px;
-            margin-top: 0;
-            margin-bottom: 20px;
-        }
-        .email-content h2 {
-            color: ${BRAND_COLORS.primary};
-            font-size: 18px;
-            margin-top: 25px;
-            margin-bottom: 15px;
-        }
-        .email-content p {
-            margin: 12px 0;
-            color: #555;
-        }
-        .cta-button {
-            display: inline-block;
-            background: linear-gradient(135deg, ${BRAND_COLORS.primary} 0%, ${BRAND_COLORS.secondary} 100%);
-            color: white;
-            padding: 12px 30px;
-            border-radius: 4px;
-            text-decoration: none;
-            font-weight: 600;
-            margin: 20px 0;
-        }
-        .school-name {
-            color: ${BRAND_COLORS.secondary};
-            font-weight: 600;
-        }
-        .email-footer {
-            background-color: #f9f9f9;
-            border-top: 1px solid #e0e0e0;
-            padding: 25px 30px;
-            font-size: 12px;
-            color: #888;
-            text-align: center;
-        }
-        .divider {
-            height: 2px;
-            background: linear-gradient(90deg, transparent, ${BRAND_COLORS.accent}, transparent);
-            margin: 25px 0;
-        }
-        @media only screen and (max-width: 600px) {
-            .email-container {
-                margin: 0;
-                border-radius: 0;
-            }
-            .email-content {
-                padding: 20px 15px;
-            }
-            .email-content h1 {
-                font-size: 20px;
-            }
-        }
-    </style>
 </head>
-<body>
-    <div class="email-container">
-        <div class="email-header">
-            ${logoHTML}
-            <div class="email-tagline">${BRAND_TAGLINE}</div>
-        </div>
-        <div class="email-content">
-            ${schoolName ? `<p style="text-align: center; color: ${BRAND_COLORS.secondary}; font-size: 14px; margin-bottom: 20px;">Dear <span class="school-name">${schoolName}</span>,</p>` : ''}
-            ${contentHTML}
-        </div>
-        <div class="email-footer">
-            <div class="divider"></div>
-            <p style="margin: 10px 0;">
-                <strong>iPlus Olympiads</strong><br>
-                Igniting Genius, Inspiring Excellence, Impacting the Future
-            </p>
-            <p style="margin: 10px 0; color: #999;">
-                115, GST Road, Guduvancheri, Chennai 603 202<br>
-                📞 +91 81110 66556 | 📧 contact@iplusedu.in
-            </p>
-            <p style="margin: 15px 0 0 0; font-size: 11px; color: #bbb;">
-                This is an automated message from iPlus Olympiads. Please do not reply to this email.
-            </p>
-        </div>
-    </div>
+<body style="margin:0;padding:0;background:#ffffff;">
+    <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff;">${preheader}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#ffffff;">
+        <tr>
+            <td align="center" style="padding:34px 20px;">
+                <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#2b2b2b;">
+                    <!-- Header -->
+                    <tr>
+                        <td style="background:#1E3A8A;border-radius:6px 6px 0 0;padding:20px 24px 16px;">
+                            <span style="font-size:20px;font-weight:700;color:#ffffff;">&#x1D4F2;Plus Olympiads</span>
+                            <span style="font-size:10px;color:#FCD34D;letter-spacing:2px;display:block;margin-top:4px;">IGNITE&nbsp;&nbsp;INSPIRE&nbsp;&nbsp;IMPACT</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="background:#4F46E5;height:3px;font-size:0;line-height:0;">&nbsp;</td>
+                    </tr>
+                    <!-- Body -->
+                    <tr>
+                        <td style="padding:26px 0 0;font-size:15.5px;line-height:1.72;color:#2b2b2b;">
+                            ${contentHTML}
+                        </td>
+                    </tr>
+                    <!-- Footer -->
+                    <tr>
+                        <td style="padding:32px 0 0;">
+                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                                <tr>
+                                    <td style="border-top:1px solid #e8e8e8;padding-top:20px;font-size:12px;color:#9aa0a6;line-height:1.6;">
+                                        <p style="margin:0 0 4px;"><strong style="color:#1E3A8A;">iPlus Olympiads</strong>&nbsp;&nbsp;Ignite Inspire Impact</p>
+                                        <p style="margin:0 0 4px;">115, GST Road, Guduvancheri, Chennai 603 202</p>
+                                        <p style="margin:0 0 10px;">📞 +91 81110 66556 &nbsp;|&nbsp; 📧 <a href="mailto:contact@iplusedu.in" style="color:#4F46E5;text-decoration:none;">contact@iplusedu.in</a></p>
+                                        <p style="margin:0;font-size:11px;color:#c0c0c0;">This is an automated message. Please do not reply to this email.</p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
 </body>
 </html>`;
 }
@@ -276,8 +177,9 @@ serve(async (req: Request): Promise<Response> => {
       subject = subject.replace(regex, value);
     });
 
-    // Wrap email body in branded HTML template
-    const brandedEmailHTML = wrapBrandedEmail(emailBody, school.school_name);
+    // If email body is already a full HTML document, send as-is; otherwise wrap
+    const isFullHTML = emailBody.trim().toLowerCase().startsWith('<!doctype') || emailBody.trim().toLowerCase().startsWith('<html');
+    const brandedEmailHTML = isFullHTML ? emailBody : wrapBrandedEmail(emailBody, school.school_name);
 
     // Send email via Resend
     const emailResponse = await resend.emails.send({

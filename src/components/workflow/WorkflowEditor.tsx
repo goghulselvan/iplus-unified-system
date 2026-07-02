@@ -16,14 +16,14 @@ import { toast } from 'sonner';
 
 // Keys match email template_type exactly — same name = same template on both channels
 const WHATSAPP_TRIGGER_MAP: Record<string, string> = {
-  'registration_interest|Interested': 'registration_interest_acknowledged',
-  'registration_status|Confirmed':    'registration_confirmation',
-  'payment_status|Received':          'payment_confirmation',
+  'registration_interest|Interested': 'interest_acknowledged',
+  'registration_status|Confirmed':    'registration_confirmed',
+  'payment_status|Received':          'payment_received',
   'payment_status|Partial':           'payment_partial',
   'name_list_status|Received':        'name_list_received',
-  'question_paper_sent|Sent':         'question_paper_sent',
-  'answer_sheet_status|Received':     'answer_sheet_received',
-  'result_status|Sent':               'results_sent',
+  'question_paper_sent|Sent':         'question_paper_sent_wa',
+  'answer_sheet_status|Received':     'answer_sheet_received_wa',
+  'result_status|Sent':               'result_sent_wa',
 };
 
 interface WorkflowEditorProps {
@@ -64,13 +64,13 @@ const WorkflowEditor = ({ school, onUpdate }: WorkflowEditorProps) => {
   const selectedStageData = stages.find(s => s.key === selectedStage);
 
   const shouldSendEmail = (stage: string, status: string): string | null => {
-    if (stage === 'registration_status' && status === 'Confirmed') return 'registration_confirmation';
+    if (stage === 'registration_status' && status === 'Confirmed') return 'registration_confirmed';
     if (stage === 'name_list_status' && status === 'Received') return 'name_list_received';
-    if (stage === 'payment_status' && status === 'Received') return 'payment_confirmation';
+    if (stage === 'payment_status' && status === 'Received') return 'payment_received';
     if (stage === 'payment_status' && status === 'Partial') return 'payment_partial';
-    if (stage === 'question_paper_sent' && status === 'Sent') return 'question_paper_sent';
-    if (stage === 'answer_sheet_status' && status === 'Received') return 'answer_sheet_received';
-    if (stage === 'result_status' && status === 'Sent') return 'result_sent';
+    if (stage === 'question_paper_sent' && status === 'Sent') return 'question_paper_sent_wa';
+    if (stage === 'answer_sheet_status' && status === 'Received') return 'answer_sheet_received_wa';
+    if (stage === 'result_status' && status === 'Sent') return 'result_sent_wa';
     return null;
   };
 

@@ -5,3 +5,9 @@ verify_jwt = false
 
 [functions.lookup-participant]
 verify_jwt = false
+
+[functions.wa-delivery-webhook]
+verify_jwt = false
+
+[functions.courier-webhook]
+verify_jwt = false

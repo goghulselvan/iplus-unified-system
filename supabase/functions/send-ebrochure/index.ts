@@ -120,6 +120,13 @@ serve(async (req) => {
       });
     }
 
+    // Update brochure_delivery_status: NULL/Digital Sent → Digital Sent; Physical Only → Both Physical & Digital
+    const { data: schoolStatus } = await supabaseAdmin
+      .from("schools").select("brochure_delivery_status").eq("id", schoolId).single();
+    const current = schoolStatus?.brochure_delivery_status;
+    const newStatus = current === "Physical Only" ? "Both Physical & Digital" : "Digital Sent";
+    await supabaseAdmin.from("schools").update({ brochure_delivery_status: newStatus }).eq("id", schoolId);
+
     // Log communication
     await supabaseAdmin.from("communications").insert({
       school_id: schoolId,

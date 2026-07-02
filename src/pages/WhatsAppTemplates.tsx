@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Navbar from "@/components/layout/Navbar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,9 @@ import {
   WHATSAPP_VARIABLE_SOURCES, WHATSAPP_TEMPLATE_TYPES, WHATSAPP_LANGUAGE_CODES,
   BodyVariable, typeNeedsVariables, typeHasMediaHeader, typeIsDocument,
 } from "@/utils/whatsappVariableSources";
-import { MessageSquare, Plus, Edit, Trash2, Save, X, Power } from "lucide-react";
+import { MessageSquare, Plus, Edit, Trash2, Save, X, Power, UploadCloud, Loader2, FileText, Image, Film, CheckCircle2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 
 type Editing = Partial<WhatsAppTemplate> & { body_variables?: BodyVariable[] };
 
@@ -36,6 +38,7 @@ const emptyTemplate: Editing = {
   body_variables: [],
   raw_payload_template: null,
   is_active: true,
+  template_category: "workflow",
 };
 
 export function WhatsAppTemplatesContent({ category = 'workflow' }: { category?: 'workflow' | 'marketing' }) {
@@ -49,6 +52,87 @@ export function WhatsAppTemplatesContent({ category = 'workflow' }: { category?:
   const [editing, setEditing] = useState<Editing | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [rawPayloadText, setRawPayloadText] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
+
+  type LibraryDoc = { label: string; url: string; filename: string };
+  const [libraryDocs, setLibraryDocs] = useState<LibraryDoc[]>([]);
+
+  useEffect(() => {
+    // Load project brochures + previously uploaded template-media files
+    const load = async () => {
+      const docs: LibraryDoc[] = [];
+
+      // 1. Project brochures from olympiad_projects
+      const { data: oproj } = await supabase
+        .from("olympiad_projects")
+        .select("project_name, project_year, brochure_url")
+        .not("brochure_url", "is", null)
+        .order("project_year", { ascending: false });
+      for (const p of oproj ?? []) {
+        docs.push({
+          label: `${p.project_name || `iPlus ${p.project_year}`} Brochure`,
+          url: p.brochure_url,
+          filename: `iPlus Olympiads ${p.project_year} Brochure.pdf`,
+        });
+      }
+
+      // 2. Previously uploaded files in template-media bucket
+      const { data: files } = await supabase.storage.from("template-media").list("", {
+        limit: 50, sortBy: { column: "created_at", order: "desc" },
+      });
+      for (const f of files ?? []) {
+        if (f.name === ".emptyFolderPlaceholder") continue;
+        const { data: { publicUrl } } = supabase.storage.from("template-media").getPublicUrl(f.name);
+        docs.push({ label: f.name.replace(/^\d+_/, "").replace(/_/g, " "), url: publicUrl, filename: f.name.replace(/^\d+_/, "") });
+      }
+
+      setLibraryDocs(docs);
+    };
+    load();
+  }, []);
+
+  const compressImage = (file: File): Promise<File> =>
+    new Promise((resolve) => {
+      const img = new window.Image();
+      const src = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(src);
+        const scale = Math.min(1, 1200 / img.width);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(
+          (blob) => resolve(new File([blob!], file.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" })),
+          "image/jpeg", 0.85
+        );
+      };
+      img.src = src;
+    });
+
+  const uploadMedia = async (file: File) => {
+    if (!projectId) { toast({ title: "Select a project first", variant: "destructive" }); return; }
+    setUploading(true);
+    try {
+      let toUpload = file;
+      if (file.type.startsWith("image/")) toUpload = await compressImage(file);
+      const safeName = file.name.replace(/\s+/g, "_");
+      const path = `${projectId}/${Date.now()}_${safeName}`;
+      const { error } = await supabase.storage.from("template-media").upload(path, toUpload, {
+        contentType: toUpload.type, upsert: true,
+      });
+      if (error) throw error;
+      const { data: { publicUrl } } = supabase.storage.from("template-media").getPublicUrl(path);
+      setEditing((prev) => ({ ...prev!, header_media_url: publicUrl, header_document_filename: file.name }));
+      toast({ title: "File uploaded", description: file.name });
+    } catch (e: any) {
+      toast({ title: "Upload failed", description: e.message, variant: "destructive" });
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const startNew = () => {
     setEditing({ ...emptyTemplate });
@@ -56,7 +140,7 @@ export function WhatsAppTemplatesContent({ category = 'workflow' }: { category?:
   };
 
   const startEdit = (t: WhatsAppTemplate) => {
-    setEditing({ ...t, body_variables: (t.body_variables as any) || [] });
+    setEditing({ ...t, body_variables: (t.body_variables as any) || [], template_category: t.template_category ?? category });
     setRawPayloadText(t.raw_payload_template ? JSON.stringify(t.raw_payload_template, null, 2) : "");
   };
 
@@ -114,7 +198,7 @@ export function WhatsAppTemplatesContent({ category = 'workflow' }: { category?:
         ? (editing.body_variables || []) : [],
       raw_payload_template: parsedPayload,
       is_active: editing.is_active ?? true,
-      template_category: category,
+      template_category: (editing.template_category as 'workflow' | 'marketing') ?? category,
     };
 
     if (editing.id) {
@@ -313,29 +397,117 @@ export function WhatsAppTemplatesContent({ category = 'workflow' }: { category?:
                     </Select>
                   </div>
 
-                  {typeHasMediaHeader(editing.template_type || "") && (
-                    <div className="border rounded p-3 space-y-3 bg-muted/30">
-                      <Label className="text-sm font-semibold">Header Media</Label>
-                      <div>
-                        <Label>Media URL</Label>
-                        <Input
-                          value={editing.header_media_url || ""}
-                          onChange={(e) => setEditing({ ...editing, header_media_url: e.target.value })}
-                          placeholder="https://..."
-                        />
-                      </div>
-                      {typeIsDocument(editing.template_type || "") && (
+                  {typeHasMediaHeader(editing.template_type || "") && (() => {
+                    const isDoc   = typeIsDocument(editing.template_type || "");
+                    const isVideo = (editing.template_type || "").startsWith("video");
+                    const isImage = (editing.template_type || "").startsWith("image");
+                    const accept  = isDoc ? ".pdf,application/pdf"
+                      : isVideo ? "video/mp4,video/3gpp"
+                      : "image/jpeg,image/png,image/webp";
+                    const MediaIcon = isDoc ? FileText : isVideo ? Film : Image;
+                    const hasUrl = !!editing.header_media_url;
+                    const relevantDocs = libraryDocs.filter(d =>
+                      isDoc ? d.filename.endsWith(".pdf")
+                      : isVideo ? /\.(mp4|3gp)$/i.test(d.filename)
+                      : /\.(jpg|jpeg|png|webp)$/i.test(d.filename)
+                    );
+                    return (
+                      <div className="border rounded p-3 space-y-3 bg-muted/30">
+                        <Label className="text-sm font-semibold">Header Media</Label>
+
+                        {/* 1. Library picker */}
+                        {relevantDocs.length > 0 && (
+                          <div className="space-y-1.5">
+                            <Label className="text-xs text-muted-foreground">Select from library</Label>
+                            <div className="flex flex-col gap-1 max-h-40 overflow-y-auto pr-1">
+                              {relevantDocs.map((doc) => {
+                                const selected = editing.header_media_url === doc.url;
+                                return (
+                                  <button
+                                    key={doc.url}
+                                    type="button"
+                                    onClick={() => setEditing({ ...editing, header_media_url: doc.url, header_document_filename: doc.filename })}
+                                    className={`flex items-center gap-2 px-3 py-2 rounded border text-sm text-left transition-colors ${
+                                      selected
+                                        ? "border-primary bg-primary/5 text-primary font-medium"
+                                        : "border-gray-200 hover:border-primary/40 hover:bg-muted/50"
+                                    }`}
+                                  >
+                                    <MediaIcon className="h-3.5 w-3.5 flex-shrink-0" />
+                                    <span className="flex-1 truncate">{doc.label}</span>
+                                    {selected && <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" />}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 2. Upload new */}
+                        <div className="space-y-1.5">
+                          <Label className="text-xs text-muted-foreground">
+                            {relevantDocs.length > 0 ? "Or upload a new file" : "Upload file"}
+                          </Label>
+                          <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept={accept}
+                            className="hidden"
+                            onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadMedia(f); e.target.value = ""; }}
+                          />
+                          <div
+                            className="border-2 border-dashed rounded-lg p-3 text-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-colors"
+                            onClick={() => fileInputRef.current?.click()}
+                          >
+                            {uploading ? (
+                              <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                                <Loader2 className="h-4 w-4 animate-spin" /> Uploading…
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                                <UploadCloud className="h-4 w-4" />
+                                <span className="text-sm">
+                                  {isDoc ? "Upload PDF" : isVideo ? "Upload Video (MP4, max 16 MB)" : "Upload Image"}
+                                  {isImage ? " · auto-compressed" : ""}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Selected file indicator */}
+                        {hasUrl && !relevantDocs.some(d => d.url === editing.header_media_url) && (
+                          <div className="flex items-center gap-2 text-xs text-green-700 bg-green-50 px-3 py-1.5 rounded">
+                            <MediaIcon className="h-3.5 w-3.5" />
+                            <span className="truncate">{editing.header_document_filename || "File ready"}</span>
+                          </div>
+                        )}
+
+                        {/* 3. Manual URL fallback */}
                         <div>
-                          <Label>Document Filename</Label>
+                          <Label className="text-xs text-muted-foreground">Or paste a public URL</Label>
                           <Input
-                            value={editing.header_document_filename || ""}
-                            onChange={(e) => setEditing({ ...editing, header_document_filename: e.target.value })}
-                            placeholder="brochure.pdf"
+                            value={editing.header_media_url || ""}
+                            onChange={(e) => setEditing({ ...editing, header_media_url: e.target.value })}
+                            placeholder="https://..."
+                            className="text-xs"
                           />
                         </div>
-                      )}
-                    </div>
-                  )}
+
+                        {isDoc && (
+                          <div>
+                            <Label className="text-xs text-muted-foreground">Document Filename (shown to recipient)</Label>
+                            <Input
+                              value={editing.header_document_filename || ""}
+                              onChange={(e) => setEditing({ ...editing, header_document_filename: e.target.value })}
+                              placeholder="brochure.pdf"
+                              className="text-xs"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {typeNeedsVariables(editing.template_type || "") && (
                     <div className="border rounded p-3 space-y-3 bg-muted/30">
@@ -405,6 +577,22 @@ export function WhatsAppTemplatesContent({ category = 'workflow' }: { category?:
                       onCheckedChange={(c) => setEditing({ ...editing, is_active: c })}
                     />
                     <Label>Active</Label>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label>Category</Label>
+                    <Select
+                      value={editing.template_category ?? category}
+                      onValueChange={(v) => setEditing({ ...editing, template_category: v as any })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="workflow">Workflow (CRM automation)</SelectItem>
+                        <SelectItem value="marketing">Marketing (Prospect campaigns)</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
 
                   <div className="flex gap-2 pt-2">

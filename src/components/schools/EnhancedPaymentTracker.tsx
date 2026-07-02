@@ -169,7 +169,7 @@ export const EnhancedPaymentTracker: React.FC<EnhancedPaymentTrackerProps> = ({ 
 
   const handleSendPaymentEmail = async (transaction: PaymentTransaction) => {
     if (!school.current_project_id) { toast.error('No project assigned to this school'); return; }
-    const template = await getActiveTemplate(school.current_project_id, 'payment_confirmation');
+    const template = await getActiveTemplate(school.current_project_id, 'payment_received');
     if (!template) {
       toast.error('No active payment confirmation template found.', { duration: 5000 });
       return;
@@ -195,7 +195,7 @@ export const EnhancedPaymentTracker: React.FC<EnhancedPaymentTrackerProps> = ({ 
 
   const handleConfirmSendEmail = async () => {
     if (!selectedTransaction) return;
-    await sendTemplateEmail(school.id, 'payment_confirmation');
+    await sendTemplateEmail(school.id, 'payment_received');
     setEmailDialogOpen(false);
     setSelectedTransaction(null);
   };
@@ -473,7 +473,7 @@ export const EnhancedPaymentTracker: React.FC<EnhancedPaymentTrackerProps> = ({ 
           open={emailDialogOpen}
           onOpenChange={setEmailDialogOpen}
           school={{ id: school.id, school_name: school.school_name, email: school.email, mobile1: school.mobile1, ss_no: school.ss_no }}
-          templateType="payment_confirmation"
+          templateType="payment_received"
           templateName="Payment Confirmation"
           emailPreview={emailPreview}
           onConfirm={handleConfirmSendEmail}
