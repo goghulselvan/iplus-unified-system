@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, KeyboardEvent } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { useActiveProject } from '@/hooks/useOlympiadProjects';
 import ProspectLayout from '@/components/prospect/ProspectLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,7 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import {
   CheckCircle2, XCircle, Clock, Send, Pause, RefreshCw,
   MessageSquare, Users, FileText, FlaskConical, X,
-  Plus, ChevronDown, ChevronUp,
+  Plus, ChevronDown, ChevronUp, Trash2, CalendarClock,
 } from 'lucide-react';
 
 type WACampaign = {
@@ -19,14 +20,17 @@ type WACampaign = {
   failed_count: number;
   audience_count: number;
   created_at: string;
+  scheduled_at: string | null;
+  whatsapp_template_name: string | null;
 };
 
 type Stats = { total: number; sent: number; failed: number; pending: number };
 type TestResult = { number: string; success: boolean; wamid?: string; error?: string };
 
 const STATUS_CFG: Record<string, { label: string; color: string }> = {
-  draft:     { label: 'Draft',     color: 'bg-gray-100 text-gray-600' },
-  sending:   { label: 'Sending',   color: 'bg-blue-100 text-blue-700' },
+  draft:     { label: 'Draft',      color: 'bg-gray-100 text-gray-600' },
+  scheduled: { label: 'Scheduled',  color: 'bg-purple-100 text-purple-700' },
+  sending:   { label: 'Sending',    color: 'bg-blue-100 text-blue-700' },
   sent:      { label: 'Sent',      color: 'bg-green-100 text-green-700' },
   paused:    { label: 'Paused',    color: 'bg-amber-100 text-amber-700' },
   cancelled: { label: 'Cancelled', color: 'bg-red-100 text-red-500' },
@@ -35,6 +39,7 @@ const STATUS_CFG: Record<string, { label: string; color: string }> = {
 const AUDIENCE_DESC = 'WhatsApp brochure campaign to all prospect schools with valid 10-digit mobile';
 
 export default function ProspectBulkWhatsApp() {
+  const { data: activeProject } = useActiveProject();
   const [campaigns, setCampaigns] = useState<WACampaign[]>([]);
   const [loadingList, setLoadingList] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -54,6 +59,11 @@ export default function ProspectBulkWhatsApp() {
   const [detailError, setDetailError] = useState<string | null>(null);
   const pauseRef = useRef(false);
 
+  // Scheduling state
+  const [scheduleAt, setScheduleAt] = useState('');
+  const [scheduling, setScheduling] = useState(false);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+
   // Test send state
   const [testInput, setTestInput] = useState('');
   const [testNumbers, setTestNumbers] = useState<string[]>([]);
@@ -64,7 +74,7 @@ export default function ProspectBulkWhatsApp() {
     setLoadingList(true);
     const { data } = await supabase
       .from('campaigns')
-      .select('id, name, description, status, sent_count, failed_count, audience_count, created_at')
+      .select('id, name, description, status, sent_count, failed_count, audience_count, created_at, scheduled_at, whatsapp_template_name')
       .eq('channel', 'whatsapp')
       .order('created_at', { ascending: false });
     setCampaigns((data as WACampaign[]) ?? []);
@@ -83,13 +93,86 @@ export default function ProspectBulkWhatsApp() {
     setConfirmed(false); setLastBatch(null); setDetailError(null);
     setTestInput(''); setTestNumbers([]); setTestResults(null);
     setTemplateName('');
+    setScheduleAt(''); setScheduling(false); setScheduleError(null);
   };
 
   const expand = async (c: WACampaign) => {
     if (expandedId === c.id) { setExpandedId(null); return; }
     resetDetail();
+    if (c.whatsapp_template_name) setTemplateName(c.whatsapp_template_name);
+    if (c.scheduled_at) {
+      // Convert UTC ISO to local datetime-local string
+      const d = new Date(c.scheduled_at);
+      const pad = (n: number) => String(n).padStart(2, '0');
+      setScheduleAt(`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+    }
     setExpandedId(c.id);
     await refreshStats(c.id);
+  };
+
+  const scheduleCampaign = async (campaignId: string) => {
+    if (!scheduleAt || !templateName) return;
+    setScheduling(true); setScheduleError(null);
+    try {
+      // Ensure template name is saved
+      await supabase.from('campaigns').update({
+        whatsapp_template_name: templateName,
+        scheduled_at: new Date(scheduleAt).toISOString(),
+        status: 'scheduled',
+      }).eq('id', campaignId);
+      setCampaigns(prev => prev.map(c => c.id === campaignId
+        ? { ...c, whatsapp_template_name: templateName, scheduled_at: new Date(scheduleAt).toISOString(), status: 'scheduled' }
+        : c));
+    } catch (e: any) {
+      setScheduleError(e.message);
+    } finally {
+      setScheduling(false);
+    }
+  };
+
+  const cancelSchedule = async (campaignId: string) => {
+    const { error } = await supabase.from('campaigns')
+      .update({ scheduled_at: null, status: 'cancelled' })
+      .eq('id', campaignId);
+    if (error) { toast({ title: 'Failed to cancel', description: error.message, variant: 'destructive' }); return; }
+    setCampaigns(prev => prev.map(c => c.id === campaignId ? { ...c, scheduled_at: null, status: 'cancelled' } : c));
+    setScheduleAt('');
+    toast({ title: 'Campaign cancelled', description: 'No further messages will be sent.' });
+  };
+
+  const pauseCampaign = async (campaignId: string) => {
+    await supabase.from('campaigns').update({ status: 'paused' }).eq('id', campaignId);
+    setCampaigns(prev => prev.map(c => c.id === campaignId ? { ...c, status: 'paused' } : c));
+  };
+
+  const resumeCampaign = async (campaignId: string) => {
+    // Reset any stuck 'sending' rows back to 'pending' so they get retried
+    await supabase.from('campaign_schools')
+      .update({ status: 'pending' })
+      .eq('campaign_id', campaignId).eq('status', 'sending');
+    // Set scheduled_at = now() so cron's `scheduled_at <= now()` condition passes
+    const now = new Date().toISOString();
+    const { error } = await supabase.from('campaigns')
+      .update({ status: 'sending', scheduled_at: now })
+      .eq('id', campaignId);
+    if (error) { toast({ title: 'Failed to resume', description: error.message, variant: 'destructive' }); return; }
+    setCampaigns(prev => prev.map(c => c.id === campaignId ? { ...c, status: 'sending', scheduled_at: now } : c));
+    toast({ title: 'Campaign resumed', description: 'Will continue sending on next cron tick (within 1 min).' });
+  };
+
+  const deleteCampaign = async (c: WACampaign, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm(`Delete "${c.name}"? This cannot be undone.`)) return;
+    await supabase.from('campaign_schools').delete().eq('campaign_id', c.id);
+    await supabase.from('campaigns').delete().eq('id', c.id);
+    if (expandedId === c.id) setExpandedId(null);
+    setCampaigns(prev => prev.filter(x => x.id !== c.id));
+  };
+
+  const saveTemplateName = async (name: string) => {
+    if (!expandedId) return;
+    await supabase.from('campaigns').update({ whatsapp_template_name: name }).eq('id', expandedId);
+    setCampaigns(prev => prev.map(c => c.id === expandedId ? { ...c, whatsapp_template_name: name } : c));
   };
 
   const createCampaign = async () => {
@@ -104,9 +187,11 @@ export default function ProspectBulkWhatsApp() {
           status: 'draft',
           send_mode: 'manual',
           description: AUDIENCE_DESC,
+          whatsapp_template_name: newTemplate.trim(),
+          project_id: activeProject?.id ?? null,
           sent_count: 0, failed_count: 0, audience_count: 0, target_count: 0,
         })
-        .select('id, name, description, status, sent_count, failed_count, audience_count, created_at')
+        .select('id, name, description, status, sent_count, failed_count, audience_count, created_at, scheduled_at, whatsapp_template_name')
         .single();
       if (error) throw error;
       await supabase.rpc('populate_wa_campaign_audience', { p_campaign_id: created.id });
@@ -147,7 +232,10 @@ export default function ProspectBulkWhatsApp() {
       const { data, error: fnErr } = await supabase.functions.invoke('send-wa-campaign', {
         body: { template_name: templateName, test_numbers: testNumbers },
       });
-      if (fnErr) throw new Error(fnErr.message);
+      if (fnErr) {
+        const body = await (fnErr as any).context?.json().catch(() => null);
+        throw new Error(body?.error || fnErr.message);
+      }
       if (data?.error) throw new Error(data.error);
       setTestResults(data.results as TestResult[]);
     } catch (e: any) {
@@ -302,6 +390,13 @@ export default function ProspectBulkWhatsApp() {
                     {isOpen
                       ? <ChevronUp className="h-4 w-4 text-gray-400 flex-shrink-0" />
                       : <ChevronDown className="h-4 w-4 text-gray-400 flex-shrink-0" />}
+                    <button
+                      onClick={e => deleteCampaign(c, e)}
+                      className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+                      title="Delete campaign"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
                   </div>
 
                   {/* Expanded detail */}
@@ -365,12 +460,14 @@ export default function ProspectBulkWhatsApp() {
                           <Input
                             value={templateName}
                             onChange={e => setTemplateName(e.target.value.trim())}
-                            placeholder="e.g. iplus_olympiads_2026"
+                            onBlur={e => { if (e.target.value.trim()) saveTemplateName(e.target.value.trim()); }}
+                            placeholder="e.g. iplus_ebrochure_2026"
                             className="font-mono text-sm"
                             disabled={sending}
                           />
                           <p className="text-xs text-gray-400">Exact name from AskEVA/Meta (lowercase, underscores).</p>
                         </div>
+
                         <div className="flex items-center gap-2">
                           <Checkbox
                             id={`confirm-${c.id}`}
@@ -433,6 +530,58 @@ export default function ProspectBulkWhatsApp() {
                         </Button>
                       </div>
 
+                      {/* Schedule */}
+                      <div className="space-y-3 bg-purple-50 border border-purple-100 rounded-xl p-4">
+                        <div className="flex items-center gap-2 text-sm font-medium text-purple-800">
+                          <CalendarClock className="h-4 w-4" />
+                          Schedule for Later
+                          {c.status === 'scheduled' && c.scheduled_at && (
+                            <span className="ml-auto text-xs font-normal text-purple-600">
+                              Starts {new Date(c.scheduled_at).toLocaleString('en-IN', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}
+                            </span>
+                          )}
+                        </div>
+                        {c.status === 'scheduled' ? (
+                          <div className="flex items-center gap-3">
+                            <div className="flex-1 text-sm text-purple-700">
+                              Campaign will auto-send at the scheduled time.
+                            </div>
+                            <Button
+                              variant="outline" size="sm"
+                              className="border-purple-300 text-purple-700 hover:bg-purple-100"
+                              onClick={() => cancelSchedule(c.id)}
+                            >
+                              Cancel Schedule
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="datetime-local"
+                              value={scheduleAt}
+                              onChange={e => { setScheduleAt(e.target.value); setScheduleError(null); }}
+                              min={new Date(Date.now() + 60000).toISOString().slice(0,16)}
+                              className="flex-1 border border-purple-200 rounded-lg px-3 py-1.5 text-sm bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-300"
+                              disabled={sending}
+                            />
+                            <Button
+                              size="sm"
+                              className="bg-purple-600 hover:bg-purple-700 text-white"
+                              onClick={() => scheduleCampaign(c.id)}
+                              disabled={!scheduleAt || !templateName || !confirmed || scheduling || sending}
+                            >
+                              {scheduling
+                                ? <><RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />Scheduling…</>
+                                : <><CalendarClock className="h-3.5 w-3.5 mr-1.5" />Schedule</>}
+                            </Button>
+                          </div>
+                        )}
+                        {scheduleError && <p className="text-xs text-red-600">{scheduleError}</p>}
+                        {c.status !== 'scheduled' && (
+                          <p className="text-xs text-purple-600">Recommended: 7–9 AM. Early morning sends avoid Meta's frequency cap (phone hasn't received other marketing messages yet).</p>
+                        )}
+                      </div>
+
                       {detailError && (
                         <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700 flex items-start gap-2">
                           <XCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />{detailError}
@@ -441,18 +590,7 @@ export default function ProspectBulkWhatsApp() {
 
                       {/* Send controls */}
                       <div className="flex gap-3">
-                        {!sending ? (
-                          <Button
-                            onClick={() => sendAll(c.id)}
-                            disabled={!confirmed || !templateName || stats.pending === 0}
-                            className="flex-1 bg-green-600 hover:bg-green-700 h-11 font-semibold"
-                          >
-                            <Send className="h-4 w-4 mr-2" />
-                            {stats.pending === 0 && stats.total > 0
-                              ? 'All Sent'
-                              : `Send to ${stats.pending.toLocaleString()} Schools`}
-                          </Button>
-                        ) : (
+                        {sending ? (
                           <>
                             <div className="flex-1 bg-green-50 border border-green-200 rounded-xl h-11 flex items-center justify-center gap-2 text-green-700 text-sm font-medium">
                               <RefreshCw className="h-4 w-4 animate-spin" />
@@ -463,6 +601,41 @@ export default function ProspectBulkWhatsApp() {
                               {pausing ? 'Pausing…' : 'Pause'}
                             </Button>
                           </>
+                        ) : c.status === 'sending' ? (
+                          <>
+                            <div className="flex-1 bg-blue-50 border border-blue-200 rounded-xl h-11 flex items-center justify-center gap-2 text-blue-700 text-sm font-medium">
+                              <RefreshCw className="h-4 w-4 animate-spin" />
+                              Running in background… {stats.pending.toLocaleString()} remaining
+                            </div>
+                            <Button onClick={() => pauseCampaign(c.id)} variant="outline" className="h-11 px-5 border-amber-300 text-amber-700 hover:bg-amber-50">
+                              <Pause className="h-4 w-4 mr-1.5" />
+                              Pause
+                            </Button>
+                          </>
+                        ) : c.status === 'paused' ? (
+                          <>
+                            <div className="flex-1 bg-amber-50 border border-amber-200 rounded-xl h-11 flex items-center justify-center gap-2 text-amber-700 text-sm font-medium">
+                              <Pause className="h-4 w-4" />
+                              Campaign paused — {stats.pending.toLocaleString()} remaining
+                            </div>
+                            <Button onClick={() => resumeCampaign(c.id)} className="h-11 px-5 bg-green-600 hover:bg-green-700">
+                              <Send className="h-4 w-4 mr-1.5" />
+                              Resume
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            onClick={() => sendAll(c.id)}
+                            disabled={!confirmed || !templateName || stats.pending === 0 || c.status === 'scheduled'}
+                            className="flex-1 bg-green-600 hover:bg-green-700 h-11 font-semibold"
+                          >
+                            <Send className="h-4 w-4 mr-2" />
+                            {c.status === 'scheduled'
+                              ? 'Scheduled (cancel to send now)'
+                              : stats.pending === 0 && stats.total > 0
+                                ? 'All Sent'
+                                : `Send Now to ${stats.pending.toLocaleString()} Schools`}
+                          </Button>
                         )}
                       </div>
                     </div>

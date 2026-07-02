@@ -398,12 +398,25 @@ export const useSchoolsPaginated = (scopeProjectId?: string) => {
 
   const deleteSchool = async (id: string) => {
     try {
+      const { data: schoolRow } = await supabase
+        .from('schools')
+        .select('prospect_school_id')
+        .eq('id', id)
+        .maybeSingle();
+
       const { error } = await supabase
         .from('schools')
         .delete()
         .eq('id', id);
 
       if (error) throw error;
+
+      if (schoolRow?.prospect_school_id) {
+        await supabase
+          .from('prospect_schools')
+          .update({ stage: 'uncontacted', linked_to_crm: false })
+          .eq('id', schoolRow.prospect_school_id);
+      }
       
       setSchools(prev => prev.filter(school => school.id !== id));
       setTotalCount(prev => Math.max(0, prev - 1));

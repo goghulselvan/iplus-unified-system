@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, CheckCircle, Building2, ArrowLeft, Plus } from 'lucide-react';
+import { Search, CheckCircle, Building2, ArrowLeft, Plus, Star, Phone, Mail, Send, Loader2 } from 'lucide-react';
 
 type ProspectSchool = {
   id: string; ss_no: number; udise_code: string; school_name: string;
@@ -18,7 +18,7 @@ type ProspectSchool = {
   linked_to_crm: boolean;
 };
 
-type Step = 'search' | 'confirm' | 'manual';
+type Step = 'search' | 'confirm' | 'manual' | 'notify';
 
 interface Props {
   open: boolean;
@@ -40,6 +40,8 @@ export function AddSchoolDialog({ open, onOpenChange, onCreated, mode = 'registe
   const [searching, setSearching] = useState(false);
   const [selected, setSelected] = useState<ProspectSchool | null>(null);
   const [saving, setSaving] = useState(false);
+  const [notifSending, setNotifSending] = useState(false);
+  const [createdInfo, setCreatedInfo] = useState<{ schoolId: string; phone: string | null; email: string | null; name: string } | null>(null);
   // Whether the selected school is already in the ACTIVE project (not just ever-linked).
   const [inActiveProject, setInActiveProject] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
@@ -56,7 +58,7 @@ export function AddSchoolDialog({ open, onOpenChange, onCreated, mode = 'registe
     if (!open) {
       setTimeout(() => {
         setStep('search'); setQuery(''); setResults([]);
-        setSelected(null); setSaving(false);
+        setSelected(null); setSaving(false); setNotifSending(false); setCreatedInfo(null);
         setManual({ school_name: '', state: '', district: '', board: '', email: '', mobile: '', address: '', pincode: '' });
       }, 200);
     }
@@ -145,6 +147,7 @@ export function AddSchoolDialog({ open, onOpenChange, onCreated, mode = 'registe
         school_id:       schoolId,
         project_id:      activeProject.id,
         registration_status: isInterested ? 'Pending' : 'In Progress',
+        registration_interest: isInterested ? 'Interested' : undefined,
         contacted: 'Yes',
       });
       if (wfErr) throw wfErr;
@@ -152,10 +155,15 @@ export function AddSchoolDialog({ open, onOpenChange, onCreated, mode = 'registe
       await supabase.from('prospect_schools')
         .update({ stage: isInterested ? 'interested' : 'registered', linked_to_crm: true }).eq('id', selected.id);
 
-      toast({ title: isInterested ? 'Marked as interested' : 'School registered',
-        description: `${selected.school_name} added to ${activeProject.project_name}.` });
-      onOpenChange(false);
-      onCreated();
+      if (isInterested) {
+        setCreatedInfo({ schoolId: schoolId!, phone: selected.mobile, email: selected.email, name: selected.school_name });
+        setStep('notify');
+        onCreated();
+      } else {
+        toast({ title: 'School registered', description: `${selected.school_name} added to ${activeProject.project_name}.` });
+        onOpenChange(false);
+        onCreated();
+      }
     } catch (e: any) {
       toast({ title: 'Error', description: e.message, variant: 'destructive' });
     } finally {
@@ -209,17 +217,40 @@ export function AddSchoolDialog({ open, onOpenChange, onCreated, mode = 'registe
         school_id:       newSchool.id,
         project_id:      activeProject.id,
         registration_status: isInterested ? 'Pending' : 'In Progress',
+        registration_interest: isInterested ? 'Interested' : undefined,
         contacted: 'Yes',
       });
       if (wfErr) throw wfErr;
 
-      toast({ title: 'School added', description: `${manual.school_name} registered. SS NO: ${newProspect.ss_no}` });
-      onOpenChange(false);
-      onCreated();
+      if (isInterested) {
+        setCreatedInfo({ schoolId: newSchool.id, phone: manual.mobile || null, email: manual.email || null, name: manual.school_name });
+        setStep('notify');
+        onCreated();
+      } else {
+        toast({ title: 'School added', description: `${manual.school_name} registered. SS NO: ${newProspect.ss_no}` });
+        onOpenChange(false);
+        onCreated();
+      }
     } catch (e: any) {
       toast({ title: 'Error', description: e.message, variant: 'destructive' });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const sendInterestNotification = async () => {
+    if (!createdInfo) return;
+    setNotifSending(true);
+    try {
+      await supabase.functions.invoke('notify-interested-school', {
+        body: { schoolId: createdInfo.schoolId },
+      });
+      toast({ title: 'Messages sent', description: `Interest acknowledgement sent to ${createdInfo.name}.` });
+    } catch (e: any) {
+      toast({ title: 'Notification failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setNotifSending(false);
+      onOpenChange(false);
     }
   };
 
@@ -236,6 +267,7 @@ export function AddSchoolDialog({ open, onOpenChange, onCreated, mode = 'registe
             {step === 'search' && (isInterested ? 'Mark School as Interested' : 'Add School to CRM')}
             {step === 'confirm' && (isInterested ? 'Confirm Interest' : 'Confirm Registration')}
             {step === 'manual' && (isInterested ? 'Add Interested School' : 'Add School Manually')}
+            {step === 'notify' && 'Send Intro Message?'}
           </DialogTitle>
         </DialogHeader>
 
@@ -404,6 +436,31 @@ export function AddSchoolDialog({ open, onOpenChange, onCreated, mode = 'registe
               <Button variant="outline" className="flex-1" onClick={() => setStep('search')}>Back</Button>
               <Button className="flex-1" onClick={registerManual} disabled={saving}>
                 {saving ? 'Adding…' : 'Add & Register'}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* STEP 3: Notify (interested mode only — shown after save) */}
+        {step === 'notify' && createdInfo && (
+          <div className="space-y-4 mt-2">
+            <div className="flex items-center gap-2 py-2 rounded-lg bg-amber-50 text-amber-700 text-sm font-medium px-3">
+              <Star className="h-4 w-4 fill-amber-400" />
+              <span><span className="font-semibold">{createdInfo.name}</span> added as Interested!</span>
+            </div>
+            <p className="text-sm text-gray-600">Send an interest acknowledgement email and WhatsApp to this school now?</p>
+            <div className="flex gap-2">
+              <Button
+                className="flex-1 bg-amber-500 hover:bg-amber-600"
+                disabled={notifSending}
+                onClick={sendInterestNotification}
+              >
+                {notifSending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
+                {notifSending ? 'Sending…' : 'Send Interest Acknowledgement'}
+              </Button>
+              <Button variant="outline" disabled={notifSending}
+                onClick={() => { toast({ title: 'Added as Interested', description: createdInfo.name }); onOpenChange(false); }}>
+                Add
               </Button>
             </div>
           </div>

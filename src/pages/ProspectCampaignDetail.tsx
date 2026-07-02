@@ -29,6 +29,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }
   scheduled:  { label: 'Scheduled',  color: 'text-amber-700',  bg: 'bg-amber-100' },
   sending:    { label: 'Sending…',   color: 'text-blue-700',   bg: 'bg-blue-100' },
   sent:       { label: 'Sent',       color: 'text-green-700',  bg: 'bg-green-100' },
+  paused:     { label: 'Paused',     color: 'text-amber-700',  bg: 'bg-amber-100' },
   cancelled:  { label: 'Cancelled',  color: 'text-red-600',    bg: 'bg-red-100' },
 };
 
@@ -108,6 +109,20 @@ export default function ProspectCampaignDetail() {
 
   const reloadCampaign = async () => {
     const { data } = await supabase.from('campaigns').select('*').eq('id', id!).single();
+    if (!data) return;
+    // Count live from campaign_schools — campaigns.sent_count is not reliably updated
+    const { data: counts } = await supabase
+      .from('campaign_schools')
+      .select('status')
+      .eq('campaign_id', id!);
+    if (counts) {
+      const tally = counts.reduce((acc, r) => { acc[r.status] = (acc[r.status] || 0) + 1; return acc; }, {} as Record<string, number>);
+      (data as any).sent_count      = (tally['sent'] || 0) + (tally['sending'] || 0);
+      (data as any).delivered_count = tally['delivered'] || 0;
+      (data as any).opened_count    = tally['opened'] || 0;
+      (data as any).bounced_count   = tally['bounced'] || 0;
+      (data as any).failed_count    = tally['failed'] || 0;
+    }
     setCampaign(data as Campaign);
   };
 

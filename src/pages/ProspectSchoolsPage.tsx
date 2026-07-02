@@ -6,7 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { Search, X, Mail, Phone, Globe, Building2, CheckCircle, Star, History, Upload, Download, Loader2 } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Search, X, Mail, Phone, Globe, Building2, CheckCircle, Star, History, Upload, Download, Loader2, Send, Eye, EyeOff } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useActiveProject } from '@/hooks/useOlympiadProjects';
 import { useAuth } from '@/hooks/useAuth';
@@ -49,6 +50,10 @@ export default function ProspectSchoolsPage() {
   const [uploadOpen, setUploadOpen]   = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
+  type InterestNotif = { schoolId: string; phone: string | null; email: string | null; name: string };
+  const [interestNotif, setInterestNotif] = useState<InterestNotif | null>(null);
+  const [notifSending, setNotifSending] = useState(false);
+
   const isSuperAdmin = profile?.role === 'superadmin';
 
   const handleExport = async () => {
@@ -65,6 +70,7 @@ export default function ProspectSchoolsPage() {
         p_has_mobile:      hasMobile ? true : null,
         p_limit:           100000,
         p_offset:          0,
+        p_max_class:       eligibleOnly && maxEligibleClass != null ? maxEligibleClass : null,
       });
       if (error) throw error;
 
@@ -119,6 +125,10 @@ export default function ProspectSchoolsPage() {
     }
   };
 
+  // Eligibility filter — on by default; shows only schools eligible for the active project
+  const [eligibleOnly, setEligibleOnly]     = useState(true);
+  const [maxEligibleClass, setMaxEligibleClass] = useState<number | null>(null);
+
   // Filters
   const [search, setSearch]                 = useState('');
   const [state, setState]                   = useState('all');
@@ -144,6 +154,13 @@ export default function ProspectSchoolsPage() {
     });
   }, []);
 
+  // Fetch max eligible class whenever active project changes
+  useEffect(() => {
+    if (!activeProject?.id) { setMaxEligibleClass(null); return; }
+    supabase.rpc('project_eligible_class_max', { p_project_id: activeProject.id })
+      .then(({ data }) => setMaxEligibleClass(typeof data === 'number' ? data : null));
+  }, [activeProject?.id]);
+
   // Load districts when state changes
   useEffect(() => {
     if (state === 'all') { setDistricts([]); setDistrict('all'); return; }
@@ -167,6 +184,7 @@ export default function ProspectSchoolsPage() {
       p_has_mobile:      hasMobile ? true : null,
       p_limit:           PAGE_SIZE,
       p_offset:          p * PAGE_SIZE,
+      p_max_class:       eligibleOnly && maxEligibleClass != null ? maxEligibleClass : null,
     });
     if (error) toast({ title: 'Error', description: error.message, variant: 'destructive' });
     else {
@@ -175,7 +193,7 @@ export default function ProspectSchoolsPage() {
       setTotal(result.total as number);
     }
     setLoading(false);
-  }, [search, state, district, board, stage, schoolCategory, hasEmail, hasMobile, toast]);
+  }, [search, state, district, board, stage, schoolCategory, hasEmail, hasMobile, eligibleOnly, maxEligibleClass, toast]);
 
   useEffect(() => { setPage(0); fetchSchools(0); }, [fetchSchools]);
 
@@ -192,28 +210,50 @@ export default function ProspectSchoolsPage() {
     try {
       const { data: existing } = await supabase.from('schools')
         .select('id').eq('prospect_school_id', school.id).maybeSingle();
+      let crmSchoolId: string;
       if (!existing) {
         const { data: newSchool, error: schoolErr } = await supabase.from('schools').insert({
           school_name: school.school_name, ss_no: school.ss_no, district: school.district,
           state: school.state, board: school.board, mobile1: school.mobile,
           email: school.email, school_address: school.address, pincode: school.pincode,
-          prospect_school_id: school.id,
+          prospect_school_id: school.id, current_project_id: activeProject.id,
         }).select('id').single();
         if (schoolErr) throw schoolErr;
+        crmSchoolId = newSchool.id;
         const { error: wfErr } = await supabase.from('school_project_workflow').insert({
-          school_id: newSchool.id, project_id: activeProject.id,
-          registration_status: 'Pending', contacted: 'Yes',
+          school_id: crmSchoolId, project_id: activeProject.id,
+          registration_status: 'Pending', registration_interest: 'Interested', contacted: 'Yes',
         });
         if (wfErr) throw wfErr;
+      } else {
+        crmSchoolId = existing.id;
       }
       await supabase.from('prospect_schools')
         .update({ stage: 'interested', linked_to_crm: true }).eq('id', school.id);
-      toast({ title: 'Marked as interested', description: `${school.school_name} added to ${activeProject.project_name}.` });
       setSelected(s => s ? { ...s, stage: 'interested', linked_to_crm: true } : s);
       fetchSchools(page);
+      // Show notification popup after marking
+      setInterestNotif({ schoolId: crmSchoolId, phone: school.mobile, email: school.email, name: school.school_name });
     } catch (e: any) {
       toast({ title: 'Error', description: e.message, variant: 'destructive' });
     } finally { setRegistering(false); }
+  };
+
+  const sendInterestNotification = async () => {
+    if (!interestNotif) return;
+    const notif = interestNotif;
+    setNotifSending(true);
+    try {
+      await supabase.functions.invoke('notify-interested-school', {
+        body: { schoolId: notif.schoolId },
+      });
+      toast({ title: 'Messages sent', description: `Interest acknowledgement sent to ${notif.name}.` });
+    } catch (e: any) {
+      toast({ title: 'Notification failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setNotifSending(false);
+      setInterestNotif(null);
+    }
   };
 
   const registerForProject = async (school: ProspectSchool) => {
@@ -365,6 +405,21 @@ export default function ProspectSchoolsPage() {
           {filtersActive && (
             <button onClick={clearFilters} className="h-9 px-3 rounded-md text-sm font-medium text-red-600 hover:bg-red-50 transition-colors flex items-center gap-1">
               <X className="h-3.5 w-3.5" /> Clear
+            </button>
+          )}
+
+          {maxEligibleClass != null && (
+            <button
+              onClick={() => setEligibleOnly(v => !v)}
+              className={`h-9 px-3 rounded-md border text-sm font-medium transition-colors flex items-center gap-1.5 ${
+                eligibleOnly
+                  ? 'bg-green-50 border-green-300 text-green-700'
+                  : 'border-gray-200 text-gray-500 hover:border-gray-300'
+              }`}
+              title={eligibleOnly ? 'Showing eligible schools only — click to show all' : 'Click to show eligible schools only'}
+            >
+              {eligibleOnly ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+              {eligibleOnly ? `Eligible (Class 1–${maxEligibleClass})` : 'All Schools'}
             </button>
           )}
         </div>
@@ -560,6 +615,38 @@ export default function ProspectSchoolsPage() {
         onClose={() => setUploadOpen(false)}
         onSuccess={() => { setUploadOpen(false); fetchSchools(0); }}
       />
+
+      {/* Interest notification popup */}
+      <Dialog open={!!interestNotif} onOpenChange={open => { if (!open && !notifSending) setInterestNotif(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Star className="h-5 w-5 text-amber-500 fill-amber-400" />
+              Marked as Interested!
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-gray-600">
+              <span className="font-semibold text-gray-900">{interestNotif?.name}</span> added as Interested.
+              Send an interest acknowledgement email and WhatsApp now?
+            </p>
+            <div className="flex gap-2">
+              <Button
+                className="flex-1 bg-amber-500 hover:bg-amber-600"
+                disabled={notifSending}
+                onClick={sendInterestNotification}
+              >
+                {notifSending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
+                {notifSending ? 'Sending…' : 'Send Interest Acknowledgement'}
+              </Button>
+              <Button variant="outline" disabled={notifSending}
+                onClick={() => setInterestNotif(null)}>
+                Add
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </ProspectLayout>
   );
 }
