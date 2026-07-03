@@ -341,25 +341,25 @@ export const DashboardMetrics: React.FC = () => {
       }
     ];
 
-    // Row 5: total schools - total students - total participations
+    // Row 5: project-level totals — always from overall metrics regardless of date view
     const row5 = [
       {
         title: 'Total Schools',
-        value: currentMetrics.total_schools,
+        value: metrics?.total_schools ?? currentMetrics.total_schools,
         icon: School,
         color: 'text-blue-600',
         filterType: 'total'
       },
       {
         title: 'Total Students',
-        value: (currentMetrics as ProjectMetrics).total_students ?? 0,
+        value: metrics?.total_students ?? 0,
         icon: Users,
         color: 'text-indigo-600',
         filterType: 'total_students'
       },
       {
         title: 'Total Participations',
-        value: (currentMetrics as ProjectMetrics).total_registrations || 0,
+        value: metrics?.total_registrations || 0,
         icon: Users,
         color: 'text-emerald-600',
         filterType: 'total_registrations'
