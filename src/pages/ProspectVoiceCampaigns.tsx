@@ -127,18 +127,17 @@ export default function ProspectVoiceCampaigns() {
   const sendBatch = async (campaignId: string) => {
     setSending(true);
     try {
-      let done = false;
-      let totalSent = 0;
-      while (!done) {
-        const { data, error } = await supabase.functions.invoke('send-voice-campaign', {
-          body: { campaign_id: campaignId },
-        });
-        if (error) throw new Error(error.message);
-        totalSent += data?.sent ?? 0;
-        done = data?.done ?? true;
-        if (!done) await fetchCampaigns(); // refresh counts mid-send
-      }
-      toast({ title: 'Campaign sent', description: `${totalSent} calls initiated.` });
+      // Fire the first batch immediately for instant feedback;
+      // the voice-campaign-auto-sender cron (every minute) handles all subsequent batches.
+      const { data, error } = await supabase.functions.invoke('send-voice-campaign', {
+        body: { campaign_id: campaignId },
+      });
+      if (error) throw new Error(error.message);
+      const firstBatch = data?.sent ?? 0;
+      toast({
+        title: 'Campaign started',
+        description: `${firstBatch} calls initiated. Remaining calls will be placed automatically every minute.`,
+      });
       fetchCampaigns();
     } catch (e: any) {
       toast({ title: 'Send failed', description: e.message, variant: 'destructive' });
