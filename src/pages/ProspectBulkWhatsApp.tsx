@@ -48,6 +48,10 @@ export default function ProspectBulkWhatsApp() {
   const [newTemplate, setNewTemplate] = useState('');
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [newFilters, setNewFilters] = useState({ state: '', district: '', board: '' });
+  const [newFilterDistricts, setNewFilterDistricts] = useState<string[]>([]);
+  const [newAudienceCount, setNewAudienceCount] = useState<number | null>(null);
+  const [countingAudience, setCountingAudience] = useState(false);
 
   // Per-expanded-campaign state (resets on collapse)
   const [stats, setStats] = useState<Stats>({ total: 0, sent: 0, failed: 0, pending: 0 });
@@ -175,6 +179,33 @@ export default function ProspectBulkWhatsApp() {
     setCampaigns(prev => prev.map(c => c.id === expandedId ? { ...c, whatsapp_template_name: name } : c));
   };
 
+  const STATES = ['Tamil Nadu', 'Puducherry', 'Karnataka', 'Kerala', 'Andhra Pradesh', 'Telangana'];
+  const BOARDS = ['State Board', 'Matriculation', 'CBSE', 'ICSE', 'International Board'];
+
+  const updateNewState = async (state: string) => {
+    setNewFilters(f => ({ ...f, state, district: '' }));
+    setNewFilterDistricts([]);
+    if (state) {
+      const { data } = await supabase.rpc('get_prospect_districts', { p_state: state });
+      setNewFilterDistricts((data as string[]) || []);
+    }
+  };
+
+  const refreshNewAudienceCount = async (filters: typeof newFilters) => {
+    setCountingAudience(true);
+    const { data } = await supabase.rpc('get_audience_count', {
+      p_state:      filters.state    || null,
+      p_district:   filters.district || null,
+      p_board:      filters.board    || null,
+      p_stage:      null,
+      p_has_email:  null,
+      p_has_mobile: true,
+      p_project_id: activeProject?.id ?? null,
+    });
+    setNewAudienceCount(data as number);
+    setCountingAudience(false);
+  };
+
   const createCampaign = async () => {
     if (!newName.trim() || !newTemplate.trim()) return;
     setCreating(true); setCreateError(null);
@@ -190,6 +221,11 @@ export default function ProspectBulkWhatsApp() {
           whatsapp_template_name: newTemplate.trim(),
           project_id: activeProject?.id ?? null,
           sent_count: 0, failed_count: 0, audience_count: 0, target_count: 0,
+          audience_filters: {
+            state:    newFilters.state    || null,
+            district: newFilters.district || null,
+            board:    newFilters.board    || null,
+          },
         })
         .select('id, name, description, status, sent_count, failed_count, audience_count, created_at, scheduled_at, whatsapp_template_name')
         .single();
@@ -198,6 +234,8 @@ export default function ProspectBulkWhatsApp() {
       setShowNew(false);
       const tpl = newTemplate.trim();
       setNewName(''); setNewTemplate('');
+      setNewFilters({ state: '', district: '', board: '' });
+      setNewAudienceCount(null);
       await fetchCampaigns();
       // auto-expand with template pre-filled
       resetDetail();
@@ -289,39 +327,79 @@ export default function ProspectBulkWhatsApp() {
 
         {/* New campaign inline form */}
         {showNew && (
-          <div className="bg-white rounded-xl border border-indigo-200 p-5 space-y-3">
+          <div className="bg-white rounded-xl border border-indigo-200 p-5 space-y-4">
             <h3 className="font-semibold text-gray-800 text-sm">New WA Campaign</h3>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="text-xs font-medium text-gray-600">Campaign name</label>
-                <Input
-                  value={newName}
-                  onChange={e => setNewName(e.target.value)}
-                  placeholder="e.g. iPlus Olympiads 2026 – Brochure"
-                />
+                <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. iPlus Olympiads 2026 – Brochure" />
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-gray-600">Meta template name</label>
-                <Input
-                  value={newTemplate}
-                  onChange={e => setNewTemplate(e.target.value)}
-                  placeholder="e.g. iplus_olympiads_2026"
-                  className="font-mono text-sm"
-                />
+                <Input value={newTemplate} onChange={e => setNewTemplate(e.target.value)} placeholder="e.g. iplus_olympiads_2026" className="font-mono text-sm" />
               </div>
             </div>
+
+            {/* Audience filters */}
+            <div className="border-t border-gray-100 pt-3">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Audience Filters</p>
+                <div className="flex items-center gap-2">
+                  {newAudienceCount !== null && (
+                    <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full">
+                      {countingAudience ? '…' : `${newAudienceCount.toLocaleString()} schools`}
+                    </span>
+                  )}
+                  <button onClick={() => refreshNewAudienceCount(newFilters)} className="text-xs text-indigo-600 hover:underline">
+                    {newAudienceCount === null ? 'Count audience' : 'Refresh'}
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="space-y-1">
+                  <label className="text-xs text-gray-500">State</label>
+                  <select
+                    value={newFilters.state}
+                    onChange={e => { updateNewState(e.target.value); setNewAudienceCount(null); }}
+                    className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  >
+                    <option value="">All States</option>
+                    {STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-gray-500">District</label>
+                  <select
+                    value={newFilters.district}
+                    onChange={e => { setNewFilters(f => ({ ...f, district: e.target.value })); setNewAudienceCount(null); }}
+                    disabled={!newFilters.state}
+                    className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400 disabled:opacity-50"
+                  >
+                    <option value="">All Districts</option>
+                    {newFilterDistricts.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-gray-500">Board</label>
+                  <select
+                    value={newFilters.board}
+                    onChange={e => { setNewFilters(f => ({ ...f, board: e.target.value })); setNewAudienceCount(null); }}
+                    className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  >
+                    <option value="">All Boards</option>
+                    {BOARDS.map(b => <option key={b} value={b}>{b}</option>)}
+                  </select>
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 mt-1.5">Leave empty to target all schools with a valid WhatsApp number.</p>
+            </div>
+
             {createError && <p className="text-xs text-red-500">{createError}</p>}
             <div className="flex gap-2">
-              <Button
-                onClick={createCampaign}
-                disabled={creating || !newName.trim() || !newTemplate.trim()}
-                size="sm"
-              >
-                {creating
-                  ? <><RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />Creating…</>
-                  : 'Create & Load Audience'}
+              <Button onClick={createCampaign} disabled={creating || !newName.trim() || !newTemplate.trim()} size="sm">
+                {creating ? <><RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />Creating…</> : 'Create & Load Audience'}
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => setShowNew(false)}>Cancel</Button>
+              <Button variant="ghost" size="sm" onClick={() => { setShowNew(false); setNewFilters({ state: '', district: '', board: '' }); setNewAudienceCount(null); }}>Cancel</Button>
             </div>
           </div>
         )}
