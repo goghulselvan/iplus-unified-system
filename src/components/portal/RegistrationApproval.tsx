@@ -198,37 +198,17 @@ export function RegistrationApproval() {
   });
 
   const rejectMutation = useMutation({
-    mutationFn: async ({ regId, reason, reg }: { regId: string; reason: string; reg: PortalRegistration }) => {
-      // Find orphaned school so we can notify via email
-      let orphanedSchoolId: string | null = null;
-      if (reg.user_id) {
-        const { data: account } = await supabase
-          .from("school_portal_accounts")
-          .select("school_id")
-          .eq("user_id", reg.user_id)
-          .maybeSingle();
-        orphanedSchoolId = account?.school_id ?? null;
-      }
+    mutationFn: async ({ regId, reason }: { regId: string; reason: string; reg: PortalRegistration }) => {
       const { error } = await supabase
         .from("school_portal_registrations")
         .update({ status: "rejected", rejection_reason: reason || null })
         .eq("id", regId);
       if (error) throw error;
-      return { orphanedSchoolId, reg };
     },
-    onSuccess: ({ orphanedSchoolId, reg }) => {
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["portal-registrations"] });
       qc.invalidateQueries({ queryKey: ["nav-badge-counts"] });
       setExpandedId(null);
-      if (orphanedSchoolId) {
-        notifySchool(
-          orphanedSchoolId,
-          'portal_registration_rejected',
-          'portal_registration_rejected',
-          reg.email,
-          reg.phone ?? undefined,
-        ).catch(console.error);
-      }
     },
   });
 
