@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Search, X, Mail, Phone, Globe, Building2, CheckCircle, Star, History, Upload, Download, Loader2, Send, Eye, EyeOff } from 'lucide-react';
+import { Search, X, Mail, Phone, Globe, Building2, CheckCircle, Star, History, Upload, Download, Loader2, Send, Eye, EyeOff, PhoneCall, PhoneOff, Mic } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useActiveProject } from '@/hooks/useOlympiadProjects';
 import { useAuth } from '@/hooks/useAuth';
@@ -53,6 +53,14 @@ export default function ProspectSchoolsPage() {
   const [editingContact, setEditingContact] = useState(false);
   const [contactForm, setContactForm] = useState({ email: '', mobile: '', website: '', principal_name: '' });
   const [savingContact, setSavingContact] = useState(false);
+
+  // Click2Call state
+  const [callDialogOpen, setCallDialogOpen] = useState(false);
+  const [callType, setCallType] = useState<'click2call' | 'tts'>('click2call');
+  const [staffPhone, setStaffPhone] = useState('7598321769');
+  const [ttsSpeech, setTtsSpeech] = useState('');
+  const [calling, setCalling] = useState(false);
+  const [callLogs, setCallLogs] = useState<any[]>([]);
 
   type InterestNotif = { schoolId: string; phone: string | null; email: string | null; name: string };
   const [interestNotif, setInterestNotif] = useState<InterestNotif | null>(null);
@@ -254,6 +262,51 @@ export default function ProspectSchoolsPage() {
       toast({ title: 'Contact updated' });
     }
     setSavingContact(false);
+  };
+
+  const loadCallLogs = async (schoolId: string) => {
+    const { data } = await supabase
+      .from('bonvoice_call_logs')
+      .select('id, call_mode, school_phone, staff_phone, status, call_duration, created_at')
+      .eq('prospect_school_id', schoolId)
+      .order('created_at', { ascending: false })
+      .limit(5);
+    setCallLogs(data ?? []);
+  };
+
+  const initiateCall = async () => {
+    if (!selected?.mobile) return;
+    if (callType === 'click2call' && !staffPhone) {
+      toast({ title: 'Enter staff phone', variant: 'destructive' }); return;
+    }
+    if (callType === 'tts' && !ttsSpeech.trim()) {
+      toast({ title: 'Enter TTS message', variant: 'destructive' }); return;
+    }
+    setCalling(true);
+    try {
+      const { error } = await supabase.functions.invoke('bonvoice-click2call', {
+        body: {
+          type: callType,
+          prospect_school_id: selected.id,
+          school_phone: selected.mobile,
+          staff_phone: callType === 'click2call' ? staffPhone : undefined,
+          speech_content: callType === 'tts' ? ttsSpeech : undefined,
+        },
+      });
+      if (error) throw new Error(error.message);
+      toast({
+        title: callType === 'click2call' ? 'Call initiated!' : 'TTS call initiated!',
+        description: callType === 'click2call'
+          ? `Bonvoice will call your phone (${staffPhone}), then bridge to the school.`
+          : `Auto-call sent to ${selected.mobile}.`,
+      });
+      setCallDialogOpen(false);
+      loadCallLogs(selected.id);
+    } catch (e: any) {
+      toast({ title: 'Call failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setCalling(false);
+    }
   };
 
   const markInterested = async (school: ProspectSchool) => {
@@ -512,7 +565,7 @@ export default function ProspectSchoolsPage() {
                 ) : schools.map(s => (
                   <tr
                     key={s.id}
-                    onClick={() => { setSelected(s); setEditingContact(false); }}
+                    onClick={() => { setSelected(s); setEditingContact(false); loadCallLogs(s.id); }}
                     className={`border-b border-gray-50 cursor-pointer transition-colors hover:bg-indigo-50/40 ${selected?.id === s.id ? 'bg-indigo-50' : ''}`}
                   >
                     <td className="px-4 py-3.5 text-gray-400 font-mono text-sm">{String(s.ss_no).padStart(4, '0')}</td>
@@ -668,9 +721,18 @@ export default function ProspectSchoolsPage() {
                         </a>
                       ) : null}
                       {selected.mobile ? (
-                        <a href={`tel:${selected.mobile}`} className="flex items-center gap-2 text-gray-700">
-                          <Phone className="h-3.5 w-3.5 flex-shrink-0" />{selected.mobile}
-                        </a>
+                        <div className="flex items-center gap-2">
+                          <a href={`tel:${selected.mobile}`} className="flex items-center gap-2 text-gray-700">
+                            <Phone className="h-3.5 w-3.5 flex-shrink-0" />{selected.mobile}
+                          </a>
+                          <button
+                            onClick={() => { setCallDialogOpen(true); setCallType('click2call'); }}
+                            className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-green-50 border border-green-200 text-green-700 hover:bg-green-100 transition-colors"
+                            title="Call this school via Bonvoice"
+                          >
+                            <PhoneCall className="h-3 w-3" /> Call
+                          </button>
+                        </div>
                       ) : null}
                       {selected.website ? (
                         <a href={selected.website.startsWith('http') ? selected.website : `https://${selected.website}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-gray-500 hover:text-indigo-600">
@@ -686,6 +748,34 @@ export default function ProspectSchoolsPage() {
                     </div>
                   )}
                 </div>
+
+                {/* Call history */}
+                {callLogs.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Recent Calls</p>
+                    <div className="space-y-1">
+                      {callLogs.map(log => (
+                        <div key={log.id} className="flex items-center justify-between text-xs py-1 border-b border-gray-50 last:border-0">
+                          <div className="flex items-center gap-1.5">
+                            {log.call_mode === 'click2call' ? <PhoneCall className="h-3 w-3 text-indigo-400" /> : <Mic className="h-3 w-3 text-purple-400" />}
+                            <span className="text-gray-600">{log.call_mode === 'click2call' ? 'Click2Call' : 'TTS'}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {log.call_duration ? <span className="text-gray-500">{log.call_duration}s</span> : null}
+                            <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                              log.status === 'completed' ? 'bg-green-50 text-green-700' :
+                              log.status === 'answered'  ? 'bg-blue-50 text-blue-700'  :
+                              log.status === 'no_answer' ? 'bg-amber-50 text-amber-700' :
+                              log.status === 'ringing'   ? 'bg-indigo-50 text-indigo-600' :
+                              'bg-gray-100 text-gray-500'
+                            }`}>{log.status}</span>
+                            <span className="text-gray-400">{new Date(log.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {selected.udise_code && (
                   <div className="pt-1 border-t border-gray-100">
@@ -758,6 +848,76 @@ export default function ProspectSchoolsPage() {
         onClose={() => setUploadOpen(false)}
         onSuccess={() => { setUploadOpen(false); fetchSchools(0); }}
       />
+
+      {/* Call dialog */}
+      <Dialog open={callDialogOpen} onOpenChange={open => { if (!calling) setCallDialogOpen(open); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PhoneCall className="h-5 w-5 text-green-600" />
+              Call {selected?.school_name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-1">
+            <p className="text-xs text-gray-500">School mobile: <span className="font-mono font-semibold text-gray-800">{selected?.mobile}</span></p>
+
+            {/* Type toggle */}
+            <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+              {(['click2call', 'tts'] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => setCallType(t)}
+                  className={`flex-1 py-2 text-sm font-medium transition-colors ${
+                    callType === t ? 'bg-green-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  {t === 'click2call' ? '📞 Click2Call' : '🔊 TTS Call'}
+                </button>
+              ))}
+            </div>
+
+            {callType === 'click2call' ? (
+              <div>
+                <label className="text-xs font-medium text-gray-600 block mb-1.5">Your phone (staff)</label>
+                <Input
+                  type="tel"
+                  placeholder="10-digit mobile"
+                  value={staffPhone}
+                  onChange={e => setStaffPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                  className="h-9"
+                />
+                <p className="text-xs text-gray-400 mt-1.5">Bonvoice will call your phone first, then connect to the school.</p>
+              </div>
+            ) : (
+              <div>
+                <label className="text-xs font-medium text-gray-600 block mb-1.5">TTS Message</label>
+                <textarea
+                  rows={3}
+                  placeholder="Message to be read to the school..."
+                  value={ttsSpeech}
+                  onChange={e => setTtsSpeech(e.target.value)}
+                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-400 resize-none"
+                />
+                <p className="text-xs text-gray-400 mt-1">Bonvoice auto-dials the school and reads this message.</p>
+              </div>
+            )}
+
+            <div className="flex gap-2 pt-1">
+              <Button
+                className="flex-1 bg-green-600 hover:bg-green-700"
+                onClick={initiateCall}
+                disabled={calling || !selected?.mobile}
+              >
+                {calling ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <PhoneCall className="h-4 w-4 mr-2" />}
+                {calling ? 'Initiating…' : 'Call Now'}
+              </Button>
+              <Button variant="outline" onClick={() => setCallDialogOpen(false)} disabled={calling}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Interest notification popup */}
       <Dialog open={!!interestNotif} onOpenChange={open => { if (!open && !notifSending) setInterestNotif(null); }}>

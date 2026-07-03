@@ -18,28 +18,39 @@ function nextSevenAmIST(): string {
   return target.toISOString();
 }
 
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, x-webhook-token",
+};
+
 Deno.serve(async (req: Request) => {
+  // CORS preflight
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CORS_HEADERS });
+  }
+
   // Meta webhook verification GET (hub.challenge handshake)
   if (req.method === "GET") {
     const url = new URL(req.url);
     const challenge = url.searchParams.get("hub.challenge");
-    if (challenge) return new Response(challenge, { headers: { "Content-Type": "text/plain" } });
+    if (challenge) return new Response(challenge, { headers: { "Content-Type": "text/plain", ...CORS_HEADERS } });
   }
 
-  // Token auth — Askeva passes ?token=<WA_WEBHOOK_TOKEN> in the URL
+  // Token auth — URL param ?token= or header x-webhook-token
   const WEBHOOK_TOKEN = Deno.env.get("WA_WEBHOOK_TOKEN");
   if (WEBHOOK_TOKEN) {
     const url = new URL(req.url);
     const token = url.searchParams.get("token") ?? req.headers.get("x-webhook-token") ?? "";
     if (token !== WEBHOOK_TOKEN) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401, headers: { "Content-Type": "application/json" },
+        status: 401, headers: { "Content-Type": "application/json", ...CORS_HEADERS },
       });
     }
   }
 
   let body: any;
-  try { body = await req.json(); } catch { return new Response("ok", { status: 200 }); }
+  try { body = await req.json(); } catch { return new Response("ok", { status: 200, headers: CORS_HEADERS }); }
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -48,10 +59,21 @@ Deno.serve(async (req: Request) => {
 
   const processed: string[] = [];
 
-  // Standard Meta webhook structure: entry[].changes[].value.statuses[]
+  // Support both formats:
+  // 1. Askeva flat format: { statuses: [...] }
+  // 2. Standard Meta format: { entry: [{ changes: [{ value: { statuses: [...] } }] }] }
+  const allStatuses: any[] = [];
+  if (Array.isArray(body?.statuses)) {
+    allStatuses.push(...body.statuses);
+  }
   for (const entry of (body?.entry ?? [])) {
     for (const change of (entry?.changes ?? [])) {
-      for (const s of (change?.value?.statuses ?? [])) {
+      const statuses = change?.value?.statuses ?? [];
+      allStatuses.push(...statuses);
+    }
+  }
+
+  for (const s of allStatuses) {
         const wamid: string = s.id ?? s.wamid;
         const status: string = s.status;
         if (!wamid || !status) continue;
@@ -100,12 +122,10 @@ Deno.serve(async (req: Request) => {
           await supabase.from("campaign_schools").update({ delivery_status: "read" }).eq("wamid", wamid);
           processed.push(`read:${wamid}`);
         }
-      }
-    }
   }
 
   console.log("Webhook processed:", processed.length, "events");
   return new Response(JSON.stringify({ ok: true, processed: processed.length }), {
-    status: 200, headers: { "Content-Type": "application/json" },
+    status: 200, headers: { "Content-Type": "application/json", ...CORS_HEADERS },
   });
 });

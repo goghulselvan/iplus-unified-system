@@ -1,7 +1,7 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
-import { LogOut, ArrowLeft, MapPin, Megaphone, LayoutDashboard, FileText, Printer, MessageSquare } from 'lucide-react';
+import { LogOut, ArrowLeft, MapPin, Megaphone, LayoutDashboard, FileText, Printer, MessageSquare, Phone } from 'lucide-react';
 
 const ProspectLayout = ({ children }: { children: React.ReactNode }) => {
   const { profile, signOut } = useAuth();
@@ -15,6 +15,7 @@ const ProspectLayout = ({ children }: { children: React.ReactNode }) => {
     { label: 'Campaigns',  href: '/prospect/campaigns',         icon: Megaphone },
     { label: 'Bulk WA',    href: '/prospect/bulk-whatsapp',     icon: MessageSquare },
     { label: 'Labels',     href: '/prospect/address-labels',    icon: Printer },
+    { label: 'Voice',      href: '/prospect/voice-campaigns',   icon: Phone },
   ];
 
   return (

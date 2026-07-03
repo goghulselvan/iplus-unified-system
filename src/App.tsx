@@ -44,6 +44,7 @@ import ProspectCampaigns from "./pages/ProspectCampaigns";
 import ProspectCampaignNew from "./pages/ProspectCampaignNew";
 import ProspectCampaignDetail from "./pages/ProspectCampaignDetail";
 import ProspectBulkWhatsApp from "./pages/ProspectBulkWhatsApp";
+import ProspectVoiceCampaigns from "./pages/ProspectVoiceCampaigns";
 import NotFound from "./pages/NotFound";
 import { RegistrationFormatProvider } from "@/contexts/RegistrationFormatContext";
 import { useActiveProject } from "@/hooks/useOlympiadProjects";
@@ -332,6 +333,7 @@ const AppContent = () => {
          <Route path="/prospect/templates/:id" element={<ProtectedRoute><ProspectTemplateBuilder /></ProtectedRoute>} />
          <Route path="/prospect/campaigns" element={<ProtectedRoute><ProspectCampaigns /></ProtectedRoute>} />
          <Route path="/prospect/bulk-whatsapp" element={<ProtectedRoute><ProspectBulkWhatsApp /></ProtectedRoute>} />
+         <Route path="/prospect/voice-campaigns" element={<ProtectedRoute><ProspectVoiceCampaigns /></ProtectedRoute>} />
          <Route path="/prospect/address-labels" element={
            <ProtectedRoute>
              <ProspectAddressLabels />
