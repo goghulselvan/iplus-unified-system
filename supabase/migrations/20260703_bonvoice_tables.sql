@@ -1,7 +1,7 @@
 -- Call logs for Click2Call and TTS individual calls
 CREATE TABLE IF NOT EXISTS bonvoice_call_logs (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  prospect_school_id bigint REFERENCES prospect_schools(id),
+  prospect_school_id uuid REFERENCES prospect_schools(id),
   event_id text UNIQUE,
   call_id text,
   staff_phone text,
@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS voice_campaigns (
 CREATE TABLE IF NOT EXISTS voice_campaign_schools (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   campaign_id uuid REFERENCES voice_campaigns(id) ON DELETE CASCADE,
-  prospect_school_id bigint REFERENCES prospect_schools(id),
+  prospect_school_id uuid REFERENCES prospect_schools(id),
   phone text NOT NULL,
   event_id text UNIQUE,
   status text DEFAULT 'pending',  -- pending | calling | answered | no_answer | failed

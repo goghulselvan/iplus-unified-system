@@ -18,7 +18,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ArrowLeft, Calendar, Clock, MessageSquare, User, Phone, Mail, Edit, Save, X, Download, Bot, Send, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, MessageSquare, User, Phone, Mail, Edit, Save, X, Download, Bot, Send, Plus, Trash2, PhoneCall, Loader2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { format } from 'date-fns';
@@ -88,6 +88,41 @@ const SchoolDetail = () => {
   // Mobile field handler — digits only, max 10
   const onMobileChange = (field: string, val: string) =>
     setEditForm(prev => ({ ...prev, [field]: val.replace(/\D/g, '').slice(0, 10) }));
+
+  // Click2Call via Bonvoice
+  const [callDialogOpen, setCallDialogOpen] = useState(false);
+  const [callTargetPhone, setCallTargetPhone] = useState('');
+  const [callStaffPhone, setCallStaffPhone] = useState('7598321769');
+  const [calling, setCalling] = useState(false);
+
+  const initiateClick2Call = async () => {
+    if (!callTargetPhone || !callStaffPhone) return;
+    setCalling(true);
+    try {
+      const { error } = await supabase.functions.invoke('bonvoice-click2call', {
+        body: {
+          type: 'click2call',
+          school_phone: callTargetPhone,
+          staff_phone: callStaffPhone,
+        },
+      });
+      if (error) throw new Error(error.message);
+      // Log communication
+      await supabase.from('communications').insert({
+        school_id: id,
+        type: 'Phone',
+        direction: 'Outbound',
+        notes: `Click2Call initiated to ${callTargetPhone} via Bonvoice`,
+        created_by: user?.id,
+      });
+      toast({ title: 'Call initiated!', description: `Bonvoice will call you (${callStaffPhone}), then connect to the school.` });
+      setCallDialogOpen(false);
+    } catch (e: any) {
+      toast({ title: 'Call failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setCalling(false);
+    }
+  };
 
   // E-Brochure send dialog
   const [ebrochureOpen, setEbrochureOpen] = useState(false);
@@ -675,6 +710,42 @@ const SchoolDetail = () => {
           </DialogContent>
         </Dialog>
 
+        {/* Click2Call dialog */}
+        <Dialog open={callDialogOpen} onOpenChange={open => { if (!calling) setCallDialogOpen(open); }}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <PhoneCall className="h-5 w-5 text-green-600" />
+                Click2Call
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-1">
+              <div>
+                <Label className="text-xs text-muted-foreground">Calling school number</Label>
+                <p className="font-mono font-semibold text-gray-900 mt-0.5">{callTargetPhone}</p>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1.5 block">Your phone (staff)</Label>
+                <Input
+                  type="tel"
+                  placeholder="10-digit mobile"
+                  value={callStaffPhone}
+                  onChange={e => setCallStaffPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                  className="h-9"
+                />
+                <p className="text-xs text-muted-foreground mt-1.5">Bonvoice calls your phone first, then bridges to the school.</p>
+              </div>
+              <div className="flex gap-2 pt-1">
+                <Button className="flex-1 bg-green-600 hover:bg-green-700" onClick={initiateClick2Call} disabled={calling || callStaffPhone.length !== 10}>
+                  {calling ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <PhoneCall className="h-4 w-4 mr-2" />}
+                  {calling ? 'Initiating…' : 'Call Now'}
+                </Button>
+                <Button variant="outline" onClick={() => setCallDialogOpen(false)} disabled={calling}>Cancel</Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
         <Tabs defaultValue="details" className="space-y-6">
           <TabsList className="flex-wrap h-auto gap-1">
             <TabsTrigger value="details">School Details</TabsTrigger>
@@ -752,11 +823,33 @@ const SchoolDetail = () => {
                         </div>
                         <div>
                           <Label className="text-sm font-medium text-muted-foreground">Mobile 1</Label>
-                          <p className="text-sm font-medium mt-1">{school.mobile1 || 'N/A'}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <p className="text-sm font-medium">{school.mobile1 || 'N/A'}</p>
+                            {school.mobile1 && (
+                              <button
+                                onClick={() => { setCallTargetPhone(school.mobile1!); setCallDialogOpen(true); }}
+                                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-green-50 border border-green-200 text-green-700 hover:bg-green-100 transition-colors"
+                                title="Click2Call via Bonvoice"
+                              >
+                                <PhoneCall className="h-3 w-3" /> Call
+                              </button>
+                            )}
+                          </div>
                         </div>
                         <div>
                           <Label className="text-sm font-medium text-muted-foreground">WhatsApp No.</Label>
-                          <p className="text-sm font-medium mt-1">{school.mobile2 || 'N/A'}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <p className="text-sm font-medium">{school.mobile2 || 'N/A'}</p>
+                            {school.mobile2 && (
+                              <button
+                                onClick={() => { setCallTargetPhone(school.mobile2!); setCallDialogOpen(true); }}
+                                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-green-50 border border-green-200 text-green-700 hover:bg-green-100 transition-colors"
+                                title="Click2Call via Bonvoice"
+                              >
+                                <PhoneCall className="h-3 w-3" /> Call
+                              </button>
+                            )}
+                          </div>
                         </div>
                         <div className="md:col-span-2">
                           <Label className="text-sm font-medium text-muted-foreground">Address 1</Label>
@@ -779,7 +872,18 @@ const SchoolDetail = () => {
                         </div>
                         <div>
                           <Label className="text-sm font-medium text-muted-foreground">Correspondent Mobile</Label>
-                          <p className="text-sm font-medium mt-1">{school.corr_mobile || 'N/A'}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <p className="text-sm font-medium">{school.corr_mobile || 'N/A'}</p>
+                            {school.corr_mobile && (
+                              <button
+                                onClick={() => { setCallTargetPhone(school.corr_mobile!); setCallDialogOpen(true); }}
+                                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-green-50 border border-green-200 text-green-700 hover:bg-green-100 transition-colors"
+                                title="Click2Call via Bonvoice"
+                              >
+                                <PhoneCall className="h-3 w-3" /> Call
+                              </button>
+                            )}
+                          </div>
                         </div>
                         <div>
                           <Label className="text-sm font-medium text-muted-foreground">Principal Name</Label>
@@ -787,7 +891,12 @@ const SchoolDetail = () => {
                         </div>
                         <div>
                           <Label className="text-sm font-medium text-muted-foreground">Principal Mobile</Label>
-                          <p className="text-sm font-medium mt-1">{school.principal_mobile || 'N/A'}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <p className="text-sm font-medium">{school.principal_mobile || 'N/A'}</p>
+                            {school.principal_mobile && (
+                              <button onClick={() => { setCallTargetPhone(school.principal_mobile!); setCallDialogOpen(true); }} className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-green-50 border border-green-200 text-green-700 hover:bg-green-100 transition-colors"><PhoneCall className="h-3 w-3" /> Call</button>
+                            )}
+                          </div>
                         </div>
                         <div>
                           <Label className="text-sm font-medium text-muted-foreground">iPlus Coordinator</Label>
@@ -795,7 +904,12 @@ const SchoolDetail = () => {
                         </div>
                         <div>
                           <Label className="text-sm font-medium text-muted-foreground">Coordinator Mobile</Label>
-                          <p className="text-sm font-medium mt-1">{school.coord_mobile || 'N/A'}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <p className="text-sm font-medium">{school.coord_mobile || 'N/A'}</p>
+                            {school.coord_mobile && (
+                              <button onClick={() => { setCallTargetPhone(school.coord_mobile!); setCallDialogOpen(true); }} className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-green-50 border border-green-200 text-green-700 hover:bg-green-100 transition-colors"><PhoneCall className="h-3 w-3" /> Call</button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -809,7 +923,12 @@ const SchoolDetail = () => {
                             <div key={i} className="border rounded-md p-3">
                               <p className="text-xs text-muted-foreground">{c.role || 'Contact'}</p>
                               <p className="text-sm font-medium">{c.name}</p>
-                              <p className="text-sm text-muted-foreground">{c.mobile}</p>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <p className="text-sm text-muted-foreground">{c.mobile}</p>
+                                {c.mobile && (
+                                  <button onClick={() => { setCallTargetPhone(c.mobile); setCallDialogOpen(true); }} className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-green-50 border border-green-200 text-green-700 hover:bg-green-100 transition-colors"><PhoneCall className="h-3 w-3" /> Call</button>
+                                )}
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -835,7 +954,12 @@ const SchoolDetail = () => {
                             </div>
                             <div className="flex-1 min-w-0">
                               <Label className="text-xs font-medium text-muted-foreground">Mobile</Label>
-                              <p className="text-sm font-medium mt-0.5">{t.mob || 'N/A'}</p>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <p className="text-sm font-medium">{t.mob || 'N/A'}</p>
+                                {t.mob && (
+                                  <button onClick={() => { setCallTargetPhone(t.mob!); setCallDialogOpen(true); }} className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-green-50 border border-green-200 text-green-700 hover:bg-green-100 transition-colors"><PhoneCall className="h-3 w-3" /> Call</button>
+                                )}
+                              </div>
                             </div>
                           </div>
                         ))}
