@@ -229,19 +229,22 @@ export const validateSchoolData = (schoolData: any, isPartialUpdate: boolean = f
 
 // Pre-process school data before saving
 export const normalizeSchoolData = (schoolData: any) => {
-  const normalizedState = normalizeStateDistrict(schoolData.state || '');
-  
-  return {
-    ...schoolData,
-    state: normalizedState,
-    district: normalizeStateDistrict(schoolData.district || ''),
-    board: normalizeBoard(schoolData.board || '', normalizedState),
-    school_name: schoolData.school_name?.toString().trim() || '',
-    school_address: schoolData.school_address?.toString().trim() || '',
-    contact_person_name: schoolData.contact_person_name?.toString().trim() || '',
-    email: schoolData.email?.toString().trim().toLowerCase() || null,
-    mobile1: schoolData.mobile1?.toString().trim() || null,
-    mobile2: schoolData.mobile2?.toString().trim() || null,
-    pincode: schoolData.pincode?.toString().trim() || ''
-  };
+  const result = { ...schoolData };
+
+  // Only normalize fields that are actually present in the object (safe for partial updates)
+  if ('state' in schoolData || 'district' in schoolData || 'board' in schoolData) {
+    const normalizedState = normalizeStateDistrict(schoolData.state || '');
+    if ('state' in schoolData) result.state = normalizedState;
+    if ('district' in schoolData) result.district = normalizeStateDistrict(schoolData.district || '');
+    if ('board' in schoolData) result.board = normalizeBoard(schoolData.board || '', normalizedState);
+  }
+  if ('school_name' in schoolData) result.school_name = schoolData.school_name?.toString().trim() || '';
+  if ('school_address' in schoolData) result.school_address = schoolData.school_address?.toString().trim() || '';
+  if ('contact_person_name' in schoolData) result.contact_person_name = schoolData.contact_person_name?.toString().trim() || '';
+  if ('email' in schoolData) result.email = schoolData.email?.toString().trim().toLowerCase() || null;
+  if ('mobile1' in schoolData) result.mobile1 = schoolData.mobile1?.toString().trim() || null;
+  if ('mobile2' in schoolData) result.mobile2 = schoolData.mobile2?.toString().trim() || null;
+  if ('pincode' in schoolData) result.pincode = schoolData.pincode?.toString().trim() || '';
+
+  return result;
 };
