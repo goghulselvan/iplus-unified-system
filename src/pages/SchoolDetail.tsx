@@ -107,14 +107,14 @@ const SchoolDetail = () => {
         },
       });
       if (error) throw new Error(error.message);
-      // Log communication
-      await supabase.from('communications').insert({
-        school_id: id,
-        type: 'Phone',
-        direction: 'Outbound',
-        notes: `Click2Call initiated to ${callTargetPhone} via Bonvoice`,
-        created_by: user?.id,
-      });
+      // Log communication via hook (handles project_id, activity_log, workflow status)
+      await addCommunication(
+        id!,
+        'Phone',
+        `Click2Call initiated to ${callTargetPhone} via Bonvoice`,
+        undefined,
+        callTargetPhone,
+      );
       toast({ title: 'Call initiated!', description: `Bonvoice will call you (${callStaffPhone}), then connect to the school.` });
       setCallDialogOpen(false);
     } catch (e: any) {

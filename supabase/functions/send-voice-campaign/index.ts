@@ -62,7 +62,8 @@ Deno.serve(async (req: Request) => {
   let failed = 0;
 
   for (const school of schools) {
-    const eventID = `ivc-${campaign_id.slice(0, 8)}-${school.id.slice(0, 8)}-${Date.now()}`;
+    // Use first 16 chars of UUID (no dashes) — globally unique, within 8-16 char ideal
+    const eventID = school.id.replace(/-/g, "").slice(0, 16);
 
     try {
       const res = await fetch(CALL_URL, {
@@ -80,7 +81,7 @@ Deno.serve(async (req: Request) => {
       });
       const data = await res.json();
 
-      if (data.responseCode === 200) {
+      if (Number(data.responseCode) === 200) {
         await supabase.from("voice_campaign_schools").update({
           status: "calling",
           event_id: eventID,

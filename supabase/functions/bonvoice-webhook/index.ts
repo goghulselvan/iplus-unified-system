@@ -67,11 +67,26 @@ Deno.serve(async (req: Request) => {
 
   // Update voice campaign schools on hangup
   if (callType === 2) {
-    await supabase.from("voice_campaign_schools").update({
-      status: (callDuration && callDuration > 0) ? "answered" : "no_answer",
-      call_duration: callDuration ?? null,
-      dtmf: dtmf ?? null,
-    }).eq("event_id", eventID);
+    const wasAnswered = callDuration !== null && callDuration > 0;
+
+    const { data: vcs } = await supabase
+      .from("voice_campaign_schools")
+      .update({
+        status: wasAnswered ? "answered" : "no_answer",
+        call_duration: callDuration ?? null,
+        dtmf: dtmf ?? null,
+      })
+      .eq("event_id", eventID)
+      .select("campaign_id")
+      .single();
+
+    // Increment answered_count if the school picked up
+    if (wasAnswered && vcs?.campaign_id) {
+      await supabase.rpc("increment_voice_campaign_counts", {
+        p_campaign_id: vcs.campaign_id,
+        p_answered: 1,
+      });
+    }
   }
 
   return new Response("ok", { status: 200, headers: CORS });
