@@ -49,6 +49,9 @@ export default function ProspectSchoolsPage() {
   const [registering, setRegistering] = useState(false);
   const [uploadOpen, setUploadOpen]   = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [editingContact, setEditingContact] = useState(false);
+  const [contactForm, setContactForm] = useState({ email: '', mobile: '', website: '', principal_name: '' });
+  const [savingContact, setSavingContact] = useState(false);
 
   type InterestNotif = { schoolId: string; phone: string | null; email: string | null; name: string };
   const [interestNotif, setInterestNotif] = useState<InterestNotif | null>(null);
@@ -202,6 +205,39 @@ export default function ProspectSchoolsPage() {
   const clearFilters = () => {
     setSearch(''); setState('all'); setDistrict('all'); setBoard('all');
     setStage('all'); setSchoolCategory('all'); setHasEmail(false); setHasMobile(false);
+  };
+
+  const startEditContact = () => {
+    if (!selected) return;
+    setContactForm({
+      email:          selected.email          ?? '',
+      mobile:         selected.mobile         ?? '',
+      website:        selected.website        ?? '',
+      principal_name: selected.principal_name ?? '',
+    });
+    setEditingContact(true);
+  };
+
+  const saveContact = async () => {
+    if (!selected) return;
+    setSavingContact(true);
+    const updates = {
+      email:          contactForm.email          || null,
+      mobile:         contactForm.mobile         || null,
+      website:        contactForm.website        || null,
+      principal_name: contactForm.principal_name || null,
+    };
+    const { error } = await supabase.from('prospect_schools').update(updates).eq('id', selected.id);
+    if (error) {
+      toast({ title: 'Save failed', description: error.message, variant: 'destructive' });
+    } else {
+      const updated = { ...selected, ...updates };
+      setSelected(updated);
+      setSchools(prev => prev.map(s => s.id === selected.id ? updated : s));
+      setEditingContact(false);
+      toast({ title: 'Contact updated' });
+    }
+    setSavingContact(false);
   };
 
   const markInterested = async (school: ProspectSchool) => {
@@ -447,7 +483,7 @@ export default function ProspectSchoolsPage() {
                 ) : schools.map(s => (
                   <tr
                     key={s.id}
-                    onClick={() => setSelected(s)}
+                    onClick={() => { setSelected(s); setEditingContact(false); }}
                     className={`border-b border-gray-50 cursor-pointer transition-colors hover:bg-indigo-50/40 ${selected?.id === s.id ? 'bg-indigo-50' : ''}`}
                   >
                     <td className="px-4 py-3.5 text-gray-400 font-mono text-sm">{String(s.ss_no).padStart(4, '0')}</td>
@@ -535,27 +571,90 @@ export default function ProspectSchoolsPage() {
 
                 {/* Contact */}
                 <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Contact</p>
-                  <div className="space-y-1.5">
-                    {selected.email && (
-                      <a href={`mailto:${selected.email}`} className="flex items-center gap-2 text-indigo-600 hover:underline">
-                        <Mail className="h-3.5 w-3.5 flex-shrink-0" />{selected.email}
-                      </a>
-                    )}
-                    {selected.mobile && (
-                      <a href={`tel:${selected.mobile}`} className="flex items-center gap-2 text-gray-700">
-                        <Phone className="h-3.5 w-3.5 flex-shrink-0" />{selected.mobile}
-                      </a>
-                    )}
-                    {selected.website && (
-                      <a href={selected.website.startsWith('http') ? selected.website : `https://${selected.website}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-gray-500 hover:text-indigo-600">
-                        <Globe className="h-3.5 w-3.5 flex-shrink-0" />{selected.website}
-                      </a>
-                    )}
-                    {selected.principal_name && (
-                      <p className="text-gray-600 text-xs">Principal: <span className="font-medium text-gray-800">{selected.principal_name}</span></p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Contact</p>
+                    {!editingContact && (
+                      <button onClick={startEditContact} className="text-xs text-indigo-600 hover:underline">
+                        {selected.email || selected.mobile || selected.principal_name ? 'Edit' : '+ Add'}
+                      </button>
                     )}
                   </div>
+
+                  {editingContact ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Mail className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                        <input
+                          type="email"
+                          placeholder="Email"
+                          value={contactForm.email}
+                          onChange={e => setContactForm(f => ({ ...f, email: e.target.value }))}
+                          className="flex-1 text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Phone className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                        <input
+                          type="tel"
+                          placeholder="Mobile (10 digits)"
+                          value={contactForm.mobile}
+                          onChange={e => setContactForm(f => ({ ...f, mobile: e.target.value.replace(/\D/g, '').slice(0, 10) }))}
+                          className="flex-1 text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Globe className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                        <input
+                          type="text"
+                          placeholder="Website"
+                          value={contactForm.website}
+                          onChange={e => setContactForm(f => ({ ...f, website: e.target.value }))}
+                          className="flex-1 text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                        />
+                      </div>
+                      <input
+                        type="text"
+                        placeholder="Principal name"
+                        value={contactForm.principal_name}
+                        onChange={e => setContactForm(f => ({ ...f, principal_name: e.target.value }))}
+                        className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                      />
+                      <div className="flex gap-2 pt-1">
+                        <button onClick={saveContact} disabled={savingContact}
+                          className="flex-1 text-xs bg-indigo-600 text-white rounded px-3 py-1.5 hover:bg-indigo-700 disabled:opacity-50">
+                          {savingContact ? 'Saving…' : 'Save'}
+                        </button>
+                        <button onClick={() => setEditingContact(false)}
+                          className="flex-1 text-xs border border-gray-200 rounded px-3 py-1.5 hover:bg-gray-50">
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {selected.email ? (
+                        <a href={`mailto:${selected.email}`} className="flex items-center gap-2 text-indigo-600 hover:underline">
+                          <Mail className="h-3.5 w-3.5 flex-shrink-0" />{selected.email}
+                        </a>
+                      ) : null}
+                      {selected.mobile ? (
+                        <a href={`tel:${selected.mobile}`} className="flex items-center gap-2 text-gray-700">
+                          <Phone className="h-3.5 w-3.5 flex-shrink-0" />{selected.mobile}
+                        </a>
+                      ) : null}
+                      {selected.website ? (
+                        <a href={selected.website.startsWith('http') ? selected.website : `https://${selected.website}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-gray-500 hover:text-indigo-600">
+                          <Globe className="h-3.5 w-3.5 flex-shrink-0" />{selected.website}
+                        </a>
+                      ) : null}
+                      {selected.principal_name ? (
+                        <p className="text-gray-600 text-xs">Principal: <span className="font-medium text-gray-800">{selected.principal_name}</span></p>
+                      ) : null}
+                      {!selected.email && !selected.mobile && !selected.principal_name && (
+                        <p className="text-xs text-gray-400 italic">No contact info — click Add to fill in.</p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {selected.udise_code && (
