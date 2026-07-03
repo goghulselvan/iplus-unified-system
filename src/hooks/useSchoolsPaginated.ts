@@ -529,8 +529,8 @@ export const useSchoolsPaginated = (scopeProjectId?: string) => {
 
   const getDashboardMetricsByProject = async (projectId?: string): Promise<DashboardMetrics & { total_registrations: number }> => {
     try {
-      const { data, error } = await supabase.rpc('get_dashboard_metrics_by_project', { 
-        p_project_id: projectId || null 
+      const { data, error } = await supabase.rpc('get_dashboard_metrics_by_project_with_access', {
+        p_project_id: projectId || null
       });
       
       if (error) throw error;
