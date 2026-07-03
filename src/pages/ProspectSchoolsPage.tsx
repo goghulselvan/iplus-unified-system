@@ -23,6 +23,7 @@ type ProspectSchool = {
   email: string | null; mobile: string | null; website: string | null;
   principal_name: string | null; address: string | null; pincode: string | null;
   school_location: string | null; linked_to_crm: boolean; has_history: boolean;
+  is_active: boolean | null;
 };
 
 const STAGE_COLORS: Record<string, string> = {
@@ -74,6 +75,7 @@ export default function ProspectSchoolsPage() {
         p_limit:           100000,
         p_offset:          0,
         p_max_class:       eligibleOnly && maxEligibleClass != null ? maxEligibleClass : null,
+        p_active_only:     activeOnly,
       });
       if (error) throw error;
 
@@ -131,6 +133,8 @@ export default function ProspectSchoolsPage() {
   // Eligibility filter — on by default; shows only schools eligible for the active project
   const [eligibleOnly, setEligibleOnly]     = useState(true);
   const [maxEligibleClass, setMaxEligibleClass] = useState<number | null>(null);
+  // Active filter — on by default; hides inactive (special/differently-abled) schools
+  const [activeOnly, setActiveOnly] = useState(true);
 
   // Filters
   const [search, setSearch]                 = useState('');
@@ -188,6 +192,7 @@ export default function ProspectSchoolsPage() {
       p_limit:           PAGE_SIZE,
       p_offset:          p * PAGE_SIZE,
       p_max_class:       eligibleOnly && maxEligibleClass != null ? maxEligibleClass : null,
+      p_active_only:     activeOnly,
     });
     if (error) toast({ title: 'Error', description: error.message, variant: 'destructive' });
     else {
@@ -196,7 +201,7 @@ export default function ProspectSchoolsPage() {
       setTotal(result.total as number);
     }
     setLoading(false);
-  }, [search, state, district, board, stage, schoolCategory, hasEmail, hasMobile, eligibleOnly, maxEligibleClass, toast]);
+  }, [search, state, district, board, stage, schoolCategory, hasEmail, hasMobile, eligibleOnly, maxEligibleClass, activeOnly, toast]);
 
   useEffect(() => { setPage(0); fetchSchools(0); }, [fetchSchools]);
 
@@ -205,6 +210,17 @@ export default function ProspectSchoolsPage() {
   const clearFilters = () => {
     setSearch(''); setState('all'); setDistrict('all'); setBoard('all');
     setStage('all'); setSchoolCategory('all'); setHasEmail(false); setHasMobile(false);
+  };
+
+  const toggleActiveStatus = async () => {
+    if (!selected) return;
+    const newStatus = selected.is_active === false ? true : false;
+    const { error } = await supabase.from('prospect_schools').update({ is_active: newStatus }).eq('id', selected.id);
+    if (error) { toast({ title: 'Failed', description: error.message, variant: 'destructive' }); return; }
+    const updated = { ...selected, is_active: newStatus };
+    setSelected(updated);
+    setSchools(prev => prev.map(s => s.id === selected.id ? updated : s));
+    toast({ title: newStatus ? 'Marked Active' : 'Marked Inactive' });
   };
 
   const startEditContact = () => {
@@ -458,6 +474,19 @@ export default function ProspectSchoolsPage() {
               {eligibleOnly ? `Eligible (Class 1–${maxEligibleClass})` : 'All Schools'}
             </button>
           )}
+
+          <button
+            onClick={() => setActiveOnly(v => !v)}
+            className={`h-9 px-3 rounded-md border text-sm font-medium transition-colors flex items-center gap-1.5 ${
+              activeOnly
+                ? 'bg-blue-50 border-blue-300 text-blue-700'
+                : 'bg-red-50 border-red-300 text-red-600'
+            }`}
+            title={activeOnly ? 'Hiding inactive schools — click to show all' : 'Showing inactive schools too — click to hide'}
+          >
+            {activeOnly ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+            {activeOnly ? 'Active Only' : 'Incl. Inactive'}
+          </button>
         </div>
 
         {/* Table */}
@@ -488,8 +517,9 @@ export default function ProspectSchoolsPage() {
                   >
                     <td className="px-4 py-3.5 text-gray-400 font-mono text-sm">{String(s.ss_no).padStart(4, '0')}</td>
                     <td className="px-4 py-3.5">
-                      <span className="font-semibold text-gray-900">{s.school_name}</span>
+                      <span className={`font-semibold ${s.is_active === false ? 'text-gray-400' : 'text-gray-900'}`}>{s.school_name}</span>
                       {s.linked_to_crm && <CheckCircle className="inline h-4 w-4 ml-1.5 text-green-500" />}
+                      {s.is_active === false && <span className="ml-2 text-xs bg-red-100 text-red-500 px-1.5 py-0.5 rounded font-medium">Inactive</span>}
                     </td>
                     <td className="px-4 py-3.5 text-gray-700">{s.district}</td>
                     <td className="px-4 py-3.5 text-gray-600">{s.board || '—'}</td>
@@ -673,6 +703,20 @@ export default function ProspectSchoolsPage() {
                     View Participation History
                   </button>
                 )}
+
+                {/* Active/Inactive toggle */}
+                <button
+                  onClick={toggleActiveStatus}
+                  className={`w-full flex items-center justify-center gap-2 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                    selected.is_active === false
+                      ? 'border-green-300 bg-green-50 text-green-700 hover:bg-green-100'
+                      : 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100'
+                  }`}
+                >
+                  {selected.is_active === false
+                    ? <><Eye className="h-4 w-4" /> Mark as Active</>
+                    : <><EyeOff className="h-4 w-4" /> Mark as Inactive</>}
+                </button>
 
                 {/* Actions */}
                 {!selected.linked_to_crm ? (
