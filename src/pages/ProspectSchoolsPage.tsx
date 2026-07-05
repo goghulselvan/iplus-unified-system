@@ -368,7 +368,16 @@ export default function ProspectSchoolsPage() {
       const { data: existing } = await supabase.from('schools')
         .select('id').eq('prospect_school_id', school.id).maybeSingle();
       if (existing) {
-        toast({ title: 'Already in CRM', description: `${school.school_name} is already registered.` });
+        // School already in CRM — just ensure workflow is set to In Progress and stage updated
+        const { error: wfErr } = await supabase.from('school_project_workflow').upsert(
+          { school_id: existing.id, project_id: activeProject.id, registration_status: 'In Progress', contacted: 'Yes' },
+          { onConflict: 'school_id,project_id' }
+        );
+        if (wfErr) throw wfErr;
+        await supabase.from('prospect_schools').update({ stage: 'registered' }).eq('id', school.id);
+        toast({ title: 'Registered', description: `${school.school_name} added to ${activeProject.project_name}.` });
+        setSelected(s => s ? { ...s, stage: 'registered' } : s);
+        fetchSchools(page);
         setRegistering(false); return;
       }
       const { data: newSchool, error: schoolErr } = await supabase.from('schools').insert({

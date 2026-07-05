@@ -7,9 +7,9 @@ export default function PortalAccessPage() {
       <Navbar />
       <main className="container mx-auto px-4 py-8 max-w-5xl">
         <div className="mb-6">
-          <h1 className="text-2xl font-bold">Portal Access</h1>
+          <h1 className="text-2xl font-bold">Link Schools</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Review and approve schools that registered via the school portal.
+            Link portal registrations to existing prospect schools or register new schools in CRM.
           </p>
         </div>
         <RegistrationApproval />

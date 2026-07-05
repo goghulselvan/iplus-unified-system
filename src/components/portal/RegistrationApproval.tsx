@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, XCircle, Search, ChevronDown, ChevronUp } from "lucide-react";
+import { CheckCircle2, XCircle, Search, ChevronDown, ChevronUp, PlusCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { useActiveProject } from "@/hooks/useOlympiadProjects";
+import { useToast } from "@/hooks/use-toast";
 
 interface PortalRegistration {
   id: string;
@@ -12,8 +14,6 @@ interface PortalRegistration {
   district: string;
   state: string | null;
   pincode: string | null;
-  address1: string | null;
-  address2: string | null;
   board: string | null;
   ss_no: number | null;
   contact_name: string | null;
@@ -29,19 +29,32 @@ interface PortalRegistration {
   created_at: string;
 }
 
-interface CrmSchool {
+interface ProspectSchool {
   id: string;
   school_name: string;
   ss_no: number;
   district: string;
-  school_address: string;
+  state: string;
+  board: string | null;
+  mobile: string | null;
+  email: string | null;
+  address: string | null;
+  pincode: string | null;
+  stage: string;
+  linked_to_crm: boolean;
 }
 
-/* ── Live server-side school search ───────────────────────────────────────── */
+/* ── Prospect school search ─────────────────────────────────────────────────── */
 
-function SchoolSearchField({ onSelect }: { onSelect: (school: CrmSchool) => void }) {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<CrmSchool[]>([]);
+function ProspectSearchField({
+  defaultSsNo,
+  onSelect,
+}: {
+  defaultSsNo?: number | null;
+  onSelect: (school: ProspectSchool) => void;
+}) {
+  const [query, setQuery] = useState(defaultSsNo ? String(defaultSsNo) : "");
+  const [results, setResults] = useState<ProspectSchool[]>([]);
   const [loading, setLoading] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -53,27 +66,37 @@ function SchoolSearchField({ onSelect }: { onSelect: (school: CrmSchool) => void
     timer.current = setTimeout(async () => {
       setLoading(true);
       let q = supabase
-        .from("schools")
-        .select("id, school_name, ss_no, district, school_address")
+        .from("prospect_schools")
+        .select("id, school_name, ss_no, district, state, board, mobile, email, address, pincode, stage, linked_to_crm")
+        .eq("is_active", true)
         .order("school_name")
         .limit(10);
 
       if (!isNaN(parseInt(term))) {
-        // Numeric → exact SS No match
         q = q.eq("ss_no", parseInt(term));
       } else {
-        // Text → school name or district
         q = q.or(`school_name.ilike.%${term}%,district.ilike.%${term}%`);
       }
 
       const { data, error } = await q;
       setLoading(false);
-      if (error) { console.error("School search error:", error); setResults([]); return; }
-      setResults((data as CrmSchool[]) ?? []);
+      if (error) { console.error("Prospect search error:", error); setResults([]); return; }
+      setResults((data as ProspectSchool[]) ?? []);
     }, 300);
 
     return () => { if (timer.current) clearTimeout(timer.current); };
   }, [query]);
+
+  // Auto-search on mount if defaultSsNo provided
+  useEffect(() => {
+    if (defaultSsNo) setQuery(String(defaultSsNo));
+  }, [defaultSsNo]);
+
+  const STAGE_STYLE: Record<string, string> = {
+    new:        "bg-gray-100 text-gray-600",
+    interested: "bg-amber-50 text-amber-700",
+    registered: "bg-emerald-50 text-emerald-700",
+  };
 
   return (
     <div>
@@ -82,14 +105,12 @@ function SchoolSearchField({ onSelect }: { onSelect: (school: CrmSchool) => void
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by school name or SS No…"
+          placeholder="Search by SS No, school name or district…"
           autoFocus
           className="w-full pl-9 pr-24 py-2 rounded-lg border border-gray-200 text-sm outline-none focus:ring-2 focus:ring-indigo-400/30 focus:border-indigo-400"
         />
         {loading && (
-          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-gray-400">
-            Searching…
-          </span>
+          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-gray-400">Searching…</span>
         )}
       </div>
 
@@ -104,26 +125,116 @@ function SchoolSearchField({ onSelect }: { onSelect: (school: CrmSchool) => void
             >
               <div>
                 <p className="text-sm text-gray-800 font-medium">{s.school_name}</p>
-                <p className="text-xs text-gray-500">SS #{s.ss_no} · {s.district}</p>
+                <p className="text-xs text-gray-500">SS #{s.ss_no} · {s.district}, {s.state}</p>
               </div>
+              <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full capitalize ${STAGE_STYLE[s.stage] ?? "bg-gray-100 text-gray-600"}`}>
+                {s.stage}
+              </span>
             </button>
           ))}
         </div>
       )}
 
       {!loading && query.trim() && results.length === 0 && (
-        <p className="text-xs text-gray-400 px-1 py-2">No schools found for "{query}"</p>
+        <p className="text-xs text-gray-400 px-1 py-2">No schools found — use "Register as New School" below.</p>
       )}
     </div>
   );
 }
 
-/* ── Main component ───────────────────────────────────────────────────────── */
+/* ── Inline new-school form ─────────────────────────────────────────────────── */
+
+interface NewSchoolFields {
+  school_name: string;
+  ss_no: string;
+  district: string;
+  state: string;
+  board: string;
+  pincode: string;
+}
+
+function NewSchoolForm({
+  reg,
+  onSubmit,
+  onCancel,
+  loading,
+}: {
+  reg: PortalRegistration;
+  onSubmit: (fields: NewSchoolFields) => void;
+  onCancel: () => void;
+  loading: boolean;
+}) {
+  const [fields, setFields] = useState<NewSchoolFields>({
+    school_name: reg.school_name,
+    ss_no:       reg.ss_no ? String(reg.ss_no) : "",
+    district:    reg.district,
+    state:       reg.state ?? "",
+    board:       reg.board ?? "",
+    pincode:     reg.pincode ?? "",
+  });
+
+  const set = (k: keyof NewSchoolFields) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setFields((p) => ({ ...p, [k]: e.target.value }));
+
+  const inp = "w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm outline-none focus:ring-2 focus:ring-indigo-400/30 focus:border-indigo-400";
+
+  return (
+    <div className="mt-3 p-4 bg-blue-50 rounded-xl border border-blue-100">
+      <p className="text-xs font-semibold text-blue-700 mb-3 uppercase tracking-wide">New School Details</p>
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <div className="col-span-2">
+          <label className="block text-xs text-gray-500 mb-1">School Name</label>
+          <input value={fields.school_name} onChange={set("school_name")} className={inp} />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">SS No</label>
+          <input value={fields.ss_no} onChange={set("ss_no")} placeholder="Leave blank if unknown" className={inp} />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Pincode</label>
+          <input value={fields.pincode} onChange={set("pincode")} className={inp} />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">District</label>
+          <input value={fields.district} onChange={set("district")} className={inp} />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">State</label>
+          <input value={fields.state} onChange={set("state")} className={inp} />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Board</label>
+          <input value={fields.board} onChange={set("board")} placeholder="CBSE / ICSE / State Board" className={inp} />
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => onSubmit(fields)}
+          disabled={loading || !fields.school_name.trim() || !fields.district.trim()}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
+        >
+          <PlusCircle className="w-4 h-4" />
+          {loading ? "Creating…" : "Create & Link"}
+        </button>
+        <button type="button" onClick={onCancel} className="px-4 py-2 rounded-lg bg-gray-100 text-gray-600 text-sm hover:bg-gray-200 transition-colors">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ── Main component ─────────────────────────────────────────────────────────── */
 
 export function RegistrationApproval() {
   const qc = useQueryClient();
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [selectedSchool, setSelectedSchool] = useState<Record<string, CrmSchool | null>>({});
+  const { toast } = useToast();
+  const { data: activeProject } = useActiveProject();
+
+  const [expandedId, setExpandedId]     = useState<string | null>(null);
+  const [selectedProspect, setSelectedProspect] = useState<Record<string, ProspectSchool | null>>({});
+  const [showNewForm, setShowNewForm]   = useState<Record<string, boolean>>({});
   const [rejectionReason, setRejectionReason] = useState<Record<string, string>>({});
   const [statusFilter, setStatusFilter] = useState<"pending" | "approved" | "rejected" | "all">("pending");
 
@@ -141,64 +252,192 @@ export function RegistrationApproval() {
     },
   });
 
+  /* ── Link to prospect school (cases 1 & 2) ─────────────────────────────── */
+  const linkMutation = useMutation({
+    mutationFn: async ({ reg, prospect }: { reg: PortalRegistration; prospect: ProspectSchool }) => {
+      if (!activeProject) throw new Error("No active project");
+      const now = new Date().toISOString();
+      let crmSchoolId: string;
+      let crmSsNo: number = prospect.ss_no;
 
-  const approveMutation = useMutation({
-    mutationFn: async ({ regId, schoolId, reg }: { regId: string; schoolId: string; reg: PortalRegistration }) => {
-      // 1. Approve + link → fires trg_invite_portal_user which creates
-      //    school_portal_accounts and school_project_workflow automatically
-      const { error } = await supabase
-        .from("school_portal_registrations")
-        .update({
-          status: "approved",
-          matched_school_id: schoolId,
-          approved_at: new Date().toISOString(),
+      if (prospect.linked_to_crm) {
+        // Case 1: already in CRM as interested — just update workflow + stage
+        const { data: existing, error: findErr } = await supabase
+          .from("schools")
+          .select("id, ss_no")
+          .eq("prospect_school_id", prospect.id)
+          .single();
+        if (findErr || !existing) throw new Error("Could not find CRM school linked to this prospect");
+        crmSchoolId = existing.id;
+        crmSsNo = existing.ss_no ?? prospect.ss_no;
+
+        // Update workflow to In Progress
+        await supabase.from("school_project_workflow").upsert(
+          { school_id: crmSchoolId, project_id: activeProject.id, registration_status: "In Progress", contacted: "Yes" },
+          { onConflict: "school_id,project_id" },
+        );
+      } else {
+        // Case 2: only in prospect_schools — create CRM school
+        const { data: newSchool, error: schoolErr } = await supabase
+          .from("schools")
+          .insert({
+            school_name:          prospect.school_name,
+            ss_no:                prospect.ss_no,
+            district:             prospect.district,
+            state:                prospect.state,
+            board:                reg.board   ?? prospect.board,
+            mobile1:              reg.phone   ?? prospect.mobile,
+            email:                reg.email   ?? prospect.email,
+            school_address:       prospect.address ?? reg.city ?? null,
+            pincode:              reg.pincode ?? prospect.pincode,
+            prospect_school_id:   prospect.id,
+            current_project_id:   activeProject.id,
+            contact_person_name:  reg.contact_name   ?? null,
+            principal_name:       reg.principal_name ?? null,
+            principal_mobile:     reg.principal_mobile ?? null,
+            coord_mobile:         reg.coord_mobile   ?? null,
+            portal_registered:    true,
+          })
+          .select("id, ss_no")
+          .single();
+        if (schoolErr) throw schoolErr;
+        crmSchoolId = newSchool.id;
+        crmSsNo = newSchool.ss_no ?? prospect.ss_no;
+
+        await supabase.from("school_project_workflow").insert({
+          school_id: crmSchoolId, project_id: activeProject.id,
+          registration_status: "In Progress", contacted: "Yes",
+        });
+      }
+
+      // Update prospect stage to registered
+      await supabase.from("prospect_schools")
+        .update({ stage: "registered", linked_to_crm: true })
+        .eq("id", prospect.id);
+
+      // Sync portal contact details to CRM school
+      await supabase.from("schools").update({
+        ...(reg.email            && { email: reg.email }),
+        ...(reg.phone            && { mobile1: reg.phone }),
+        ...(reg.contact_name     && { contact_person_name: reg.contact_name }),
+        ...(reg.pincode          && { pincode: reg.pincode }),
+        ...(reg.board            && { board: reg.board }),
+        ...(reg.principal_name   && { principal_name: reg.principal_name }),
+        ...(reg.principal_mobile && { principal_mobile: reg.principal_mobile }),
+        ...(reg.coord_mobile     && { coord_mobile: reg.coord_mobile }),
+        portal_registered: true,
+      }).eq("id", crmSchoolId);
+
+      // Link portal account to CRM school
+      if (reg.user_id) {
+        await supabase.from("school_portal_accounts")
+          .update({ school_id: crmSchoolId, linked_at: now })
+          .eq("user_id", reg.user_id);
+      }
+
+      // Mark registration as linked
+      await supabase.from("school_portal_registrations").update({
+        status: "approved", matched_school_id: crmSchoolId, approved_at: now,
+      }).eq("id", reg.id);
+    },
+    onSuccess: (_, { prospect }) => {
+      qc.invalidateQueries({ queryKey: ["portal-registrations"] });
+      qc.invalidateQueries({ queryKey: ["nav-badge-counts"] });
+      setExpandedId(null);
+      toast({
+        title: "School linked",
+        description: `${prospect.school_name} linked and marked as registered.`,
+      });
+    },
+    onError: (err) => {
+      toast({ title: "Link failed", description: err instanceof Error ? err.message : "Something went wrong", variant: "destructive" });
+    },
+  });
+
+  /* ── Register completely new school (case 3) ────────────────────────────── */
+  const registerNewMutation = useMutation({
+    mutationFn: async ({ reg, fields }: { reg: PortalRegistration; fields: NewSchoolFields }) => {
+      if (!activeProject) throw new Error("No active project");
+      const now = new Date().toISOString();
+      const ssNo = fields.ss_no ? parseInt(fields.ss_no) : null;
+
+      // Create prospect_schools row
+      const { data: newProspect, error: prospectErr } = await supabase
+        .from("prospect_schools")
+        .insert({
+          school_name:  fields.school_name.trim(),
+          ss_no:        ssNo,
+          district:     fields.district.trim(),
+          state:        fields.state.trim(),
+          board:        fields.board.trim() || null,
+          pincode:      fields.pincode.trim() || null,
+          email:        reg.email,
+          mobile:       reg.phone,
+          address:      reg.city ?? null,
+          stage:        "registered",
+          linked_to_crm: true,
         })
-        .eq("id", regId);
-      if (error) throw error;
+        .select("id")
+        .single();
+      if (prospectErr) throw prospectErr;
 
-      // 2. Sync portal contact details into the matched CRM school
-      await supabase
+      // Create CRM school
+      const { data: newSchool, error: schoolErr } = await supabase
         .from("schools")
-        .update({
-          ...(reg.email            && { email: reg.email }),
-          ...(reg.phone            && { mobile1: reg.phone }),
-          ...(reg.contact_name     && { contact_person_name: reg.contact_name }),
-          ...(reg.district         && { district: reg.district }),
-          ...(reg.state            && { state: reg.state }),
-          ...(reg.pincode          && { pincode: reg.pincode }),
-          ...(reg.address1         && { address1: reg.address1 }),
-          ...(reg.address2         && { address2: reg.address2 }),
-          ...(reg.board            && { board: reg.board }),
-          ...(reg.principal_name   && { principal_name: reg.principal_name }),
-          ...(reg.principal_mobile && { principal_mobile: reg.principal_mobile }),
-          ...(reg.coord_mobile     && { coord_mobile: reg.coord_mobile }),
-          ...(reg.corr_name        && { corr_name: reg.corr_name }),
-          ...(reg.corr_mobile      && { corr_mobile: reg.corr_mobile }),
-          portal_registered: true,
+        .insert({
+          school_name:          fields.school_name.trim(),
+          ss_no:                ssNo,
+          district:             fields.district.trim(),
+          state:                fields.state.trim(),
+          board:                fields.board.trim() || null,
+          pincode:              fields.pincode.trim() || null,
+          mobile1:              reg.phone,
+          email:                reg.email,
+          school_address:       reg.city ?? null,
+          contact_person_name:  reg.contact_name   ?? null,
+          principal_name:       reg.principal_name ?? null,
+          principal_mobile:     reg.principal_mobile ?? null,
+          coord_mobile:         reg.coord_mobile   ?? null,
+          prospect_school_id:   newProspect.id,
+          current_project_id:   activeProject.id,
+          portal_registered:    true,
         })
-        .eq("id", schoolId);
+        .select("id")
+        .single();
+      if (schoolErr) throw schoolErr;
 
-      // 3. Set registration_status = 'In Progress' → fires DB trigger → WA + email sent
-      //    Only updates if not already In Progress (avoids duplicate welcome messages)
-      await supabase
-        .from("schools")
-        .update({ registration_status: "In Progress" })
-        .eq("id", schoolId)
-        .neq("registration_status", "In Progress");
+      // Workflow
+      await supabase.from("school_project_workflow").insert({
+        school_id: newSchool.id, project_id: activeProject.id,
+        registration_status: "In Progress", contacted: "Yes",
+      });
+
+      // Link portal account
+      if (reg.user_id) {
+        await supabase.from("school_portal_accounts")
+          .update({ school_id: newSchool.id, linked_at: now })
+          .eq("user_id", reg.user_id);
+      }
+
+      // Mark registration
+      await supabase.from("school_portal_registrations").update({
+        status: "approved", matched_school_id: newSchool.id, approved_at: now,
+      }).eq("id", reg.id);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["portal-registrations"] });
       qc.invalidateQueries({ queryKey: ["nav-badge-counts"] });
       setExpandedId(null);
-      // Welcome WA + email sent automatically by DB trigger on registration_status change
+      toast({ title: "New school created and linked" });
     },
     onError: (err) => {
-      alert(`Error: ${err instanceof Error ? err.message : "Something went wrong"}`);
+      toast({ title: "Failed to create school", description: err instanceof Error ? err.message : "Something went wrong", variant: "destructive" });
     },
   });
 
+  /* ── Reject ─────────────────────────────────────────────────────────────── */
   const rejectMutation = useMutation({
-    mutationFn: async ({ regId, reason }: { regId: string; reason: string; reg: PortalRegistration }) => {
+    mutationFn: async ({ regId, reason }: { regId: string; reason: string }) => {
       const { error } = await supabase
         .from("school_portal_registrations")
         .update({ status: "rejected", rejection_reason: reason || null })
@@ -213,7 +452,7 @@ export function RegistrationApproval() {
   });
 
   const STATUS_COLORS = {
-    pending: "bg-amber-50 text-amber-700",
+    pending:  "bg-amber-50 text-amber-700",
     approved: "bg-emerald-50 text-emerald-700",
     rejected: "bg-red-50 text-red-600",
   };
@@ -222,9 +461,9 @@ export function RegistrationApproval() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">School Portal Registrations</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Link Schools</h2>
           <p className="text-sm text-gray-500 mt-0.5">
-            Link online registrations to existing CRM schools by SS No
+            Match portal registrations to prospect schools and import to CRM
           </p>
         </div>
         <div className="flex gap-2">
@@ -233,9 +472,7 @@ export function RegistrationApproval() {
               key={s}
               onClick={() => setStatusFilter(s)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors ${
-                statusFilter === s
-                  ? "bg-indigo-600 text-white"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                statusFilter === s ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
               }`}
             >
               {s}
@@ -259,11 +496,12 @@ export function RegistrationApproval() {
         <div className="flex flex-col gap-2">
           {registrations.map((reg) => {
             const isExpanded = expandedId === reg.id;
-            const picked = selectedSchool[reg.id];
+            const prospect   = selectedProspect[reg.id];
+            const newForm    = showNewForm[reg.id];
 
             return (
               <div key={reg.id} className="border border-gray-200 rounded-xl overflow-hidden">
-                {/* Header row */}
+                {/* Header */}
                 <button
                   onClick={() => setExpandedId(isExpanded ? null : reg.id)}
                   className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors text-left"
@@ -290,55 +528,93 @@ export function RegistrationApproval() {
                   </div>
                 </button>
 
-                {/* Expanded detail — pending */}
+                {/* Expanded — pending */}
                 {isExpanded && reg.status === "pending" && (
                   <div className="border-t border-gray-100 px-5 py-5 bg-gray-50/50">
-                    <div className="grid grid-cols-2 gap-4 mb-5 text-sm">
+                    {/* Registration details */}
+                    <div className="grid grid-cols-2 gap-3 mb-5 text-sm">
                       <div><span className="text-gray-500">Contact: </span><span className="text-gray-800">{reg.contact_name ?? "—"}</span></div>
                       <div><span className="text-gray-500">Phone: </span><span className="text-gray-800">{reg.phone ?? "—"}</span></div>
+                      <div><span className="text-gray-500">Board: </span><span className="text-gray-800">{reg.board ?? "—"}</span></div>
+                      <div><span className="text-gray-500">State: </span><span className="text-gray-800">{reg.state ?? "—"}</span></div>
                     </div>
 
-                    {/* School matching */}
+                    {/* Prospect search */}
                     <div className="mb-4">
                       <label className="block text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wider">
-                        Match to CRM School
+                        Find in Prospect Schools
                       </label>
 
-                      {picked ? (
+                      {prospect ? (
                         <div className="flex items-center justify-between p-3 bg-indigo-50 rounded-lg border border-indigo-200">
                           <div>
-                            <p className="text-sm font-medium text-indigo-900">{picked.school_name}</p>
-                            <p className="text-xs text-indigo-600">SS #{picked.ss_no} · {picked.district}</p>
+                            <p className="text-sm font-medium text-indigo-900">{prospect.school_name}</p>
+                            <p className="text-xs text-indigo-600">
+                              SS #{prospect.ss_no} · {prospect.district}, {prospect.state}
+                            </p>
+                            {prospect.stage === "interested" && (
+                              <p className="text-xs text-amber-600 mt-0.5">Currently marked as Interested → will be converted to Registered</p>
+                            )}
+                            {prospect.stage === "new" && (
+                              <p className="text-xs text-gray-500 mt-0.5">New prospect → will be imported to CRM</p>
+                            )}
+                            {prospect.stage === "registered" && (
+                              <p className="text-xs text-emerald-600 mt-0.5">Already registered for this project</p>
+                            )}
                           </div>
                           <button
                             type="button"
-                            onClick={() => setSelectedSchool((p) => ({ ...p, [reg.id]: null }))}
+                            onClick={() => setSelectedProspect((p) => ({ ...p, [reg.id]: null }))}
                             className="text-xs text-indigo-500 hover:text-indigo-700 font-medium"
                           >
                             Change
                           </button>
                         </div>
-                      ) : (
-                        <SchoolSearchField
-                          onSelect={(s) => setSelectedSchool((p) => ({ ...p, [reg.id]: s }))}
+                      ) : !newForm ? (
+                        <ProspectSearchField
+                          defaultSsNo={reg.ss_no}
+                          onSelect={(s) => {
+                            setSelectedProspect((p) => ({ ...p, [reg.id]: s }));
+                            setShowNewForm((p) => ({ ...p, [reg.id]: false }));
+                          }}
                         />
-                      )}
+                      ) : null}
                     </div>
 
+                    {/* New school form */}
+                    {newForm && !prospect && (
+                      <NewSchoolForm
+                        reg={reg}
+                        loading={registerNewMutation.isPending}
+                        onSubmit={(fields) => registerNewMutation.mutate({ reg, fields })}
+                        onCancel={() => setShowNewForm((p) => ({ ...p, [reg.id]: false }))}
+                      />
+                    )}
+
                     {/* Actions */}
-                    <div className="flex gap-3">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!picked) { alert("Select a CRM school to link before approving."); return; }
-                          approveMutation.mutate({ regId: reg.id, schoolId: picked.id, reg });
-                        }}
-                        disabled={approveMutation.isPending || !picked}
-                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50"
-                      >
-                        <CheckCircle2 className="w-4 h-4" />
-                        {approveMutation.isPending ? "Linking…" : "Link to School"}
-                      </button>
+                    <div className="flex gap-3 mt-4">
+                      {prospect && (
+                        <button
+                          type="button"
+                          onClick={() => linkMutation.mutate({ reg, prospect })}
+                          disabled={linkMutation.isPending}
+                          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          {linkMutation.isPending ? "Linking…" : "Link School"}
+                        </button>
+                      )}
+
+                      {!prospect && !newForm && (
+                        <button
+                          type="button"
+                          onClick={() => setShowNewForm((p) => ({ ...p, [reg.id]: true }))}
+                          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-50 text-blue-700 text-sm font-medium hover:bg-blue-100 transition-colors border border-blue-200"
+                        >
+                          <PlusCircle className="w-4 h-4" />
+                          Register as New School
+                        </button>
+                      )}
 
                       <div className="flex-1 flex gap-2">
                         <input
@@ -349,9 +625,7 @@ export function RegistrationApproval() {
                         />
                         <button
                           type="button"
-                          onClick={() =>
-                            rejectMutation.mutate({ regId: reg.id, reason: rejectionReason[reg.id] ?? "", reg })
-                          }
+                          onClick={() => rejectMutation.mutate({ regId: reg.id, reason: rejectionReason[reg.id] ?? "" })}
                           disabled={rejectMutation.isPending}
                           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-50 text-red-600 text-sm font-medium hover:bg-red-100 transition-colors disabled:opacity-50"
                         >
@@ -363,11 +637,11 @@ export function RegistrationApproval() {
                   </div>
                 )}
 
-                {/* Expanded detail — approved / rejected */}
+                {/* Expanded — approved/rejected */}
                 {isExpanded && reg.status !== "pending" && (
                   <div className="border-t border-gray-100 px-5 py-4 bg-gray-50/50 text-sm text-gray-500">
                     {reg.status === "approved"
-                      ? `Approved on ${reg.approved_at ? new Date(reg.approved_at).toLocaleDateString("en-IN") : "—"}`
+                      ? `Linked on ${reg.approved_at ? new Date(reg.approved_at).toLocaleDateString("en-IN") : "—"}`
                       : "Rejected"}
                   </div>
                 )}

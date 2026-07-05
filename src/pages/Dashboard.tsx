@@ -248,7 +248,7 @@ const Dashboard = () => {
                     { label: 'Add / Search School',       path: '/schools',             color: 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100' },
                     { label: 'Log Communication',         path: '/communication',       color: 'bg-blue-50 text-blue-700 hover:bg-blue-100' },
                     { label: 'View Follow-ups',           path: '/follow-ups',          color: 'bg-amber-50 text-amber-700 hover:bg-amber-100' },
-                    { label: 'Portal Approvals',          path: '/portal-access',       color: 'bg-green-50 text-green-700 hover:bg-green-100' },
+                    { label: 'Link Schools',               path: '/portal-access',       color: 'bg-green-50 text-green-700 hover:bg-green-100' },
                     { label: 'Payment Queue',             path: '/payment-queue',       color: 'bg-violet-50 text-violet-700 hover:bg-violet-100' },
                     { label: 'Olympiad Management',       path: '/olympiad-management', color: 'bg-rose-50 text-rose-700 hover:bg-rose-100' },
                   ].map(({ label, path, color }) => (

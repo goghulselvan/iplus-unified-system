@@ -69,7 +69,7 @@ const Navbar = () => {
     { name: 'Exam Dates',          href: '/exam-dates',          badge: 0 },
     { name: 'Exam Slots',          href: '/exam-slot-publish',   badge: 0 },
     { name: 'Results',             href: '/results',             badge: 0 },
-    { name: 'Portal Access',       href: '/portal-access',       badge: badges.portalPending },
+    { name: 'Link Schools',         href: '/portal-access',       badge: badges.portalPending },
     { name: 'Payment Queue',       href: '/payment-queue',       badge: badges.paymentPending },
   ];
 
