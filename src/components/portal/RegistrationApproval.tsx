@@ -273,7 +273,7 @@ export function RegistrationApproval() {
 
         // Update workflow to In Progress
         await supabase.from("school_project_workflow").upsert(
-          { school_id: crmSchoolId, project_id: activeProject.id, registration_status: "In Progress", contacted: "Yes" },
+          { school_id: crmSchoolId, project_id: activeProject.id, registration_status: "In Progress", registration_interest: "Interested", contacted: "Yes" },
           { onConflict: "school_id,project_id" },
         );
       } else {
@@ -306,7 +306,7 @@ export function RegistrationApproval() {
 
         await supabase.from("school_project_workflow").insert({
           school_id: crmSchoolId, project_id: activeProject.id,
-          registration_status: "In Progress", contacted: "Yes",
+          registration_status: "In Progress", registration_interest: "Interested", contacted: "Yes",
         });
       }
 
@@ -409,7 +409,7 @@ export function RegistrationApproval() {
       // Workflow
       await supabase.from("school_project_workflow").insert({
         school_id: newSchool.id, project_id: activeProject.id,
-        registration_status: "In Progress", contacted: "Yes",
+        registration_status: "In Progress", registration_interest: "Interested", contacted: "Yes",
       });
 
       // Link portal account
