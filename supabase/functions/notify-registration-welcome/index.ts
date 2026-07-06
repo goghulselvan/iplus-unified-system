@@ -26,6 +26,7 @@ function resolveVariable(
 ): string {
   switch (source) {
     case "school_name":     return reg.school_name ?? "";
+    case "contact_person":  return reg.contact_person ?? "";
     case "district":        return reg.district ?? "";
     case "state":           return reg.state ?? "";
     case "district_state":  return [reg.district, reg.state].filter(Boolean).join(", ");
@@ -58,7 +59,7 @@ Deno.serve(async (req: Request) => {
     // Fetch registration data
     const { data: reg, error: regErr } = await supabase
       .from("school_portal_registrations")
-      .select("school_name, email, phone, district, city, state")
+      .select("school_name, email, phone, district, city, state, contact_name, principal_name, corr_name")
       .eq("id", registration_id)
       .single();
 
@@ -129,6 +130,8 @@ Deno.serve(async (req: Request) => {
           district:    reg.district,
           state:       reg.state,
           city:        reg.city,
+          // Meta rejects empty template parameters (#131008), so never resolve to ""
+          contact_person: reg.contact_name || reg.principal_name || reg.corr_name || reg.school_name,
         };
 
         const components: any[] = [];
