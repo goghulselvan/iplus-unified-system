@@ -32,4 +32,6 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./dist/
           server-dir: /cms.iplus.vaima.in/unified_deployment/
-          dangerous-clean-slate: false
+          # staging folder is emptied manually when moving to live, so always
+          # wipe and re-upload the full build (scoped to unified_deployment/ only)
+          dangerous-clean-slate: true
