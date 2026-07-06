@@ -95,14 +95,16 @@ Deno.serve(async (req: Request) => {
           project_year: String(project.project_year ?? ""),
         };
 
-        const html = tmpl.email_body.replace(/\{(\w+)\}/g, (_: string, k: string) => vars[k] ?? "");
+        const fill = (s: string) => s.replace(/\{(\w+)\}/g, (_: string, k: string) => vars[k] ?? "");
+        const html = fill(tmpl.email_body);
+        const subject = fill(tmpl.subject);
 
         const resend = new Resend(RESEND_API_KEY);
         const { error: emailErr } = await resend.emails.send({
           from:    "iPlus Olympiads <noreply@iplusedu.in>",
           replyTo: "contact@iplusedu.in",
           to:      [reg.email],
-          subject: tmpl.subject,
+          subject,
           html,
         });
         results.email = emailErr ? `failed: ${JSON.stringify(emailErr)}` : "sent";
