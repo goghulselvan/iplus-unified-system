@@ -370,7 +370,7 @@ export default function ProspectSchoolsPage() {
       if (existing) {
         // School already in CRM — just ensure workflow is set to In Progress and stage updated
         const { error: wfErr } = await supabase.from('school_project_workflow').upsert(
-          { school_id: existing.id, project_id: activeProject.id, registration_status: 'In Progress', contacted: 'Yes' },
+          { school_id: existing.id, project_id: activeProject.id, registration_status: 'In Progress', registration_interest: 'Interested', contacted: 'Yes' },
           { onConflict: 'school_id,project_id' }
         );
         if (wfErr) throw wfErr;
@@ -389,7 +389,7 @@ export default function ProspectSchoolsPage() {
       if (schoolErr) throw schoolErr;
       const { error: wfErr } = await supabase.from('school_project_workflow').insert({
         school_id: newSchool.id, project_id: activeProject.id,
-        registration_status: 'In Progress', contacted: 'Yes',
+        registration_status: 'In Progress', registration_interest: 'Interested', contacted: 'Yes',
       });
       if (wfErr) throw wfErr;
       await supabase.from('prospect_schools')
