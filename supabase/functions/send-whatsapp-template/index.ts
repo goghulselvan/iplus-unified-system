@@ -241,6 +241,7 @@ Deno.serve(async (req) => {
     : null;
 
   // Log to communications
+  const wamid: string | null = askevaResponse?.messages?.[0]?.id ?? null;
   await admin.from("communications").insert([{
     school_id: schoolId,
     project_id: projectId,
@@ -251,6 +252,8 @@ Deno.serve(async (req) => {
     contacted_mobile_no: recipient,
     contacted_person_name: school.contact_person_name || null,
     email_status: success ? "sent" : "failed",
+    wamid,
+    delivery_status: success ? (wamid ? "sent" : null) : "failed",
   }]);
 
   // Activity log

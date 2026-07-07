@@ -128,6 +128,7 @@ serve(async (req) => {
     });
 
     const body = await res.json().catch(() => ({}));
+    const wamid: string | null = body?.messages?.[0]?.id ?? null;
 
     if (!res.ok) {
       return new Response(JSON.stringify({ success: false, error: body?.error?.message ?? "WhatsApp send failed" }), {
@@ -160,6 +161,8 @@ serve(async (req) => {
         contacted_mobile_no: phone,
         user_id: userId,
         project_id: project.id ?? null,
+        wamid,
+        delivery_status: wamid ? "sent" : null,
       }).then(({ error }) => { if (error) console.error("Failed to log communication:", error); });
 
       // Save contact to school's additional_contacts if requested

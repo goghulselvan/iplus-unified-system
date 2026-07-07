@@ -90,6 +90,8 @@ Deno.serve(async (req: Request) => {
           const isFreqCap = errors.some((e: any) => FREQUENCY_CAP_CODES.has(Number(e.code)));
           const deliveryStatus = isFreqCap ? "frequency_cap" : "failed";
 
+          await supabase.from("communications").update({ delivery_status: "failed" }).eq("wamid", wamid);
+
           const { data: row } = await supabase
             .from("campaign_schools")
             .select("id, campaign_id")
@@ -128,10 +130,16 @@ Deno.serve(async (req: Request) => {
           await supabase.from("campaign_schools").update({ delivery_status: "delivered", delivered_at: ts })
             .eq("wamid", wamid)
             .not("delivery_status", "in", "(read,replied)");
+          await supabase.from("communications").update({ delivery_status: "delivered" })
+            .eq("wamid", wamid)
+            .not("delivery_status", "in", "(read,replied)");
           processed.push(`delivered:${wamid}`);
         } else if (status === "read") {
           const ts = s.timestamp ? new Date(Number(s.timestamp) * 1000).toISOString() : new Date().toISOString();
           await supabase.from("campaign_schools").update({ delivery_status: "read", opened_at: ts })
+            .eq("wamid", wamid)
+            .neq("delivery_status", "replied");
+          await supabase.from("communications").update({ delivery_status: "read" })
             .eq("wamid", wamid)
             .neq("delivery_status", "replied");
           processed.push(`read:${wamid}`);
@@ -200,6 +208,9 @@ Deno.serve(async (req: Request) => {
 
     if (campaignSchoolId) {
       await supabase.from("campaign_schools").update({ delivery_status: "replied" }).eq("id", campaignSchoolId);
+    }
+    if (contextWamid) {
+      await supabase.from("communications").update({ delivery_status: "replied" }).eq("wamid", contextWamid);
     }
     processed.push(`reply:${msgWamid}`);
   }
