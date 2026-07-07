@@ -31,9 +31,23 @@ serve(async (req) => {
 
     const authHeader = req.headers.get("authorization") ?? "";
     const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+    // The gateway (verify_jwt) has already verified the JWT signature. getUser()
+    // additionally requires a live GoTrue session and can reject otherwise-valid
+    // staff logins, so fall back to the verified JWT claims when it fails.
+    let userId: string | null = null;
     const { data: { user }, error: authErr } = await supabaseAdmin.auth.getUser(token);
-    if (authErr || !user) {
-      return new Response(JSON.stringify({ success: false, error: "Unauthorized" }), {
+    if (user) {
+      userId = user.id;
+    } else {
+      try {
+        const b64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+        const payload = JSON.parse(atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4)));
+        if (payload.role === "authenticated" && payload.sub) userId = payload.sub;
+        console.log("getUser failed, JWT-claims fallback used:", authErr?.message, "role:", payload.role);
+      } catch (_) { /* not a decodable JWT */ }
+    }
+    if (!userId) {
+      return new Response(JSON.stringify({ success: false, error: `Unauthorized${authErr?.message ? `: ${authErr.message}` : ""}` }), {
         status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -144,7 +158,7 @@ serve(async (req) => {
         message: `E-Brochure sent to ${phone}${contactName ? ` (${contactName})` : ""}`,
         contacted_person_name: contactName ?? null,
         contacted_mobile_no: phone,
-        user_id: user.id,
+        user_id: userId,
         project_id: project.id ?? null,
       }).then(({ error }) => { if (error) console.error("Failed to log communication:", error); });
 
