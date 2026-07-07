@@ -191,6 +191,10 @@ Deno.serve(async (req: Request) => {
     processed.push(`reply:${msgWamid}`);
   }
 
+  if (allStatuses.length === 0 && allMessages.length === 0) {
+    // Unrecognized payload shape — log it so we can adapt the parser
+    console.log("Unrecognized payload:", JSON.stringify(body).slice(0, 2000));
+  }
   console.log("Webhook processed:", processed.length, "events");
   return new Response(JSON.stringify({ ok: true, processed: processed.length }), {
     status: 200, headers: { "Content-Type": "application/json", ...CORS_HEADERS },
