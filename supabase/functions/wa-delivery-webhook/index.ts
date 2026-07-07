@@ -116,12 +116,79 @@ Deno.serve(async (req: Request) => {
             processed.push(`other_fail:${wamid}`);
           }
         } else if (status === "delivered") {
-          await supabase.from("campaign_schools").update({ delivery_status: "delivered" }).eq("wamid", wamid);
+          // Never downgrade a later stage (events can arrive out of order)
+          await supabase.from("campaign_schools").update({ delivery_status: "delivered" })
+            .eq("wamid", wamid)
+            .not("delivery_status", "in", "(read,replied)");
           processed.push(`delivered:${wamid}`);
         } else if (status === "read") {
-          await supabase.from("campaign_schools").update({ delivery_status: "read" }).eq("wamid", wamid);
+          await supabase.from("campaign_schools").update({ delivery_status: "read" })
+            .eq("wamid", wamid)
+            .neq("delivery_status", "replied");
           processed.push(`read:${wamid}`);
         }
+  }
+
+  // Inbound messages (replies) — same two formats as statuses
+  const allMessages: any[] = [];
+  const contactNames = new Map<string, string>();
+  const collectContacts = (contacts: any[]) => {
+    for (const c of contacts ?? []) {
+      if (c?.wa_id && c?.profile?.name) contactNames.set(String(c.wa_id), String(c.profile.name));
+    }
+  };
+  if (Array.isArray(body?.messages)) allMessages.push(...body.messages);
+  collectContacts(body?.contacts);
+  for (const entry of (body?.entry ?? [])) {
+    for (const change of (entry?.changes ?? [])) {
+      allMessages.push(...(change?.value?.messages ?? []));
+      collectContacts(change?.value?.contacts);
+    }
+  }
+
+  for (const m of allMessages) {
+    const from: string = m?.from ?? "";
+    const msgWamid: string = m?.id ?? "";
+    if (!from || !msgWamid) continue;
+
+    const text: string | null =
+      m?.text?.body ??
+      m?.button?.text ??
+      m?.interactive?.button_reply?.title ??
+      m?.interactive?.list_reply?.title ??
+      null;
+    const contextWamid: string | null = m?.context?.id ?? null;
+
+    // Match reply to a campaign send: quoted-message wamid first, else latest send to this phone
+    let campaignSchoolId: string | null = null;
+    if (contextWamid) {
+      const { data } = await supabase.from("campaign_schools")
+        .select("id").eq("wamid", contextWamid).maybeSingle();
+      campaignSchoolId = data?.id ?? null;
+    }
+    if (!campaignSchoolId) {
+      const last10 = from.replace(/\D/g, "").slice(-10);
+      if (last10.length === 10) {
+        const { data } = await supabase.rpc("match_campaign_school_by_phone", { p_last10: last10 });
+        campaignSchoolId = (data as string | null) ?? null;
+      }
+    }
+
+    await supabase.from("wa_replies").upsert({
+      phone: from,
+      sender_name: contactNames.get(from) ?? null,
+      message_text: text,
+      message_type: m?.type ?? null,
+      msg_wamid: msgWamid,
+      context_wamid: contextWamid,
+      campaign_school_id: campaignSchoolId,
+      raw: m,
+    }, { onConflict: "msg_wamid", ignoreDuplicates: true });
+
+    if (campaignSchoolId) {
+      await supabase.from("campaign_schools").update({ delivery_status: "replied" }).eq("id", campaignSchoolId);
+    }
+    processed.push(`reply:${msgWamid}`);
   }
 
   console.log("Webhook processed:", processed.length, "events");
