@@ -335,7 +335,14 @@ export default function ProspectSchoolsPage() {
     }
     setEbrochureSending(true);
     try {
+      // getSession refreshes an expired token; without this the invoke can fall back
+      // to the anon key and the function returns "Unauthorized"
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('Your login session has expired — please refresh the page and log in again.');
+      }
       const res = await supabase.functions.invoke('send-ebrochure', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
         body: {
           prospectSchoolId: selected.id,
           phone,

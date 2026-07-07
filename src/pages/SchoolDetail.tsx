@@ -411,7 +411,11 @@ const SchoolDetail = () => {
     setEbrochureSending(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('Your login session has expired — please refresh the page and log in again.');
+      }
       const res = await supabase.functions.invoke('send-ebrochure', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
         body: {
           schoolId: id,
           phone,
