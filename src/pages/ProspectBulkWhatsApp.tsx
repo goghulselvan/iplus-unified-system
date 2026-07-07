@@ -9,6 +9,7 @@ import {
   CheckCircle2, XCircle, Clock, Send, Pause, RefreshCw,
   MessageSquare, Users, FileText, FlaskConical, X,
   Plus, ChevronDown, ChevronUp, Trash2, CalendarClock,
+  CheckCheck, Eye, Reply, Download,
 } from 'lucide-react';
 
 type WACampaign = {
@@ -26,6 +27,13 @@ type WACampaign = {
 
 type Stats = { total: number; sent: number; failed: number; pending: number };
 type TestResult = { number: string; success: boolean; wamid?: string; error?: string };
+type DeliveryStats = { delivered: number; read: number; replied: number; failed: number };
+type EngagementRow = {
+  id: string; school_name: string; district: string | null; state: string | null;
+  mobile: string | null; delivery_status: string; sent_at: string | null;
+  delivered_at: string | null; opened_at: string | null;
+  reply_text: string | null; replied_at: string | null;
+};
 
 const STATUS_CFG: Record<string, { label: string; color: string }> = {
   draft:     { label: 'Draft',      color: 'bg-gray-100 text-gray-600' },
@@ -37,6 +45,26 @@ const STATUS_CFG: Record<string, { label: string; color: string }> = {
 };
 
 const AUDIENCE_DESC = 'WhatsApp brochure campaign to all prospect schools with valid 10-digit mobile';
+
+const DELIVERY_CFG: Record<string, { label: string; color: string }> = {
+  sent:          { label: 'Sent',      color: 'bg-gray-100 text-gray-600' },
+  delivered:     { label: 'Delivered', color: 'bg-indigo-100 text-indigo-700' },
+  read:          { label: 'Read',      color: 'bg-blue-100 text-blue-700' },
+  replied:       { label: 'Replied',   color: 'bg-emerald-100 text-emerald-700' },
+  failed:        { label: 'Failed',    color: 'bg-red-100 text-red-500' },
+  frequency_cap: { label: 'Freq cap',  color: 'bg-amber-100 text-amber-700' },
+};
+
+const ENG_FILTERS: { value: string; label: string }[] = [
+  { value: '',          label: 'Engaged' },
+  { value: 'replied',   label: 'Replied' },
+  { value: 'read',      label: 'Read' },
+  { value: 'delivered', label: 'Delivered' },
+  { value: 'failed',    label: 'Undelivered' },
+  { value: 'all',       label: 'All' },
+];
+
+const ENG_PAGE = 50;
 
 export default function ProspectBulkWhatsApp() {
   const { data: activeProject } = useActiveProject();
@@ -55,6 +83,12 @@ export default function ProspectBulkWhatsApp() {
 
   // Per-expanded-campaign state (resets on collapse)
   const [stats, setStats] = useState<Stats>({ total: 0, sent: 0, failed: 0, pending: 0 });
+  const [dStats, setDStats] = useState<DeliveryStats | null>(null);
+  const [engFilter, setEngFilter] = useState('');
+  const [engRows, setEngRows] = useState<EngagementRow[]>([]);
+  const [engLoading, setEngLoading] = useState(false);
+  const [engHasMore, setEngHasMore] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [templateName, setTemplateName] = useState('');
   const [confirmed, setConfirmed] = useState(false);
   const [sending, setSending] = useState(false);
@@ -88,9 +122,63 @@ export default function ProspectBulkWhatsApp() {
   useEffect(() => { fetchCampaigns(); }, [fetchCampaigns]);
 
   const refreshStats = useCallback(async (campaignId: string) => {
-    const { data } = await supabase.rpc('get_wa_campaign_progress', { p_campaign_id: campaignId });
+    const [{ data }, { data: ds }] = await Promise.all([
+      supabase.rpc('get_wa_campaign_progress', { p_campaign_id: campaignId }),
+      supabase.rpc('get_wa_campaign_delivery_stats', { p_campaign_id: campaignId }),
+    ]);
     if (data) setStats(data as Stats);
+    if (ds) setDStats(ds as DeliveryStats);
   }, []);
+
+  const loadEngagement = useCallback(async (campaignId: string, filter: string, offset: number) => {
+    setEngLoading(true);
+    const { data } = await supabase.rpc('get_wa_campaign_engagement', {
+      p_campaign_id: campaignId,
+      p_status: filter || null,
+      p_limit: ENG_PAGE + 1,
+      p_offset: offset,
+    });
+    const rows = (data as EngagementRow[]) ?? [];
+    setEngHasMore(rows.length > ENG_PAGE);
+    const page = rows.slice(0, ENG_PAGE);
+    setEngRows(prev => (offset === 0 ? page : [...prev, ...page]));
+    setEngLoading(false);
+  }, []);
+
+  const changeEngFilter = (filter: string) => {
+    if (!expandedId) return;
+    setEngFilter(filter);
+    loadEngagement(expandedId, filter, 0);
+  };
+
+  const exportEngagement = async (campaignId: string, campaignName: string) => {
+    setExporting(true);
+    try {
+      const all: EngagementRow[] = [];
+      for (let off = 0; off < 60000; off += 1000) {
+        const { data } = await supabase.rpc('get_wa_campaign_engagement', {
+          p_campaign_id: campaignId, p_status: engFilter || null, p_limit: 1000, p_offset: off,
+        });
+        const rows = (data as EngagementRow[]) ?? [];
+        all.push(...rows);
+        if (rows.length < 1000) break;
+      }
+      const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const csv = [
+        ['School', 'District', 'State', 'Mobile', 'Status', 'Sent At', 'Delivered At', 'Read At', 'Reply', 'Replied At'].join(','),
+        ...all.map(r => [r.school_name, r.district, r.state, r.mobile, r.delivery_status,
+          r.sent_at, r.delivered_at, r.opened_at, r.reply_text, r.replied_at].map(esc).join(',')),
+      ].join('\n');
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${campaignName.replace(/[^\w-]+/g, '_')}_${engFilter || 'engaged'}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const resetDetail = () => {
     setSending(false); setPausing(false); pauseRef.current = false;
@@ -98,6 +186,7 @@ export default function ProspectBulkWhatsApp() {
     setTestInput(''); setTestNumbers([]); setTestResults(null);
     setTemplateName('');
     setScheduleAt(''); setScheduling(false); setScheduleError(null);
+    setDStats(null); setEngFilter(''); setEngRows([]); setEngHasMore(false);
   };
 
   const expand = async (c: WACampaign) => {
@@ -111,7 +200,7 @@ export default function ProspectBulkWhatsApp() {
       setScheduleAt(`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
     }
     setExpandedId(c.id);
-    await refreshStats(c.id);
+    await Promise.all([refreshStats(c.id), loadEngagement(c.id, '', 0)]);
   };
 
   const scheduleCampaign = async (campaignId: string) => {
@@ -527,6 +616,122 @@ export default function ProspectBulkWhatsApp() {
                           </div>
                         )}
                       </div>
+
+                      {/* Delivery & Engagement */}
+                      {(() => {
+                        const deliveredCum = dStats ? dStats.delivered + dStats.read + dStats.replied : 0;
+                        const readCum = dStats ? dStats.read + dStats.replied : 0;
+                        const repliedN = dStats?.replied ?? 0;
+                        const pctOf = (n: number) => stats.sent > 0 ? ` · ${Math.round((n / stats.sent) * 100)}%` : '';
+                        return (
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                                <CheckCheck className="h-4 w-4 text-blue-500" /> Delivery &amp; Engagement
+                              </div>
+                              <Button
+                                variant="outline" size="sm"
+                                onClick={() => exportEngagement(c.id, c.name)}
+                                disabled={exporting || engRows.length === 0}
+                                className="h-7 text-xs"
+                              >
+                                {exporting
+                                  ? <><RefreshCw className="h-3 w-3 mr-1 animate-spin" />Exporting…</>
+                                  : <><Download className="h-3 w-3 mr-1" />Export CSV</>}
+                              </Button>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-2">
+                              <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 text-center">
+                                <CheckCheck className="h-4 w-4 text-indigo-500 mx-auto mb-1" />
+                                <p className="text-xl font-bold text-indigo-700">{deliveredCum.toLocaleString()}</p>
+                                <p className="text-xs text-indigo-600">Delivered{pctOf(deliveredCum)}</p>
+                              </div>
+                              <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-center">
+                                <Eye className="h-4 w-4 text-blue-500 mx-auto mb-1" />
+                                <p className="text-xl font-bold text-blue-700">{readCum.toLocaleString()}</p>
+                                <p className="text-xs text-blue-600">Read{pctOf(readCum)}</p>
+                              </div>
+                              <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-center">
+                                <Reply className="h-4 w-4 text-emerald-500 mx-auto mb-1" />
+                                <p className="text-xl font-bold text-emerald-700">{repliedN.toLocaleString()}</p>
+                                <p className="text-xs text-emerald-600">Replied{pctOf(repliedN)}</p>
+                              </div>
+                            </div>
+
+                            {/* Filter tabs */}
+                            <div className="flex gap-1.5 flex-wrap">
+                              {ENG_FILTERS.map(f => (
+                                <button
+                                  key={f.value}
+                                  onClick={() => changeEngFilter(f.value)}
+                                  className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                                    engFilter === f.value
+                                      ? 'bg-gray-800 text-white'
+                                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                  }`}
+                                >
+                                  {f.label}
+                                </button>
+                              ))}
+                            </div>
+
+                            {/* School list */}
+                            {engLoading && engRows.length === 0 ? (
+                              <div className="text-center py-6 text-gray-400 text-sm">
+                                <RefreshCw className="h-4 w-4 animate-spin mx-auto mb-1" /> Loading…
+                              </div>
+                            ) : engRows.length === 0 ? (
+                              <div className="text-center py-6 bg-gray-50 rounded-xl text-xs text-gray-400">
+                                No schools here yet. Delivery tracking went live 7 Jul 2026 —
+                                messages sent before that only show as Sent.
+                              </div>
+                            ) : (
+                              <div className="border border-gray-100 rounded-xl divide-y divide-gray-50 max-h-96 overflow-y-auto">
+                                {engRows.map(r => {
+                                  const dcfg = DELIVERY_CFG[r.delivery_status] ?? DELIVERY_CFG.sent;
+                                  const when = r.opened_at ?? r.delivered_at ?? r.sent_at;
+                                  return (
+                                    <div key={r.id} className="px-3 py-2 flex items-start gap-3">
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-medium text-gray-800 truncate">{r.school_name}</p>
+                                        <p className="text-xs text-gray-400 truncate">
+                                          {[r.district, r.state].filter(Boolean).join(', ')}
+                                          {r.mobile ? <span className="font-mono"> · {r.mobile}</span> : null}
+                                        </p>
+                                        {r.reply_text && (
+                                          <p className="text-xs text-emerald-700 bg-emerald-50 rounded-lg px-2 py-1 mt-1 italic">
+                                            “{r.reply_text}”
+                                          </p>
+                                        )}
+                                      </div>
+                                      <div className="text-right flex-shrink-0">
+                                        <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${dcfg.color}`}>
+                                          {dcfg.label}
+                                        </span>
+                                        {when && (
+                                          <p className="text-[10px] text-gray-400 mt-0.5">
+                                            {new Date(when).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                          </p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                                {engHasMore && (
+                                  <button
+                                    onClick={() => loadEngagement(c.id, engFilter, engRows.length)}
+                                    disabled={engLoading}
+                                    className="w-full py-2 text-xs text-indigo-600 hover:bg-indigo-50 font-medium"
+                                  >
+                                    {engLoading ? 'Loading…' : 'Load more'}
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       {/* Template */}
                       <div className="space-y-3">

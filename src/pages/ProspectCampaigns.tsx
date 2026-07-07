@@ -39,8 +39,9 @@ export default function ProspectCampaigns() {
 
   const fetchCampaigns = async () => {
     setLoading(true);
+    // Email campaigns only — WhatsApp campaigns live on the Bulk WhatsApp page
     const { data, error } = await supabase.from('campaigns')
-      .select('*').order('created_at', { ascending: false });
+      .select('*').eq('channel', 'email').order('created_at', { ascending: false });
     if (error) toast({ title: 'Error', description: error.message, variant: 'destructive' });
     else setCampaigns(data as Campaign[]);
     setLoading(false);
@@ -53,8 +54,10 @@ export default function ProspectCampaigns() {
       <div className="max-w-5xl mx-auto px-4 py-6">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-xl font-bold text-gray-900">Campaigns</h1>
-            <p className="text-sm text-gray-500 mt-0.5">{campaigns.length} campaign{campaigns.length !== 1 ? 's' : ''}</p>
+            <h1 className="text-xl font-bold text-gray-900">Email Campaigns</h1>
+            <p className="text-sm text-gray-500 mt-0.5">
+              {campaigns.length} campaign{campaigns.length !== 1 ? 's' : ''} · WhatsApp campaigns are on the Bulk WhatsApp page
+            </p>
           </div>
           <Button onClick={() => navigate('/prospect/campaigns/new')} size="lg">
             <Plus className="h-5 w-5 mr-2" /> New Campaign
