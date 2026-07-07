@@ -89,6 +89,14 @@ export default function ProspectBulkWhatsApp() {
   const [engLoading, setEngLoading] = useState(false);
   const [engHasMore, setEngHasMore] = useState(false);
   const [exporting, setExporting] = useState(false);
+
+  // Not-on-WhatsApp exclusion upload
+  const [exclCount, setExclCount] = useState<number | null>(null);
+  const [exclParsed, setExclParsed] = useState<string[] | null>(null);
+  const [exclFileName, setExclFileName] = useState('');
+  const [exclUploading, setExclUploading] = useState(false);
+  const [exclError, setExclError] = useState<string | null>(null);
+  const [exclResult, setExclResult] = useState<{ flagged: number; pending_skipped: number } | null>(null);
   const [templateName, setTemplateName] = useState('');
   const [confirmed, setConfirmed] = useState(false);
   const [sending, setSending] = useState(false);
@@ -120,6 +128,55 @@ export default function ProspectBulkWhatsApp() {
   }, []);
 
   useEffect(() => { fetchCampaigns(); }, [fetchCampaigns]);
+
+  useEffect(() => {
+    supabase.rpc('count_not_on_whatsapp').then(({ data }) => setExclCount((data as number) ?? null));
+  }, []);
+
+  // Pull every 10–12 digit run out of the file, normalise to Indian 10-digit mobiles
+  const parseExclNumbers = (text: string): string[] => {
+    const found = text.match(/\d{10,12}/g) ?? [];
+    const out = new Set<string>();
+    for (const raw of found) {
+      let n = raw;
+      if (n.length === 12 && n.startsWith('91')) n = n.slice(2);
+      if (n.length === 11 && n.startsWith('0')) n = n.slice(1);
+      if (n.length === 10 && /^[6-9]/.test(n)) out.add(n);
+    }
+    return [...out];
+  };
+
+  const onExclFile = async (file: File) => {
+    setExclError(null); setExclResult(null);
+    const text = await file.text();
+    setExclFileName(file.name);
+    setExclParsed(parseExclNumbers(text));
+  };
+
+  const flagExcluded = async () => {
+    if (!exclParsed?.length) return;
+    setExclUploading(true); setExclError(null);
+    try {
+      const totals = { flagged: 0, pending_skipped: 0 };
+      for (let i = 0; i < exclParsed.length; i += 10000) {
+        const { data, error } = await supabase.rpc('mark_not_on_whatsapp', {
+          p_numbers: exclParsed.slice(i, i + 10000),
+        });
+        if (error) throw error;
+        const r = data as { flagged: number; pending_skipped: number };
+        totals.flagged += r.flagged;
+        totals.pending_skipped += r.pending_skipped;
+      }
+      setExclResult(totals);
+      setExclParsed(null); setExclFileName('');
+      const { data: cnt } = await supabase.rpc('count_not_on_whatsapp');
+      setExclCount((cnt as number) ?? null);
+    } catch (e: any) {
+      setExclError(e.message);
+    } finally {
+      setExclUploading(false);
+    }
+  };
 
   const refreshStats = useCallback(async (campaignId: string) => {
     const [{ data }, { data: ds }] = await Promise.all([
@@ -929,11 +986,58 @@ export default function ProspectBulkWhatsApp() {
           </div>
         )}
 
-        {/* Non-WA numbers placeholder */}
-        {!loadingList && campaigns.length > 0 && (
-          <div className="bg-gray-50 border border-dashed border-gray-200 rounded-xl p-4 text-sm text-gray-500">
-            <p className="font-medium text-gray-600 mb-1">📋 Non-WhatsApp number filtering</p>
-            Once you get the exclusion list from AskEVA, share it here — numbers will be flagged and excluded from future campaigns automatically.
+        {/* Non-WA numbers exclusion upload */}
+        {!loadingList && (
+          <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="font-medium text-gray-700 text-sm">📋 Non-WhatsApp number exclusion</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Upload a campaign result file (CSV/TXT from AskEVA) — the numbers in it are flagged as
+                  not on WhatsApp and excluded from all future campaign audiences.
+                  {exclCount !== null && (
+                    <> Currently excluded: <span className="font-semibold text-gray-600">{exclCount.toLocaleString()}</span> schools.</>
+                  )}
+                </p>
+              </div>
+              <label className="flex-shrink-0 inline-flex items-center px-3 py-1.5 rounded-lg border border-indigo-200 text-indigo-700 text-xs font-medium hover:bg-indigo-50 cursor-pointer transition-colors">
+                <input
+                  type="file"
+                  accept=".csv,.txt,.tsv"
+                  className="hidden"
+                  onChange={e => { const f = e.target.files?.[0]; if (f) onExclFile(f); e.target.value = ''; }}
+                />
+                Upload result file
+              </label>
+            </div>
+
+            {exclParsed && (
+              exclParsed.length > 0 ? (
+                <div className="flex items-center gap-3 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                  <p className="text-xs text-amber-800 flex-1">
+                    <span className="font-medium">{exclFileName}</span>: found{' '}
+                    <b>{exclParsed.length.toLocaleString()}</b> unique valid mobile numbers.
+                    Flag them as not on WhatsApp?
+                  </p>
+                  <Button size="sm" onClick={flagExcluded} disabled={exclUploading} className="h-7 text-xs">
+                    {exclUploading ? <><RefreshCw className="h-3 w-3 mr-1 animate-spin" />Flagging…</> : 'Flag & Exclude'}
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => { setExclParsed(null); setExclFileName(''); }}>
+                    Cancel
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-xs text-red-500">{exclFileName}: no valid mobile numbers found in this file.</p>
+              )
+            )}
+            {exclError && <p className="text-xs text-red-500">{exclError}</p>}
+            {exclResult && (
+              <p className="text-xs text-green-700 bg-green-50 rounded-lg px-3 py-2">
+                ✓ {exclResult.flagged.toLocaleString()} school{exclResult.flagged === 1 ? '' : 's'} flagged as not on WhatsApp
+                {exclResult.pending_skipped > 0 && <>; {exclResult.pending_skipped.toLocaleString()} pending sends in open campaigns were skipped</>}.
+                Future campaign audiences exclude them automatically. Numbers not matching any prospect school are ignored.
+              </p>
+            )}
           </div>
         )}
       </div>

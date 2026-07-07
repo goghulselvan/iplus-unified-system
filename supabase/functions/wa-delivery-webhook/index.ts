@@ -2,6 +2,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // Meta error codes that mean "recipient got too many marketing messages today"
 const FREQUENCY_CAP_CODES = new Set([131049, 130472]);
+// Meta error code: message undeliverable — recipient not on WhatsApp
+const NOT_ON_WHATSAPP_CODE = 131026;
 
 function nextSevenAmIST(): string {
   const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000; // +5:30
@@ -94,11 +96,19 @@ Deno.serve(async (req: Request) => {
 
           const { data: row } = await supabase
             .from("campaign_schools")
-            .select("id, campaign_id")
+            .select("id, campaign_id, prospect_school_id")
             .eq("wamid", wamid)
             .maybeSingle();
 
           if (!row) { processed.push(`unknown_wamid:${wamid}`); continue; }
+
+          // Number not on WhatsApp — flag the prospect so future audiences exclude it
+          const notOnWa = errors.some((e: any) => Number(e.code) === NOT_ON_WHATSAPP_CODE);
+          if (notOnWa && row.prospect_school_id) {
+            await supabase.from("prospect_schools")
+              .update({ not_on_whatsapp: true })
+              .eq("id", row.prospect_school_id);
+          }
 
           if (isFreqCap) {
             // Reset school to pending so it gets picked up again
