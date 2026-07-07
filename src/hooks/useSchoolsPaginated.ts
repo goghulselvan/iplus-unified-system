@@ -416,32 +416,27 @@ export const useSchoolsPaginated = (scopeProjectId?: string) => {
 
   const deleteSchool = async (id: string) => {
     try {
-      const { data: schoolRow } = await supabase
-        .from('schools')
-        .select('prospect_school_id')
-        .eq('id', id)
-        .maybeSingle();
+      if (!scopeProjectId) throw new Error('No active project selected');
 
-      const { error } = await supabase
-        .from('schools')
-        .delete()
-        .eq('id', id);
+      // Project-scoped: removes this project's data only; the school row is
+      // deleted only when no other project references it. Prospect is reset
+      // to uncontacted either way. All done atomically server-side.
+      const { data, error } = await supabase.rpc('delete_school_from_project', {
+        p_school_id: id,
+        p_project_id: scopeProjectId,
+      });
 
       if (error) throw error;
+      if (data === 'not_found') throw new Error('School not found');
 
-      if (schoolRow?.prospect_school_id) {
-        await supabase
-          .from('prospect_schools')
-          .update({ stage: 'uncontacted', linked_to_crm: false })
-          .eq('id', schoolRow.prospect_school_id);
-      }
-      
       setSchools(prev => prev.filter(school => school.id !== id));
       setTotalCount(prev => Math.max(0, prev - 1));
-      
+
       toast({
         title: 'Success',
-        description: 'School deleted successfully',
+        description: data === 'removed_from_project'
+          ? 'School removed from this project (past project history preserved)'
+          : 'School deleted successfully',
       });
       return { error: null };
     } catch (error: any) {
