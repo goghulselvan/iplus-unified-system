@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Label } from '@/components/ui/label';
 import { Search, X, Mail, Phone, Globe, Building2, CheckCircle, Star, History, Upload, Download, Loader2, Send, Eye, EyeOff, PhoneCall, PhoneOff, Mic } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useActiveProject } from '@/hooks/useOlympiadProjects';
@@ -65,6 +67,13 @@ export default function ProspectSchoolsPage() {
   type InterestNotif = { schoolId: string; phone: string | null; email: string | null; name: string };
   const [interestNotif, setInterestNotif] = useState<InterestNotif | null>(null);
   const [notifSending, setNotifSending] = useState(false);
+
+  // E-Brochure state
+  const [ebrochureOpen, setEbrochureOpen] = useState(false);
+  const [ebrochurePhoneMode, setEbrochurePhoneMode] = useState<'mobile' | 'manual'>('mobile');
+  const [ebrochureManual, setEbrochureManual] = useState('');
+  const [ebrochureSaveMobile, setEbrochureSaveMobile] = useState(false);
+  const [ebrochureSending, setEbrochureSending] = useState(false);
 
   const isSuperAdmin = profile?.role === 'superadmin';
 
@@ -306,6 +315,57 @@ export default function ProspectSchoolsPage() {
       toast({ title: 'Call failed', description: e.message, variant: 'destructive' });
     } finally {
       setCalling(false);
+    }
+  };
+
+  const openEbrochureDialog = () => {
+    if (!selected) return;
+    setEbrochurePhoneMode(selected.mobile ? 'mobile' : 'manual');
+    setEbrochureManual('');
+    setEbrochureSaveMobile(false);
+    setEbrochureOpen(true);
+  };
+
+  const handleSendEbrochure = async () => {
+    if (!selected) return;
+    const phone = ebrochurePhoneMode === 'mobile' ? selected.mobile : ebrochureManual;
+    if (!phone || phone.replace(/\D/g, '').length < 10) {
+      toast({ title: 'Error', description: 'Please enter or select a valid phone number', variant: 'destructive' });
+      return;
+    }
+    setEbrochureSending(true);
+    try {
+      const res = await supabase.functions.invoke('send-ebrochure', {
+        body: {
+          prospectSchoolId: selected.id,
+          phone,
+          schoolName: selected.school_name,
+          district: selected.district,
+          state: selected.state,
+        },
+      });
+      if (res.error) {
+        const body = await (res.error as any).context?.json?.().catch(() => null);
+        throw new Error(body?.error || res.error.message);
+      }
+      if (!res.data?.success) throw new Error(res.data?.error || 'Send failed');
+      toast({ title: 'E-Brochure sent!', description: `Sent to ${phone}` });
+      if (ebrochurePhoneMode === 'manual' && ebrochureSaveMobile) {
+        const digits = phone.replace(/\D/g, '').slice(-10);
+        const { error } = await supabase.from('prospect_schools').update({ mobile: digits }).eq('id', selected.id);
+        if (!error) {
+          const updated = { ...selected, mobile: digits };
+          setSelected(updated);
+          setSchools(prev => prev.map(s => s.id === selected.id ? updated : s));
+        }
+      }
+      setEbrochureOpen(false);
+      setEbrochureManual('');
+      setEbrochureSaveMobile(false);
+    } catch (e: any) {
+      toast({ title: 'Send failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setEbrochureSending(false);
     }
   };
 
@@ -758,6 +818,15 @@ export default function ProspectSchoolsPage() {
                   )}
                 </div>
 
+                {/* Send E-Brochure — always fetches the active project's brochure */}
+                <button
+                  onClick={openEbrochureDialog}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 text-sm font-semibold hover:bg-indigo-100 transition-colors"
+                >
+                  <Send className="h-4 w-4" />
+                  Send E-Brochure
+                </button>
+
                 {/* Call history */}
                 {callLogs.length > 0 && (
                   <div className="space-y-1.5">
@@ -922,6 +991,66 @@ export default function ProspectSchoolsPage() {
               </Button>
               <Button variant="outline" onClick={() => setCallDialogOpen(false)} disabled={calling}>
                 Cancel
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* E-Brochure send dialog */}
+      <Dialog open={ebrochureOpen} onOpenChange={open => { if (!ebrochureSending) setEbrochureOpen(open); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Send className="h-5 w-5 text-indigo-600" />
+              Send E-Brochure via WhatsApp
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <p className="text-xs text-gray-500">
+              Sends the <span className="font-semibold text-gray-700">{activeProject?.project_name ?? 'active project'}</span> brochure to <span className="font-semibold text-gray-700">{selected?.school_name}</span>.
+            </p>
+            <div>
+              <Label className="text-sm font-medium mb-2 block">Select WhatsApp number</Label>
+              <RadioGroup value={ebrochurePhoneMode} onValueChange={(v) => setEbrochurePhoneMode(v as 'mobile' | 'manual')} className="space-y-2">
+                <div className="flex items-center gap-3 border rounded-md px-3 py-2">
+                  <RadioGroupItem value="mobile" id="peb_mobile" disabled={!selected?.mobile} />
+                  <Label htmlFor="peb_mobile" className="cursor-pointer flex-1">
+                    <span className="text-xs text-muted-foreground">School Mobile</span>
+                    <p className="font-medium">{selected?.mobile || <span className="text-muted-foreground italic">Not set</span>}</p>
+                  </Label>
+                </div>
+                <div className="flex items-center gap-3 border rounded-md px-3 py-2">
+                  <RadioGroupItem value="manual" id="peb_manual" />
+                  <Label htmlFor="peb_manual" className="cursor-pointer">Enter manually</Label>
+                </div>
+              </RadioGroup>
+            </div>
+
+            {ebrochurePhoneMode === 'manual' && (
+              <div className="space-y-3 border-l-2 border-indigo-400 pl-3">
+                <div>
+                  <Label htmlFor="peb_number" className="text-xs">Phone Number</Label>
+                  <Input
+                    id="peb_number"
+                    value={ebrochureManual}
+                    onChange={e => setEbrochureManual(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    placeholder="10-digit mobile number"
+                    className="mt-1"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <input type="checkbox" id="peb_save" checked={ebrochureSaveMobile} onChange={e => setEbrochureSaveMobile(e.target.checked)} className="rounded" />
+                  <Label htmlFor="peb_save" className="text-xs cursor-pointer">Save this number as school's mobile</Label>
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-2 pt-2">
+              <Button variant="outline" className="flex-1" onClick={() => setEbrochureOpen(false)} disabled={ebrochureSending}>Cancel</Button>
+              <Button className="flex-1" onClick={handleSendEbrochure} disabled={ebrochureSending}>
+                {ebrochureSending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
+                {ebrochureSending ? 'Sending…' : 'Send E-Brochure'}
               </Button>
             </div>
           </div>

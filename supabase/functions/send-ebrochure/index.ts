@@ -38,8 +38,9 @@ serve(async (req) => {
       });
     }
 
-    const { schoolId, phone, schoolName, district, state, saveContact, contactName, contactRole } = await req.json() as {
-      schoolId: string;
+    const { schoolId, prospectSchoolId, phone, schoolName, district, state, saveContact, contactName, contactRole } = await req.json() as {
+      schoolId?: string;
+      prospectSchoolId?: string;
       phone: string;
       schoolName: string;
       district?: string;
@@ -49,8 +50,8 @@ serve(async (req) => {
       contactRole?: string;
     };
 
-    if (!schoolId || !phone || !schoolName) {
-      return new Response(JSON.stringify({ success: false, error: "schoolId, phone, and schoolName are required" }), {
+    if ((!schoolId && !prospectSchoolId) || !phone || !schoolName) {
+      return new Response(JSON.stringify({ success: false, error: "schoolId or prospectSchoolId, phone, and schoolName are required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -120,41 +121,51 @@ serve(async (req) => {
       });
     }
 
-    // Update brochure_delivery_status: NULL/Digital Sent → Digital Sent; Physical Only → Both Physical & Digital
-    const { data: schoolStatus } = await supabaseAdmin
-      .from("schools").select("brochure_delivery_status").eq("id", schoolId).single();
-    const current = schoolStatus?.brochure_delivery_status;
-    const newStatus = current === "Physical Only" ? "Both Physical & Digital" : "Digital Sent";
-    await supabaseAdmin.from("schools").update({ brochure_delivery_status: newStatus }).eq("id", schoolId);
+    // Resolve CRM school id — direct, or via the prospect link when sent from the prospect module
+    let effectiveSchoolId = schoolId ?? null;
+    if (!effectiveSchoolId && prospectSchoolId) {
+      const { data: linked } = await supabaseAdmin
+        .from("schools").select("id").eq("prospect_school_id", prospectSchoolId).maybeSingle();
+      effectiveSchoolId = linked?.id ?? null;
+    }
 
-    // Log communication
-    await supabaseAdmin.from("communications").insert({
-      school_id: schoolId,
-      communication_type: "WhatsApp",
-      message: `E-Brochure sent to ${phone}${contactName ? ` (${contactName})` : ""}`,
-      contacted_person_name: contactName ?? null,
-      contacted_mobile_no: phone,
-      user_id: user.id,
-      project_id: project.id ?? null,
-    }).then(({ error }) => { if (error) console.error("Failed to log communication:", error); });
+    if (effectiveSchoolId) {
+      // Update brochure_delivery_status: NULL/Digital Sent → Digital Sent; Physical Only → Both Physical & Digital
+      const { data: schoolStatus } = await supabaseAdmin
+        .from("schools").select("brochure_delivery_status").eq("id", effectiveSchoolId).single();
+      const current = schoolStatus?.brochure_delivery_status;
+      const newStatus = current === "Physical Only" ? "Both Physical & Digital" : "Digital Sent";
+      await supabaseAdmin.from("schools").update({ brochure_delivery_status: newStatus }).eq("id", effectiveSchoolId);
 
-    // Save contact to school's additional_contacts if requested
-    if (saveContact && contactName) {
-      const { data: schoolData } = await supabaseAdmin
-        .from("schools")
-        .select("additional_contacts")
-        .eq("id", schoolId)
-        .single();
+      // Log communication
+      await supabaseAdmin.from("communications").insert({
+        school_id: effectiveSchoolId,
+        communication_type: "WhatsApp",
+        message: `E-Brochure sent to ${phone}${contactName ? ` (${contactName})` : ""}`,
+        contacted_person_name: contactName ?? null,
+        contacted_mobile_no: phone,
+        user_id: user.id,
+        project_id: project.id ?? null,
+      }).then(({ error }) => { if (error) console.error("Failed to log communication:", error); });
 
-      const existing: any[] = schoolData?.additional_contacts ?? [];
-      const alreadyExists = existing.some((c: any) => c.mobile === phone);
-
-      if (!alreadyExists && existing.length < 5) {
-        const updated = [...existing, { name: contactName, mobile: phone, role: contactRole ?? "" }];
-        await supabaseAdmin
+      // Save contact to school's additional_contacts if requested
+      if (saveContact && contactName) {
+        const { data: schoolData } = await supabaseAdmin
           .from("schools")
-          .update({ additional_contacts: updated })
-          .eq("id", schoolId);
+          .select("additional_contacts")
+          .eq("id", effectiveSchoolId)
+          .single();
+
+        const existing: any[] = schoolData?.additional_contacts ?? [];
+        const alreadyExists = existing.some((c: any) => c.mobile === phone);
+
+        if (!alreadyExists && existing.length < 5) {
+          const updated = [...existing, { name: contactName, mobile: phone, role: contactRole ?? "" }];
+          await supabaseAdmin
+            .from("schools")
+            .update({ additional_contacts: updated })
+            .eq("id", effectiveSchoolId);
+        }
       }
     }
 
