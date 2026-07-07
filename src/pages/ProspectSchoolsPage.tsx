@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Search, X, Mail, Phone, Globe, Building2, CheckCircle, Star, History, Upload, Download, Loader2, Send, Eye, EyeOff, PhoneCall, PhoneOff, Mic } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -15,6 +15,8 @@ import { useActiveProject } from '@/hooks/useOlympiadProjects';
 import { useAuth } from '@/hooks/useAuth';
 import ProspectUploadSchools from '@/components/prospect/ProspectUploadSchools';
 import { toCSV } from '@/utils/csvExport';
+
+type ProspectContact = { name: string; role: string; mobile: string };
 
 type ProspectSchool = {
   id: string; ss_no: number; udise_code: string; school_name: string;
@@ -26,7 +28,11 @@ type ProspectSchool = {
   principal_name: string | null; address: string | null; pincode: string | null;
   school_location: string | null; linked_to_crm: boolean; has_history: boolean;
   is_active: boolean | null;
+  additional_contacts: ProspectContact[] | null;
 };
+
+const CONTACT_ROLES = ['Principal', 'School', 'Coordinator', 'Other'];
+const MAX_CONTACTS = 5;
 
 const STAGE_COLORS: Record<string, string> = {
   uncontacted: 'bg-gray-100 text-gray-500',
@@ -53,7 +59,7 @@ export default function ProspectSchoolsPage() {
   const [uploadOpen, setUploadOpen]   = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [editingContact, setEditingContact] = useState(false);
-  const [contactForm, setContactForm] = useState({ email: '', mobile: '', website: '', principal_name: '' });
+  const [contactForm, setContactForm] = useState<{ email: string; mobile: string; website: string; principal_name: string; contacts: ProspectContact[] }>({ email: '', mobile: '', website: '', principal_name: '', contacts: [] });
   const [savingContact, setSavingContact] = useState(false);
 
   // Click2Call state
@@ -68,12 +74,22 @@ export default function ProspectSchoolsPage() {
   const [interestNotif, setInterestNotif] = useState<InterestNotif | null>(null);
   const [notifSending, setNotifSending] = useState(false);
 
-  // E-Brochure state
+  // E-Brochure state — checkbox multi-select, sends to every checked number
   const [ebrochureOpen, setEbrochureOpen] = useState(false);
-  const [ebrochurePhoneMode, setEbrochurePhoneMode] = useState<'mobile' | 'manual'>('mobile');
+  const [ebrochureChecked, setEbrochureChecked] = useState<Set<string>>(new Set());
   const [ebrochureManual, setEbrochureManual] = useState('');
+  const [ebrochureManualName, setEbrochureManualName] = useState('');
+  const [ebrochureManualRole, setEbrochureManualRole] = useState('');
   const [ebrochureSaveMobile, setEbrochureSaveMobile] = useState(false);
   const [ebrochureSending, setEbrochureSending] = useState(false);
+
+  const toggleEbrochureNumber = (key: string) => {
+    setEbrochureChecked(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  };
 
   const isSuperAdmin = profile?.role === 'superadmin';
 
@@ -247,6 +263,7 @@ export default function ProspectSchoolsPage() {
       mobile:         selected.mobile         ?? '',
       website:        selected.website        ?? '',
       principal_name: selected.principal_name ?? '',
+      contacts:       (selected.additional_contacts ?? []).map(c => ({ name: c.name ?? '', role: c.role ?? '', mobile: c.mobile ?? '' })),
     });
     setEditingContact(true);
   };
@@ -259,6 +276,7 @@ export default function ProspectSchoolsPage() {
       mobile:         contactForm.mobile         || null,
       website:        contactForm.website        || null,
       principal_name: contactForm.principal_name || null,
+      additional_contacts: contactForm.contacts.filter(c => c.mobile.trim()),
     };
     const { error } = await supabase.from('prospect_schools').update(updates).eq('id', selected.id);
     if (error) {
@@ -320,17 +338,38 @@ export default function ProspectSchoolsPage() {
 
   const openEbrochureDialog = () => {
     if (!selected) return;
-    setEbrochurePhoneMode(selected.mobile ? 'mobile' : 'manual');
+    setEbrochureChecked(new Set(selected.mobile ? ['mobile'] : []));
     setEbrochureManual('');
+    setEbrochureManualName('');
+    setEbrochureManualRole('');
     setEbrochureSaveMobile(false);
     setEbrochureOpen(true);
   };
 
   const handleSendEbrochure = async () => {
     if (!selected) return;
-    const phone = ebrochurePhoneMode === 'mobile' ? selected.mobile : ebrochureManual;
-    if (!phone || phone.replace(/\D/g, '').length < 10) {
-      toast({ title: 'Error', description: 'Please enter or select a valid phone number', variant: 'destructive' });
+    const recipients: { phone: string; contactName?: string; isManual?: boolean }[] = [];
+    if (ebrochureChecked.has('mobile') && selected.mobile) recipients.push({ phone: selected.mobile });
+    (selected.additional_contacts ?? []).forEach((c, i) => {
+      if (ebrochureChecked.has(`contact_${i}`) && c.mobile) recipients.push({ phone: c.mobile, contactName: c.name });
+    });
+    if (ebrochureChecked.has('manual')) {
+      if (ebrochureManual.replace(/\D/g, '').length < 10) {
+        toast({ title: 'Error', description: 'Please enter a valid 10-digit manual phone number', variant: 'destructive' });
+        return;
+      }
+      recipients.push({ phone: ebrochureManual, contactName: ebrochureManualName || undefined, isManual: true });
+    }
+    // Dedupe by last 10 digits
+    const seen = new Set<string>();
+    const unique = recipients.filter(r => {
+      const d = r.phone.replace(/\D/g, '').slice(-10);
+      if (seen.has(d)) return false;
+      seen.add(d);
+      return true;
+    });
+    if (unique.length === 0) {
+      toast({ title: 'Error', description: 'Select at least one phone number', variant: 'destructive' });
       return;
     }
     setEbrochureSending(true);
@@ -341,34 +380,72 @@ export default function ProspectSchoolsPage() {
       if (!session) {
         throw new Error('Your login session has expired — please refresh the page and log in again.');
       }
-      const res = await supabase.functions.invoke('send-ebrochure', {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-        body: {
-          prospectSchoolId: selected.id,
-          phone,
-          schoolName: selected.school_name,
-          district: selected.district,
-          state: selected.state,
-        },
-      });
-      if (res.error) {
-        const body = await (res.error as any).context?.json?.().catch(() => null);
-        throw new Error(body?.error || res.error.message);
-      }
-      if (!res.data?.success) throw new Error(res.data?.error || 'Send failed');
-      toast({ title: 'E-Brochure sent!', description: `Sent to ${phone}` });
-      if (ebrochurePhoneMode === 'manual' && ebrochureSaveMobile) {
-        const digits = phone.replace(/\D/g, '').slice(-10);
-        const { error } = await supabase.from('prospect_schools').update({ mobile: digits }).eq('id', selected.id);
-        if (!error) {
-          const updated = { ...selected, mobile: digits };
-          setSelected(updated);
-          setSchools(prev => prev.map(s => s.id === selected.id ? updated : s));
+      let sentCount = 0;
+      const failed: string[] = [];
+      let firstError = '';
+      for (const r of unique) {
+        try {
+          const res = await supabase.functions.invoke('send-ebrochure', {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+            body: {
+              prospectSchoolId: selected.id,
+              phone: r.phone,
+              schoolName: selected.school_name,
+              district: selected.district,
+              state: selected.state,
+              contactName: r.contactName,
+            },
+          });
+          if (res.error) {
+            const body = await (res.error as any).context?.json?.().catch(() => null);
+            throw new Error(body?.error || res.error.message);
+          }
+          if (!res.data?.success) throw new Error(res.data?.error || 'Send failed');
+          sentCount++;
+        } catch (e: any) {
+          failed.push(r.phone);
+          if (!firstError) firstError = e.message;
         }
       }
-      setEbrochureOpen(false);
-      setEbrochureManual('');
-      setEbrochureSaveMobile(false);
+      if (failed.length === 0) {
+        toast({ title: 'E-Brochure sent!', description: sentCount === 1 ? `Sent to ${unique[0].phone}` : `Sent to ${sentCount} numbers` });
+      } else {
+        toast({
+          title: sentCount > 0 ? 'Partially sent' : 'Send failed',
+          description: `${sentCount} sent · failed for ${failed.join(', ')} — ${firstError}`,
+          variant: 'destructive',
+        });
+      }
+      // Save the manual number to the school's contacts if requested
+      const manualSent = ebrochureChecked.has('manual') && !failed.includes(ebrochureManual);
+      if (manualSent && ebrochureSaveMobile) {
+        const digits = ebrochureManual.replace(/\D/g, '').slice(-10);
+        let updated: ProspectSchool | null = null;
+        if (!selected.mobile) {
+          const { error } = await supabase.from('prospect_schools').update({ mobile: digits }).eq('id', selected.id);
+          if (!error) updated = { ...selected, mobile: digits };
+        } else {
+          const existing = selected.additional_contacts ?? [];
+          const isDup = existing.some(c => c.mobile.replace(/\D/g, '').slice(-10) === digits) || selected.mobile.replace(/\D/g, '').slice(-10) === digits;
+          if (!isDup && existing.length < MAX_CONTACTS) {
+            const contacts = [...existing, { name: ebrochureManualName, role: ebrochureManualRole, mobile: digits }];
+            const { error } = await supabase.from('prospect_schools').update({ additional_contacts: contacts }).eq('id', selected.id);
+            if (!error) updated = { ...selected, additional_contacts: contacts };
+          }
+        }
+        if (updated) {
+          setSelected(updated);
+          setSchools(prev => prev.map(s => s.id === updated!.id ? updated! : s));
+        }
+      }
+      if (sentCount > 0) {
+        setEbrochureOpen(false);
+        setEbrochureManual('');
+        setEbrochureManualName('');
+        setEbrochureManualRole('');
+        setEbrochureSaveMobile(false);
+        setEbrochureChecked(new Set());
+      }
     } catch (e: any) {
       toast({ title: 'Send failed', description: e.message, variant: 'destructive' });
     } finally {
@@ -778,6 +855,56 @@ export default function ProspectSchoolsPage() {
                         onChange={e => setContactForm(f => ({ ...f, principal_name: e.target.value }))}
                         className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-400"
                       />
+
+                      {/* Additional numbers — Principal / School / Coordinator etc., up to 5 */}
+                      <div className="pt-1 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold text-gray-400">More Numbers ({contactForm.contacts.length}/{MAX_CONTACTS})</span>
+                          {contactForm.contacts.length < MAX_CONTACTS && (
+                            <button
+                              onClick={() => setContactForm(f => ({ ...f, contacts: [...f.contacts, { name: '', role: '', mobile: '' }] }))}
+                              className="text-xs text-indigo-600 hover:underline"
+                            >
+                              + Add number
+                            </button>
+                          )}
+                        </div>
+                        {contactForm.contacts.map((c, i) => (
+                          <div key={i} className="border border-gray-100 rounded p-2 space-y-1.5">
+                            <div className="flex items-center gap-1.5">
+                              <select
+                                value={c.role}
+                                onChange={e => setContactForm(f => ({ ...f, contacts: f.contacts.map((x, j) => j === i ? { ...x, role: e.target.value } : x) }))}
+                                className="text-xs border border-gray-200 rounded px-1.5 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                              >
+                                <option value="">Role…</option>
+                                {CONTACT_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                              </select>
+                              <input
+                                type="text"
+                                placeholder="Name"
+                                value={c.name}
+                                onChange={e => setContactForm(f => ({ ...f, contacts: f.contacts.map((x, j) => j === i ? { ...x, name: e.target.value } : x) }))}
+                                className="flex-1 min-w-0 text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                              />
+                              <button
+                                onClick={() => setContactForm(f => ({ ...f, contacts: f.contacts.filter((_, j) => j !== i) }))}
+                                title="Remove"
+                              >
+                                <X className="h-3.5 w-3.5 text-gray-400 hover:text-red-500" />
+                              </button>
+                            </div>
+                            <input
+                              type="tel"
+                              placeholder="Mobile (10 digits)"
+                              value={c.mobile}
+                              onChange={e => setContactForm(f => ({ ...f, contacts: f.contacts.map((x, j) => j === i ? { ...x, mobile: e.target.value.replace(/\D/g, '').slice(0, 10) } : x) }))}
+                              className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                            />
+                          </div>
+                        ))}
+                      </div>
+
                       <div className="flex gap-2 pt-1">
                         <button onClick={saveContact} disabled={savingContact}
                           className="flex-1 text-xs bg-indigo-600 text-white rounded px-3 py-1.5 hover:bg-indigo-700 disabled:opacity-50">
@@ -818,7 +945,14 @@ export default function ProspectSchoolsPage() {
                       {selected.principal_name ? (
                         <p className="text-gray-600 text-xs">Principal: <span className="font-medium text-gray-800">{selected.principal_name}</span></p>
                       ) : null}
-                      {!selected.email && !selected.mobile && !selected.principal_name && (
+                      {(selected.additional_contacts ?? []).map((c, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <Phone className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
+                          <a href={`tel:${c.mobile}`} className="text-gray-700">{c.mobile}</a>
+                          <span className="text-xs text-gray-400 truncate">{[c.role, c.name].filter(Boolean).join(' — ')}</span>
+                        </div>
+                      ))}
+                      {!selected.email && !selected.mobile && !selected.principal_name && !(selected.additional_contacts ?? []).length && (
                         <p className="text-xs text-gray-400 italic">No contact info — click Add to fill in.</p>
                       )}
                     </div>
@@ -1018,23 +1152,32 @@ export default function ProspectSchoolsPage() {
               Sends the <span className="font-semibold text-gray-700">{activeProject?.project_name ?? 'active project'}</span> brochure to <span className="font-semibold text-gray-700">{selected?.school_name}</span>.
             </p>
             <div>
-              <Label className="text-sm font-medium mb-2 block">Select WhatsApp number</Label>
-              <RadioGroup value={ebrochurePhoneMode} onValueChange={(v) => setEbrochurePhoneMode(v as 'mobile' | 'manual')} className="space-y-2">
+              <Label className="text-sm font-medium mb-2 block">Select WhatsApp numbers (sent to all checked)</Label>
+              <div className="space-y-2">
                 <div className="flex items-center gap-3 border rounded-md px-3 py-2">
-                  <RadioGroupItem value="mobile" id="peb_mobile" disabled={!selected?.mobile} />
+                  <Checkbox checked={ebrochureChecked.has('mobile')} onCheckedChange={() => toggleEbrochureNumber('mobile')} id="peb_mobile" disabled={!selected?.mobile} />
                   <Label htmlFor="peb_mobile" className="cursor-pointer flex-1">
                     <span className="text-xs text-muted-foreground">School Mobile</span>
                     <p className="font-medium">{selected?.mobile || <span className="text-muted-foreground italic">Not set</span>}</p>
                   </Label>
                 </div>
+                {(selected?.additional_contacts ?? []).map((c, i) => (
+                  <div key={i} className="flex items-center gap-3 border rounded-md px-3 py-2">
+                    <Checkbox checked={ebrochureChecked.has(`contact_${i}`)} onCheckedChange={() => toggleEbrochureNumber(`contact_${i}`)} id={`peb_c${i}`} disabled={!c.mobile} />
+                    <Label htmlFor={`peb_c${i}`} className="cursor-pointer flex-1">
+                      <span className="text-xs text-muted-foreground">{[c.role || 'Contact', c.name].filter(Boolean).join(' — ')}</span>
+                      <p className="font-medium">{c.mobile}</p>
+                    </Label>
+                  </div>
+                ))}
                 <div className="flex items-center gap-3 border rounded-md px-3 py-2">
-                  <RadioGroupItem value="manual" id="peb_manual" />
+                  <Checkbox checked={ebrochureChecked.has('manual')} onCheckedChange={() => toggleEbrochureNumber('manual')} id="peb_manual" />
                   <Label htmlFor="peb_manual" className="cursor-pointer">Enter manually</Label>
                 </div>
-              </RadioGroup>
+              </div>
             </div>
 
-            {ebrochurePhoneMode === 'manual' && (
+            {ebrochureChecked.has('manual') && (
               <div className="space-y-3 border-l-2 border-indigo-400 pl-3">
                 <div>
                   <Label htmlFor="peb_number" className="text-xs">Phone Number</Label>
@@ -1046,9 +1189,27 @@ export default function ProspectSchoolsPage() {
                     className="mt-1"
                   />
                 </div>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <Label htmlFor="peb_cname" className="text-xs">Name (optional)</Label>
+                    <Input id="peb_cname" value={ebrochureManualName} onChange={e => setEbrochureManualName(e.target.value)} placeholder="e.g., Principal Ravi" className="mt-1" />
+                  </div>
+                  <div className="w-32">
+                    <Label htmlFor="peb_crole" className="text-xs">Role (optional)</Label>
+                    <select
+                      id="peb_crole"
+                      value={ebrochureManualRole}
+                      onChange={e => setEbrochureManualRole(e.target.value)}
+                      className="mt-1 w-full h-10 text-sm border border-input rounded-md px-2 bg-background focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                    >
+                      <option value="">Role…</option>
+                      {CONTACT_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                  </div>
+                </div>
                 <div className="flex items-center gap-2">
                   <input type="checkbox" id="peb_save" checked={ebrochureSaveMobile} onChange={e => setEbrochureSaveMobile(e.target.checked)} className="rounded" />
-                  <Label htmlFor="peb_save" className="text-xs cursor-pointer">Save this number as school's mobile</Label>
+                  <Label htmlFor="peb_save" className="text-xs cursor-pointer">Save this number to school's contacts</Label>
                 </div>
               </div>
             )}

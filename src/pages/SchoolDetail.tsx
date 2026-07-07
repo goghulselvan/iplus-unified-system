@@ -20,7 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ArrowLeft, Calendar, Clock, MessageSquare, User, Phone, Mail, Edit, Save, X, Download, Bot, Send, Plus, Trash2, PhoneCall, Loader2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Checkbox } from '@/components/ui/checkbox';
 import { format } from 'date-fns';
 import WorkflowEditor from '@/components/workflow/WorkflowEditor';
 import ConsentFormManager from '@/components/consent/ConsentFormManager';
@@ -124,14 +124,22 @@ const SchoolDetail = () => {
     }
   };
 
-  // E-Brochure send dialog
+  // E-Brochure send dialog — checkbox multi-select, sends to every checked number
   const [ebrochureOpen, setEbrochureOpen] = useState(false);
-  const [ebrochurePhoneMode, setEbrochurePhoneMode] = useState<'mobile1' | 'mobile2' | 'manual'>('mobile1');
+  const [ebrochureChecked, setEbrochureChecked] = useState<Set<string>>(new Set());
   const [ebrochureManual, setEbrochureManual] = useState('');
   const [ebrochureContactName, setEbrochureContactName] = useState('');
   const [ebrochureContactRole, setEbrochureContactRole] = useState('');
   const [ebrochureSaveContact, setEbrochureSaveContact] = useState(false);
   const [ebrochureSending, setEbrochureSending] = useState(false);
+
+  const toggleEbrochureNumber = (key: string) => {
+    setEbrochureChecked(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  };
 
   // Fetch school data when component mounts or ID changes
   useEffect(() => {
@@ -396,16 +404,36 @@ const SchoolDetail = () => {
 
   const handleSendEbrochure = async () => {
     if (!school || !id) return;
-    let phone: string | null | undefined;
-    if (ebrochurePhoneMode === 'mobile1') phone = school.mobile1;
-    else if (ebrochurePhoneMode === 'mobile2') phone = school.mobile2;
-    else if (ebrochurePhoneMode === 'manual') phone = ebrochureManual;
-    else if (ebrochurePhoneMode.startsWith('contact_')) {
-      const idx = parseInt(ebrochurePhoneMode.split('_')[1]);
-      phone = (school as any).additional_contacts?.[idx]?.mobile;
+    const recipients: { phone: string; contactName?: string; contactRole?: string; isManual?: boolean }[] = [];
+    if (ebrochureChecked.has('mobile1') && school.mobile1) recipients.push({ phone: school.mobile1 });
+    if (ebrochureChecked.has('mobile2') && school.mobile2) recipients.push({ phone: school.mobile2 });
+    ((school as any).additional_contacts ?? []).forEach((c: any, i: number) => {
+      if (ebrochureChecked.has(`contact_${i}`) && c.mobile) {
+        recipients.push({ phone: c.mobile, contactName: c.name, contactRole: c.role });
+      }
+    });
+    if (ebrochureChecked.has('manual')) {
+      if (ebrochureManual.replace(/\D/g, '').length < 10) {
+        toast({ title: 'Error', description: 'Please enter a valid 10-digit manual phone number', variant: 'destructive' });
+        return;
+      }
+      recipients.push({
+        phone: ebrochureManual,
+        contactName: ebrochureContactName || undefined,
+        contactRole: ebrochureContactRole || undefined,
+        isManual: true,
+      });
     }
-    if (!phone) {
-      toast({ title: 'Error', description: 'Please enter or select a valid phone number', variant: 'destructive' });
+    // Dedupe by last 10 digits
+    const seen = new Set<string>();
+    const unique = recipients.filter(r => {
+      const d = r.phone.replace(/\D/g, '').slice(-10);
+      if (seen.has(d)) return false;
+      seen.add(d);
+      return true;
+    });
+    if (unique.length === 0) {
+      toast({ title: 'Error', description: 'Select at least one phone number', variant: 'destructive' });
       return;
     }
     setEbrochureSending(true);
@@ -414,34 +442,56 @@ const SchoolDetail = () => {
       if (!session) {
         throw new Error('Your login session has expired — please refresh the page and log in again.');
       }
-      const res = await supabase.functions.invoke('send-ebrochure', {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-        body: {
-          schoolId: id,
-          phone,
-          schoolName: school.school_name,
-          district: school.district,
-          state: school.state,
-          saveContact: ebrochureSaveContact && ebrochurePhoneMode === 'manual',
-          contactName: ebrochureContactName || undefined,
-          contactRole: ebrochureContactRole || undefined,
-        },
-      });
-      if (res.error) {
-        const body = await (res.error as any).context?.json?.().catch(() => null);
-        throw new Error(body?.error || res.error.message);
+      let sentCount = 0;
+      const failed: string[] = [];
+      let firstError = '';
+      for (const r of unique) {
+        try {
+          const res = await supabase.functions.invoke('send-ebrochure', {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+            body: {
+              schoolId: id,
+              phone: r.phone,
+              schoolName: school.school_name,
+              district: school.district,
+              state: school.state,
+              saveContact: ebrochureSaveContact && r.isManual,
+              contactName: r.contactName,
+              contactRole: r.contactRole,
+            },
+          });
+          if (res.error) {
+            const body = await (res.error as any).context?.json?.().catch(() => null);
+            throw new Error(body?.error || res.error.message);
+          }
+          if (!res.data?.success) throw new Error(res.data?.error || 'Send failed');
+          sentCount++;
+        } catch (err: any) {
+          failed.push(r.phone);
+          if (!firstError) firstError = err.message;
+        }
       }
-      if (!res.data?.success) throw new Error(res.data?.error || 'Send failed');
-      toast({ title: 'E-Brochure sent!', description: `Sent to ${phone}` });
-      setEbrochureOpen(false);
-      setEbrochureManual('');
-      setEbrochureContactName('');
-      setEbrochureContactRole('');
-      setEbrochureSaveContact(false);
-      // Refresh school to pick up updated additional_contacts
-      if (ebrochureSaveContact && ebrochurePhoneMode === 'manual') {
-        const { data } = await supabase.from('schools').select('*').eq('id', id).single();
-        if (data) setSchool(data as any);
+      if (failed.length === 0) {
+        toast({ title: 'E-Brochure sent!', description: sentCount === 1 ? `Sent to ${unique[0].phone}` : `Sent to ${sentCount} numbers` });
+      } else {
+        toast({
+          title: sentCount > 0 ? 'Partially sent' : 'Send failed',
+          description: `${sentCount} sent · failed for ${failed.join(', ')} — ${firstError}`,
+          variant: 'destructive',
+        });
+      }
+      if (sentCount > 0) {
+        setEbrochureOpen(false);
+        setEbrochureManual('');
+        setEbrochureContactName('');
+        setEbrochureContactRole('');
+        setEbrochureChecked(new Set());
+        // Refresh school to pick up updated additional_contacts
+        if (ebrochureSaveContact && ebrochureChecked.has('manual')) {
+          const { data } = await supabase.from('schools').select('*').eq('id', id).single();
+          if (data) setSchool(data as any);
+        }
+        setEbrochureSaveContact(false);
       }
     } catch (err: any) {
       toast({ title: 'Send failed', description: err.message, variant: 'destructive' });
@@ -632,7 +682,7 @@ const SchoolDetail = () => {
                 <Download className="h-4 w-4 mr-2" />
                 Export Ledger
               </Button>
-              <Button variant="default" onClick={() => setEbrochureOpen(true)}>
+              <Button variant="default" onClick={() => { setEbrochureChecked(new Set(school.mobile1 ? ['mobile1'] : [])); setEbrochureOpen(true); }}>
                 <Send className="h-4 w-4 mr-2" />
                 Send E-Brochure
               </Button>
@@ -651,17 +701,17 @@ const SchoolDetail = () => {
             </DialogHeader>
             <div className="space-y-4 pt-2">
               <div>
-                <Label className="text-sm font-medium mb-2 block">Select WhatsApp number</Label>
-                <RadioGroup value={ebrochurePhoneMode} onValueChange={(v) => setEbrochurePhoneMode(v as any)} className="space-y-2">
+                <Label className="text-sm font-medium mb-2 block">Select WhatsApp numbers (sent to all checked)</Label>
+                <div className="space-y-2">
                   <div className="flex items-center gap-3 border rounded-md px-3 py-2">
-                    <RadioGroupItem value="mobile1" id="eb_m1" />
+                    <Checkbox checked={ebrochureChecked.has('mobile1')} onCheckedChange={() => toggleEbrochureNumber('mobile1')} id="eb_m1" disabled={!school.mobile1} />
                     <Label htmlFor="eb_m1" className="cursor-pointer flex-1">
                       <span className="text-xs text-muted-foreground">Mobile 1</span>
                       <p className="font-medium">{school.mobile1 || <span className="text-muted-foreground italic">Not set</span>}</p>
                     </Label>
                   </div>
                   <div className="flex items-center gap-3 border rounded-md px-3 py-2">
-                    <RadioGroupItem value="mobile2" id="eb_m2" />
+                    <Checkbox checked={ebrochureChecked.has('mobile2')} onCheckedChange={() => toggleEbrochureNumber('mobile2')} id="eb_m2" disabled={!school.mobile2} />
                     <Label htmlFor="eb_m2" className="cursor-pointer flex-1">
                       <span className="text-xs text-muted-foreground">Mobile 2 (WhatsApp)</span>
                       <p className="font-medium">{school.mobile2 || <span className="text-muted-foreground italic">Not set</span>}</p>
@@ -669,7 +719,7 @@ const SchoolDetail = () => {
                   </div>
                   {(school as any).additional_contacts?.map((c: any, i: number) => (
                     <div key={i} className="flex items-center gap-3 border rounded-md px-3 py-2">
-                      <RadioGroupItem value={`contact_${i}`} id={`eb_c${i}`} />
+                      <Checkbox checked={ebrochureChecked.has(`contact_${i}`)} onCheckedChange={() => toggleEbrochureNumber(`contact_${i}`)} id={`eb_c${i}`} disabled={!c.mobile} />
                       <Label htmlFor={`eb_c${i}`} className="cursor-pointer flex-1">
                         <span className="text-xs text-muted-foreground">{c.role || 'Contact'} — {c.name}</span>
                         <p className="font-medium">{c.mobile}</p>
@@ -677,13 +727,13 @@ const SchoolDetail = () => {
                     </div>
                   ))}
                   <div className="flex items-center gap-3 border rounded-md px-3 py-2">
-                    <RadioGroupItem value="manual" id="eb_manual" />
+                    <Checkbox checked={ebrochureChecked.has('manual')} onCheckedChange={() => toggleEbrochureNumber('manual')} id="eb_manual" />
                     <Label htmlFor="eb_manual" className="cursor-pointer">Enter manually</Label>
                   </div>
-                </RadioGroup>
+                </div>
               </div>
 
-              {ebrochurePhoneMode === 'manual' && (
+              {ebrochureChecked.has('manual') && (
                 <div className="space-y-3 border-l-2 border-primary pl-3">
                   <div>
                     <Label htmlFor="eb_number" className="text-xs">Phone Number</Label>
