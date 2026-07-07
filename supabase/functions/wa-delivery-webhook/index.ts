@@ -59,10 +59,17 @@ Deno.serve(async (req: Request) => {
 
   const processed: string[] = [];
 
-  // Support both formats:
-  // 1. Askeva flat format: { statuses: [...] }
-  // 2. Standard Meta format: { entry: [{ changes: [{ value: { statuses: [...] } }] }] }
+  // Supported formats:
+  // 1. Askeva live format (verified 2026-07-07): ONE bare status object per POST
+  //    { id: "wamid...", status: "sent|delivered|read|failed", recipient_id, timestamp, ... }
+  //    (inbound messages presumably bare too: { id, from, type, ... })
+  // 2. Flat wrapper: { statuses: [...] } / { messages: [...] }
+  // 3. Standard Meta format: { entry: [{ changes: [{ value: { statuses: [...], messages: [...] } }] }] }
   const allStatuses: any[] = [];
+  const bareItems = Array.isArray(body) ? body : [body];
+  for (const item of bareItems) {
+    if (item?.status && (item?.id || item?.wamid)) allStatuses.push(item);
+  }
   if (Array.isArray(body?.statuses)) {
     allStatuses.push(...body.statuses);
   }
@@ -116,13 +123,15 @@ Deno.serve(async (req: Request) => {
             processed.push(`other_fail:${wamid}`);
           }
         } else if (status === "delivered") {
+          const ts = s.timestamp ? new Date(Number(s.timestamp) * 1000).toISOString() : new Date().toISOString();
           // Never downgrade a later stage (events can arrive out of order)
-          await supabase.from("campaign_schools").update({ delivery_status: "delivered" })
+          await supabase.from("campaign_schools").update({ delivery_status: "delivered", delivered_at: ts })
             .eq("wamid", wamid)
             .not("delivery_status", "in", "(read,replied)");
           processed.push(`delivered:${wamid}`);
         } else if (status === "read") {
-          await supabase.from("campaign_schools").update({ delivery_status: "read" })
+          const ts = s.timestamp ? new Date(Number(s.timestamp) * 1000).toISOString() : new Date().toISOString();
+          await supabase.from("campaign_schools").update({ delivery_status: "read", opened_at: ts })
             .eq("wamid", wamid)
             .neq("delivery_status", "replied");
           processed.push(`read:${wamid}`);
@@ -137,6 +146,10 @@ Deno.serve(async (req: Request) => {
       if (c?.wa_id && c?.profile?.name) contactNames.set(String(c.wa_id), String(c.profile.name));
     }
   };
+  for (const item of bareItems) {
+    // Bare inbound message: has "from", no "status"
+    if (item?.from && item?.id && !item?.status) allMessages.push(item);
+  }
   if (Array.isArray(body?.messages)) allMessages.push(...body.messages);
   collectContacts(body?.contacts);
   for (const entry of (body?.entry ?? [])) {
