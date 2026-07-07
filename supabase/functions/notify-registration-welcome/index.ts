@@ -91,6 +91,7 @@ Deno.serve(async (req: Request) => {
           district:    reg.district ?? "",
           state:       reg.state ?? "",
           city:        reg.city ?? "",
+          contact_person: reg.contact_name || reg.principal_name || reg.corr_name || reg.school_name || "",
           project_name: project.project_name ?? "",
           project_year: String(project.project_year ?? ""),
         };
