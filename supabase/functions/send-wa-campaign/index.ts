@@ -33,7 +33,12 @@ async function sendOne(
   if (hasFileHeader) {
     components.push({
       type: "header",
-      parameters: [{ type: "document", document: { link: brochureUrl, filename: `iPlus Olympiads ${brochureYear} Brochure.pdf` } }],
+      // Media must be nested under `document` (Meta spec) — flat link fails AskEVA
+      // with "Invalid media format: Expected Base64 string or buffer".
+      parameters: [{
+        type: "document",
+        document: { link: brochureUrl, filename: `iPlus Olympiads ${brochureYear} Brochure.pdf` },
+      }],
     });
   }
 
