@@ -61,6 +61,7 @@ const Navbar = () => {
     { name: 'Communication Log', href: '/communication' },
     { name: 'Follow-ups',        href: '/follow-ups' },
     { name: 'Bulk Messaging',    href: '/marketing-messages' },
+    { name: 'Voice Templates',   href: '/voice-templates' },
     { name: 'Address Labels',    href: '/address-labels' },
   ];
 

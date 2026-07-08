@@ -32,6 +32,7 @@ import PortalAccessPage from "./pages/PortalAccess";
 import PaymentQueuePage from "./pages/PaymentQueuePage";
 import MarketingMessages from "./pages/MarketingMessages";
 import TemplateManagement from "./pages/TemplateManagement";
+import VoiceTemplates from "./pages/VoiceTemplates";
 import DataManagement from "./pages/DataManagement";
 import ModuleSelect from "./pages/ModuleSelect";
 import ProspectDashboard from "./pages/ProspectDashboard";
@@ -320,6 +321,10 @@ const AppContent = () => {
          <Route
            path="/template-management"
            element={<ProtectedRoute adminOnly><TemplateManagement /></ProtectedRoute>}
+         />
+         <Route
+           path="/voice-templates"
+           element={<ProtectedRoute><VoiceTemplates /></ProtectedRoute>}
          />
          <Route
            path="/data-management"
