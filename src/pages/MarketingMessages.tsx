@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, KeyboardEvent } from "react";
 import Navbar from "@/components/layout/Navbar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
-import { Mail, MessageSquare, Send, Download, Eye, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
+import { Mail, MessageSquare, Send, Download, Eye, AlertTriangle, CheckCircle2, XCircle, FlaskConical, RefreshCw, X } from "lucide-react";
 import DOMPurify from "dompurify";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -38,6 +38,7 @@ import { downloadCSV } from "@/utils/csvExport";
 interface School {
   id: string;
   school_name: string;
+  state: string | null;
   district: string;
   email: string | null;
   mobile1: string | null;
@@ -62,6 +63,8 @@ export default function MarketingMessages() {
   const [previewChannel, setPreviewChannel] = useState<"email" | "whatsapp">("email");
 
   // Filter state
+  const [states, setStates] = useState<string[]>([]);
+  const [stateOptions, setStateOptions] = useState<string[]>([]);
   const [districts, setDistricts] = useState<string[]>([]);
   const [districtOptions, setDistrictOptions] = useState<string[]>([]);
   const [regStatuses, setRegStatuses] = useState<string[]>([]);
@@ -75,22 +78,47 @@ export default function MarketingMessages() {
   const emailSend = useBulkEmailSend();
   const whatsappSend = useBulkWhatsAppSend();
 
+  // Test send state
+  const [testEmailInput, setTestEmailInput] = useState("");
+  const [testEmails, setTestEmails] = useState<string[]>([]);
+  const [testMobileInput, setTestMobileInput] = useState("");
+  const [testMobiles, setTestMobiles] = useState<string[]>([]);
+  const [testSending, setTestSending] = useState(false);
+  const [testResults, setTestResults] = useState<{ channel: "email" | "wa"; address: string; success: boolean; error?: string }[] | null>(null);
+
   // Load templates
   const { templates: emailTemplates } = useCommunicationTemplates(projectId, "marketing");
   const { templates: waTemplates } = useWhatsAppTemplates(projectId, "marketing");
 
-  // Load district options
+  // Load state options on mount
   useEffect(() => {
     if (!projectId) return;
     supabase
       .from("school_project_workflow")
-      .select("schools(district)")
+      .select("schools(state)")
       .eq("project_id", projectId)
       .then(({ data }) => {
-        const opts = [...new Set((data ?? []).map((r: any) => r.schools?.district).filter(Boolean))].sort() as string[];
-        setDistrictOptions(opts);
+        const opts = [...new Set((data ?? []).map((r: any) => r.schools?.state).filter(Boolean))].sort() as string[];
+        setStateOptions(opts);
       });
   }, [projectId]);
+
+  // Reload district options when states selection changes
+  useEffect(() => {
+    if (!projectId) return;
+    let q = supabase
+      .from("school_project_workflow")
+      .select("schools(state,district)")
+      .eq("project_id", projectId);
+    q.then(({ data }) => {
+      let rows = (data ?? []).map((r: any) => r.schools).filter(Boolean);
+      if (states.length) rows = rows.filter((s: any) => states.includes(s.state));
+      const opts = [...new Set(rows.map((s: any) => s.district).filter(Boolean))].sort() as string[];
+      setDistrictOptions(opts);
+      // Clear any district selections that no longer apply
+      setDistricts(prev => prev.filter(d => opts.includes(d)));
+    });
+  }, [projectId, states]);
 
   // Get current templates
   const currentEmailTemplate = emailTemplates.find(t => t.template_type === emailTemplateType);
@@ -105,7 +133,7 @@ export default function MarketingMessages() {
     setPreviewLoading(true);
     let q = supabase
       .from("school_project_workflow")
-      .select("schools(id,school_name,district,email,mobile1,registration_status,payment_status)")
+      .select("schools(id,school_name,state,district,email,mobile1,registration_status,payment_status)")
       .eq("project_id", projectId);
 
     if (regStatuses.length) q = q.in("registration_status", regStatuses);
@@ -113,6 +141,7 @@ export default function MarketingMessages() {
 
     const { data } = await q;
     let schools = (data ?? []).map((r: any) => r.schools).filter(Boolean) as School[];
+    if (states.length) schools = schools.filter(s => states.includes(s.state ?? ""));
     if (districts.length) schools = schools.filter(s => districts.includes(s.district));
 
     // Filter by contact availability
@@ -152,6 +181,70 @@ export default function MarketingMessages() {
     toast({ title: "Campaign Complete", description: summary.join(" | ") });
     setConfirmOpen(false);
   };
+
+  // Test send helpers
+  const addTestEmail = () => {
+    const v = testEmailInput.trim().toLowerCase();
+    if (!v || !v.includes("@") || testEmails.includes(v)) { setTestEmailInput(""); return; }
+    setTestEmails(prev => [...prev, v]);
+    setTestEmailInput(""); setTestResults(null);
+  };
+  const handleTestEmailKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addTestEmail(); }
+    if (e.key === "Backspace" && !testEmailInput && testEmails.length > 0)
+      setTestEmails(prev => prev.slice(0, -1));
+  };
+
+  const addTestMobile = () => {
+    const raw = testMobileInput.replace(/\D/g, "").trim();
+    if (!raw || raw.length < 10 || raw.length > 12 || testMobiles.includes(raw)) { setTestMobileInput(""); return; }
+    setTestMobiles(prev => [...prev, raw]);
+    setTestMobileInput(""); setTestResults(null);
+  };
+  const handleTestMobileKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addTestMobile(); }
+    if (e.key === "Backspace" && !testMobileInput && testMobiles.length > 0)
+      setTestMobiles(prev => prev.slice(0, -1));
+  };
+
+  const sendTest = async () => {
+    if (!projectId) return;
+    setTestSending(true); setTestResults(null);
+
+    // Get any school in this project for variable substitution
+    const { data: wfRow } = await supabase
+      .from("school_project_workflow")
+      .select("school_id")
+      .eq("project_id", projectId)
+      .limit(1)
+      .single();
+    const schoolId = (wfRow as any)?.school_id;
+    const { data: { user } } = await supabase.auth.getUser();
+    const results: { channel: "email" | "wa"; address: string; success: boolean; error?: string }[] = [];
+
+    for (const email of testEmails) {
+      if (sendEmail && emailTemplateType && schoolId) {
+        const { data, error } = await supabase.functions.invoke("send-template-email", {
+          body: { schoolId, templateType: emailTemplateType, userId: user?.id, emailOverride: email },
+        });
+        results.push({ channel: "email", address: email, success: !error && data?.success !== false, error: error?.message || data?.error });
+      }
+    }
+
+    for (const mobile of testMobiles) {
+      if (sendWhatsApp && waTemplateKey && schoolId) {
+        const { data, error } = await supabase.functions.invoke("send-whatsapp-template", {
+          body: { schoolId, templateKey: waTemplateKey, mobileOverride: mobile },
+        });
+        results.push({ channel: "wa", address: mobile, success: !error && data?.success !== false, error: error?.message || data?.error });
+      }
+    }
+
+    setTestResults(results);
+    setTestSending(false);
+  };
+
+  const testReady = (sendEmail && !!emailTemplateType && testEmails.length > 0) || (sendWhatsApp && !!waTemplateKey && testMobiles.length > 0);
 
   const templatesReady = (sendEmail && emailTemplateType) || (sendWhatsApp && waTemplateKey);
   const totalMatchedCount = matched.length;
@@ -273,6 +366,98 @@ export default function MarketingMessages() {
                 {waTemplateKey && <p className="text-xs text-green-700">✓ {currentWaTemplate?.template_name}</p>}
               </div>
             )}
+
+            {/* Test Send */}
+            {templatesReady && (
+              <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                  <FlaskConical className="h-4 w-4 text-slate-500" />
+                  Test Send
+                  <span className="text-xs text-slate-400 font-normal">Verify template on your device before bulk send</span>
+                </div>
+
+                {/* Email test chips */}
+                {sendEmail && emailTemplateType && (
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-600 flex items-center gap-1"><Mail className="h-3 w-3" /> Test Email Addresses</Label>
+                    <div className="min-h-[40px] flex flex-wrap gap-2 items-center border border-slate-200 rounded-lg px-3 py-2 bg-white focus-within:ring-2 focus-within:ring-indigo-300 focus-within:border-indigo-400 transition-all">
+                      {testEmails.map(e => (
+                        <span key={e} className="flex items-center gap-1 bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded-full">
+                          {e}
+                          <button onClick={() => { setTestEmails(p => p.filter(x => x !== e)); setTestResults(null); }}>
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))}
+                      <input
+                        value={testEmailInput}
+                        onChange={e => setTestEmailInput(e.target.value)}
+                        onKeyDown={handleTestEmailKey}
+                        onBlur={addTestEmail}
+                        placeholder={testEmails.length === 0 ? "Type email + Enter" : "Add another…"}
+                        className="flex-1 min-w-40 bg-transparent text-sm outline-none placeholder:text-slate-400"
+                        disabled={testSending}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* WA test chips */}
+                {sendWhatsApp && waTemplateKey && (
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-600 flex items-center gap-1"><MessageSquare className="h-3 w-3" /> Test Mobile Numbers</Label>
+                    <div className="min-h-[40px] flex flex-wrap gap-2 items-center border border-slate-200 rounded-lg px-3 py-2 bg-white focus-within:ring-2 focus-within:ring-green-300 focus-within:border-green-400 transition-all">
+                      {testMobiles.map(m => (
+                        <span key={m} className="flex items-center gap-1 bg-green-100 text-green-700 text-xs font-mono px-2 py-0.5 rounded-full">
+                          {m}
+                          <button onClick={() => { setTestMobiles(p => p.filter(x => x !== m)); setTestResults(null); }}>
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))}
+                      <input
+                        value={testMobileInput}
+                        onChange={e => setTestMobileInput(e.target.value)}
+                        onKeyDown={handleTestMobileKey}
+                        onBlur={addTestMobile}
+                        placeholder={testMobiles.length === 0 ? "Type 10-digit number + Enter" : "Add another…"}
+                        className="flex-1 min-w-44 bg-transparent text-sm outline-none placeholder:text-slate-400 font-mono"
+                        disabled={testSending}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Test results */}
+                {testResults && testResults.length > 0 && (
+                  <div className="space-y-1">
+                    {testResults.map((r, i) => (
+                      <div key={i} className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm ${r.success ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
+                        {r.success ? <CheckCircle2 className="h-4 w-4 flex-shrink-0" /> : <XCircle className="h-4 w-4 flex-shrink-0" />}
+                        <span className="flex items-center gap-1.5">
+                          {r.channel === "email" ? <Mail className="h-3 w-3" /> : <MessageSquare className="h-3 w-3" />}
+                          <span className="font-medium">{r.address}</span>
+                        </span>
+                        <span className="text-xs opacity-70 ml-auto">{r.success ? "Sent ✓" : r.error}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <Button
+                  onClick={sendTest}
+                  disabled={!testReady || testSending}
+                  variant="outline"
+                  size="sm"
+                  className="border-slate-300 text-slate-700 hover:bg-slate-100"
+                >
+                  {testSending
+                    ? <><RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />Sending…</>
+                    : <><FlaskConical className="h-3.5 w-3.5 mr-1.5" />Send Test{(testEmails.length + testMobiles.length) > 0 ? ` (${testEmails.length + testMobiles.length})` : ""}</>
+                  }
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -290,37 +475,54 @@ export default function MarketingMessages() {
             </div>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Districts */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {/* State */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <Label className="text-sm font-semibold">Districts</Label>
+                  <Label className="text-sm font-semibold">State</Label>
                   <div className="space-x-1">
-                    <button
-                      onClick={() => setDistricts([...districtOptions])}
-                      className="text-xs text-indigo-600 hover:underline font-medium"
-                    >
-                      All
-                    </button>
+                    <button onClick={() => setStates([...stateOptions])} className="text-xs text-indigo-600 hover:underline font-medium">All</button>
                     <span className="text-xs text-muted-foreground">•</span>
-                    <button
-                      onClick={() => setDistricts([])}
-                      className="text-xs text-indigo-600 hover:underline font-medium"
-                    >
-                      Clear
-                    </button>
+                    <button onClick={() => setStates([])} className="text-xs text-indigo-600 hover:underline font-medium">Clear</button>
                   </div>
                 </div>
-                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-2 border rounded-lg p-2 bg-white">
+                <div className="space-y-1.5 border rounded-lg p-2 bg-white min-h-[60px]">
+                  {stateOptions.length === 0 ? (
+                    <p className="text-xs text-muted-foreground py-2">No states found</p>
+                  ) : (
+                    stateOptions.map(s => (
+                      <div key={s} className="flex items-center gap-2">
+                        <Checkbox id={`st-${s}`} checked={states.includes(s)} onCheckedChange={() => toggle(states, s, setStates)} />
+                        <label htmlFor={`st-${s}`} className="text-sm cursor-pointer">{s}</label>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* District — cascades from state selection */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="text-sm font-semibold">
+                    District
+                    {states.length > 0 && (
+                      <span className="ml-1 text-xs font-normal text-indigo-500">({states.join(", ")})</span>
+                    )}
+                  </Label>
+                  <div className="space-x-1">
+                    <button onClick={() => setDistricts([...districtOptions])} className="text-xs text-indigo-600 hover:underline font-medium">All</button>
+                    <span className="text-xs text-muted-foreground">•</span>
+                    <button onClick={() => setDistricts([])} className="text-xs text-indigo-600 hover:underline font-medium">Clear</button>
+                  </div>
+                </div>
+                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1 border rounded-lg p-2 bg-white min-h-[60px]">
                   {districtOptions.length === 0 ? (
-                    <p className="text-xs text-muted-foreground py-2">No districts found</p>
+                    <p className="text-xs text-muted-foreground py-2">{states.length ? "No districts in selected state(s)" : "No districts found"}</p>
                   ) : (
                     districtOptions.map(d => (
                       <div key={d} className="flex items-center gap-2">
                         <Checkbox id={`d-${d}`} checked={districts.includes(d)} onCheckedChange={() => toggle(districts, d, setDistricts)} />
-                        <label htmlFor={`d-${d}`} className="text-sm cursor-pointer">
-                          {d}
-                        </label>
+                        <label htmlFor={`d-${d}`} className="text-sm cursor-pointer">{d}</label>
                       </div>
                     ))
                   )}
@@ -332,28 +534,16 @@ export default function MarketingMessages() {
                 <div className="flex items-center justify-between mb-2">
                   <Label className="text-sm font-semibold">Registration Status</Label>
                   <div className="space-x-1">
-                    <button
-                      onClick={() => setRegStatuses([...REG_STATUSES])}
-                      className="text-xs text-indigo-600 hover:underline font-medium"
-                    >
-                      All
-                    </button>
+                    <button onClick={() => setRegStatuses([...REG_STATUSES])} className="text-xs text-indigo-600 hover:underline font-medium">All</button>
                     <span className="text-xs text-muted-foreground">•</span>
-                    <button
-                      onClick={() => setRegStatuses([])}
-                      className="text-xs text-indigo-600 hover:underline font-medium"
-                    >
-                      Clear
-                    </button>
+                    <button onClick={() => setRegStatuses([])} className="text-xs text-indigo-600 hover:underline font-medium">Clear</button>
                   </div>
                 </div>
                 <div className="space-y-1.5 border rounded-lg p-2 bg-white">
                   {REG_STATUSES.map(s => (
                     <div key={s} className="flex items-center gap-2">
                       <Checkbox id={`rs-${s}`} checked={regStatuses.includes(s)} onCheckedChange={() => toggle(regStatuses, s, setRegStatuses)} />
-                      <label htmlFor={`rs-${s}`} className="text-sm cursor-pointer">
-                        {s}
-                      </label>
+                      <label htmlFor={`rs-${s}`} className="text-sm cursor-pointer">{s}</label>
                     </div>
                   ))}
                 </div>
@@ -364,28 +554,16 @@ export default function MarketingMessages() {
                 <div className="flex items-center justify-between mb-2">
                   <Label className="text-sm font-semibold">Payment Status</Label>
                   <div className="space-x-1">
-                    <button
-                      onClick={() => setPayStatuses([...PAY_STATUSES])}
-                      className="text-xs text-indigo-600 hover:underline font-medium"
-                    >
-                      All
-                    </button>
+                    <button onClick={() => setPayStatuses([...PAY_STATUSES])} className="text-xs text-indigo-600 hover:underline font-medium">All</button>
                     <span className="text-xs text-muted-foreground">•</span>
-                    <button
-                      onClick={() => setPayStatuses([])}
-                      className="text-xs text-indigo-600 hover:underline font-medium"
-                    >
-                      Clear
-                    </button>
+                    <button onClick={() => setPayStatuses([])} className="text-xs text-indigo-600 hover:underline font-medium">Clear</button>
                   </div>
                 </div>
                 <div className="space-y-1.5 border rounded-lg p-2 bg-white">
                   {PAY_STATUSES.map(s => (
                     <div key={s} className="flex items-center gap-2">
                       <Checkbox id={`ps-${s}`} checked={payStatuses.includes(s)} onCheckedChange={() => toggle(payStatuses, s, setPayStatuses)} />
-                      <label htmlFor={`ps-${s}`} className="text-sm cursor-pointer">
-                        {s}
-                      </label>
+                      <label htmlFor={`ps-${s}`} className="text-sm cursor-pointer">{s}</label>
                     </div>
                   ))}
                 </div>
@@ -466,6 +644,7 @@ export default function MarketingMessages() {
                   <TableHeader>
                     <TableRow className="bg-muted/50">
                       <TableHead>School</TableHead>
+                      <TableHead>State</TableHead>
                       <TableHead>District</TableHead>
                       {sendEmail && <TableHead>Email</TableHead>}
                       {sendWhatsApp && <TableHead>Mobile</TableHead>}
@@ -475,6 +654,7 @@ export default function MarketingMessages() {
                     {displayedSchools.map(s => (
                       <TableRow key={s.id} className="hover:bg-muted/30">
                         <TableCell className="font-medium text-sm">{s.school_name}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{s.state ?? "—"}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">{s.district}</TableCell>
                         {sendEmail && <TableCell className="text-xs">{s.email ?? "—"}</TableCell>}
                         {sendWhatsApp && <TableCell className="text-xs">{s.mobile1 ?? "—"}</TableCell>}

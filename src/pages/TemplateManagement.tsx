@@ -351,7 +351,7 @@ export default function TemplateManagement() {
                 : "bg-white text-muted-foreground border-border hover:border-orange-300 hover:text-orange-600"
             }`}
           >
-            <Megaphone className="h-3.5 w-3.5" /> Marketing Templates
+            <Megaphone className="h-3.5 w-3.5" /> Templates
           </button>
           {category === "marketing" && (
             <Button size="sm" onClick={openNew} className="ml-auto flex items-center gap-1.5">
@@ -368,7 +368,7 @@ export default function TemplateManagement() {
         }`}>
           {category === "workflow"
             ? "Workflow templates are sent automatically when a school's status changes. Set up the Email body and/or WhatsApp AskEVA template name for each trigger."
-            : "Marketing templates are used for bulk campaigns — announcements, reminders, wishes. They never appear in workflow automation."}
+            : "Templates used for bulk messaging — announcements, updates, reminders. They never appear in workflow automation."}
         </div>
 
         {/* Template table */}
@@ -395,7 +395,7 @@ export default function TemplateManagement() {
               <tbody className="divide-y">
                 {rows.length === 0 ? (
                   <tr><td colSpan={5} className="px-4 py-10 text-center text-muted-foreground text-sm">
-                    No marketing templates yet. Click <strong>+ New Template</strong> to create one.
+                    No templates yet. Click <strong>+ New Template</strong> to create one.
                   </td></tr>
                 ) : rows.map(row => (
                   <tr key={row.key} className="hover:bg-muted/20 transition-colors">
@@ -447,7 +447,7 @@ export default function TemplateManagement() {
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetContent className="w-full sm:max-w-2xl overflow-y-auto" side="right">
           <SheetHeader className="mb-4">
-            <SheetTitle>{editKey ? `Edit: ${editKey === displayKey ? "" : ""}${rows.find(r => r.key === editKey)?.name || editKey}` : "New Marketing Template"}</SheetTitle>
+            <SheetTitle>{editKey ? `Edit: ${editKey === displayKey ? "" : ""}${rows.find(r => r.key === editKey)?.name || editKey}` : "New Template"}</SheetTitle>
             <SheetDescription>
               Configure the Email and/or WhatsApp message for this template. Both share the same key so they trigger together.
             </SheetDescription>

@@ -590,7 +590,7 @@ export function WhatsAppTemplatesContent({ category = 'workflow' }: { category?:
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="workflow">Workflow (CRM automation)</SelectItem>
-                        <SelectItem value="marketing">Marketing (Prospect campaigns)</SelectItem>
+                        <SelectItem value="marketing">Templates (Bulk messaging)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
