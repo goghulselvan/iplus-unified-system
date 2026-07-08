@@ -33,6 +33,7 @@ import PaymentQueuePage from "./pages/PaymentQueuePage";
 import MarketingMessages from "./pages/MarketingMessages";
 import TemplateManagement from "./pages/TemplateManagement";
 import VoiceTemplates from "./pages/VoiceTemplates";
+import IncomingCalls from "./pages/IncomingCalls";
 import DataManagement from "./pages/DataManagement";
 import ModuleSelect from "./pages/ModuleSelect";
 import ProspectDashboard from "./pages/ProspectDashboard";
@@ -325,6 +326,10 @@ const AppContent = () => {
          <Route
            path="/voice-templates"
            element={<ProtectedRoute><VoiceTemplates /></ProtectedRoute>}
+         />
+         <Route
+           path="/incoming-calls"
+           element={<ProtectedRoute><IncomingCalls /></ProtectedRoute>}
          />
          <Route
            path="/data-management"
