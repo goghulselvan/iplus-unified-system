@@ -834,7 +834,7 @@ export default function ProspectSchoolsPage() {
                           type="tel"
                           placeholder="Mobile (10 digits)"
                           value={contactForm.mobile}
-                          onChange={e => setContactForm(f => ({ ...f, mobile: e.target.value.replace(/\D/g, '').slice(0, 10) }))}
+                          onChange={e => setContactForm(f => ({ ...f, mobile: e.target.value.replace(/\D/g, '').slice(-10) }))}
                           className="flex-1 text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-400"
                         />
                       </div>
@@ -898,7 +898,7 @@ export default function ProspectSchoolsPage() {
                               type="tel"
                               placeholder="Mobile (10 digits)"
                               value={c.mobile}
-                              onChange={e => setContactForm(f => ({ ...f, contacts: f.contacts.map((x, j) => j === i ? { ...x, mobile: e.target.value.replace(/\D/g, '').slice(0, 10) } : x) }))}
+                              onChange={e => setContactForm(f => ({ ...f, contacts: f.contacts.map((x, j) => j === i ? { ...x, mobile: e.target.value.replace(/\D/g, '').slice(-10) } : x) }))}
                               className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-400"
                             />
                           </div>
@@ -1102,7 +1102,7 @@ export default function ProspectSchoolsPage() {
                   type="tel"
                   placeholder="10-digit mobile"
                   value={staffPhone}
-                  onChange={e => setStaffPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                  onChange={e => setStaffPhone(e.target.value.replace(/\D/g, '').slice(-10))}
                   className="h-9"
                 />
                 <p className="text-xs text-gray-400 mt-1.5">Bonvoice will call your phone first, then connect to the school.</p>
@@ -1184,7 +1184,7 @@ export default function ProspectSchoolsPage() {
                   <Input
                     id="peb_number"
                     value={ebrochureManual}
-                    onChange={e => setEbrochureManual(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    onChange={e => setEbrochureManual(e.target.value.replace(/\D/g, '').slice(-10))}
                     placeholder="10-digit mobile number"
                     className="mt-1"
                   />

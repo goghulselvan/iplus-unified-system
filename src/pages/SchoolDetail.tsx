@@ -85,9 +85,12 @@ const SchoolDetail = () => {
   const [followUpDate, setFollowUpDate] = useState('');
   const [followUpTime, setFollowUpTime] = useState('');
 
-  // Mobile field handler — digits only, max 10
+  // Mobile field handler — digits only, keep the LAST 10 (not first 10), so
+  // pasting with a +91/91/0 prefix keeps the real number instead of the
+  // country code plus a truncated tail (was causing wrong numbers → WA
+  // sends silently failing on schools whose number was pasted this way).
   const onMobileChange = (field: string, val: string) =>
-    setEditForm(prev => ({ ...prev, [field]: val.replace(/\D/g, '').slice(0, 10) }));
+    setEditForm(prev => ({ ...prev, [field]: val.replace(/\D/g, '').slice(-10) }));
 
   // Click2Call via Bonvoice
   const [callDialogOpen, setCallDialogOpen] = useState(false);
@@ -1157,7 +1160,6 @@ const SchoolDetail = () => {
                         <Input
                           id="mobile1"
                           type="tel"
-                          maxLength={10}
                           value={editForm.mobile1 || ''}
                           onChange={(e) => onMobileChange('mobile1', e.target.value)}
                           placeholder="10 digits only"
@@ -1168,7 +1170,6 @@ const SchoolDetail = () => {
                         <Input
                           id="mobile2"
                           type="tel"
-                          maxLength={10}
                           value={editForm.mobile2 || ''}
                           onChange={(e) => onMobileChange('mobile2', e.target.value)}
                           placeholder="10 digits only"
@@ -1218,7 +1219,6 @@ const SchoolDetail = () => {
                           <Input
                             id="corr_mobile"
                             type="tel"
-                            maxLength={10}
                             value={editForm.corr_mobile || ''}
                             onChange={(e) => onMobileChange('corr_mobile', e.target.value)}
                             placeholder="10 digits only"
@@ -1237,7 +1237,6 @@ const SchoolDetail = () => {
                           <Input
                             id="principal_mobile"
                             type="tel"
-                            maxLength={10}
                             value={editForm.principal_mobile || ''}
                             onChange={(e) => onMobileChange('principal_mobile', e.target.value)}
                             placeholder="10 digits only"
@@ -1256,7 +1255,6 @@ const SchoolDetail = () => {
                           <Input
                             id="coord_mobile"
                             type="tel"
-                            maxLength={10}
                             value={editForm.coord_mobile || ''}
                             onChange={(e) => onMobileChange('coord_mobile', e.target.value)}
                             placeholder="10 digits only"
