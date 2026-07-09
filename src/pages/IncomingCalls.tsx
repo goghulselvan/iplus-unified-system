@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import Navbar from "@/components/layout/Navbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { PhoneIncoming, PhoneCall, RefreshCw, Link2, UserPlus, X, PlayCircle } from "lucide-react";
+import { PhoneIncoming, PhoneCall, RefreshCw, Link2, Plus, X, PlayCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
@@ -21,7 +21,7 @@ type CallRow = {
   prospect: { school_name: string } | null;
 };
 
-type SchoolHit = { id: string; school_name: string; district: string | null };
+type CallerHit = { source: "crm" | "prospect"; id: string; school_name: string; district: string | null; state: string | null };
 
 const STATUS_COLOR: Record<string, string> = {
   completed: "bg-green-100 text-green-700",
@@ -39,7 +39,8 @@ export default function IncomingCalls() {
   // Link dialog state
   const [linkingRow, setLinkingRow] = useState<CallRow | null>(null);
   const [search, setSearch] = useState("");
-  const [hits, setHits] = useState<SchoolHit[]>([]);
+  const [hits, setHits] = useState<CallerHit[]>([]);
+  const [searching, setSearching] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const fetchRows = useCallback(async () => {
@@ -56,28 +57,29 @@ export default function IncomingCalls() {
 
   useEffect(() => { fetchRows(); }, [fetchRows]);
 
-  const searchSchools = async (q: string) => {
+  // Searches CRM schools AND prospect schools together — most callers already
+  // exist as a prospect, so checking CRM alone would create duplicate leads.
+  const searchCallers = async (q: string) => {
     setSearch(q);
     if (q.trim().length < 2) { setHits([]); return; }
-    const { data } = await supabase
-      .from("schools")
-      .select("id, school_name, district")
-      .ilike("school_name", `%${q.trim()}%`)
-      .limit(8);
-    setHits((data as SchoolHit[]) ?? []);
+    setSearching(true);
+    const { data } = await supabase.rpc("search_callers_by_name", { p_query: q.trim(), p_limit: 6 });
+    setHits((data as CallerHit[]) ?? []);
+    setSearching(false);
   };
 
-  const linkToSchool = async (schoolId: string) => {
+  const linkToHit = async (hit: CallerHit) => {
     if (!linkingRow?.school_phone) return;
     setBusy(true);
     try {
       const { data, error } = await supabase.rpc("link_incoming_number", {
         p_last10: linkingRow.school_phone.replace(/\D/g, "").slice(-10),
-        p_school_id: schoolId,
+        p_school_id: hit.source === "crm" ? hit.id : null,
+        p_prospect_id: hit.source === "prospect" ? hit.id : null,
       });
       if (error) throw error;
       if ((data as any)?.error) throw new Error((data as any).error);
-      toast({ title: "Number linked", description: "Saved on the school — future calls will match automatically." });
+      toast({ title: "Number linked", description: "Saved on the record — future calls will match automatically." });
       setLinkingRow(null); setSearch(""); setHits([]);
       await fetchRows();
     } catch (e: any) {
@@ -85,10 +87,9 @@ export default function IncomingCalls() {
     } finally { setBusy(false); }
   };
 
-  const createLead = async (row: CallRow) => {
+  const createNewLead = async (row: CallRow, name: string) => {
     const num = (row.school_phone ?? "").replace(/\D/g, "").slice(-10);
-    const name = window.prompt("Name for this lead (school / caller):", `Lead — caller ${num}`);
-    if (!name) return;
+    if (!name.trim()) return;
     setBusy(true);
     try {
       const { data: created, error } = await supabase
@@ -98,6 +99,7 @@ export default function IncomingCalls() {
       if (error) throw error;
       await supabase.rpc("link_incoming_number", { p_last10: num, p_prospect_id: created.id });
       toast({ title: "Lead created", description: `${name} saved to prospect schools.` });
+      setLinkingRow(null); setSearch(""); setHits([]);
       await fetchRows();
     } catch (e: any) {
       toast({ title: "Failed to create lead", description: e.message, variant: "destructive" });
@@ -191,16 +193,10 @@ export default function IncomingCalls() {
                   </div>
                   <div className="flex gap-1.5 flex-shrink-0">
                     {isLead && (
-                      <>
-                        <Button variant="outline" size="sm" className="h-7 text-xs" disabled={busy}
-                          onClick={() => { setLinkingRow(r); setSearch(""); setHits([]); }}>
-                          <Link2 className="h-3 w-3 mr-1" />Link
-                        </Button>
-                        <Button variant="outline" size="sm" className="h-7 text-xs" disabled={busy}
-                          onClick={() => createLead(r)}>
-                          <UserPlus className="h-3 w-3 mr-1" />Save lead
-                        </Button>
-                      </>
+                      <Button variant="outline" size="sm" className="h-7 text-xs" disabled={busy}
+                        onClick={() => { setLinkingRow(r); setSearch(""); setHits([]); }}>
+                        <Link2 className="h-3 w-3 mr-1" />Link / Add lead
+                      </Button>
                     )}
                     <Button variant="outline" size="sm" className="h-7 text-xs border-green-200 text-green-700 hover:bg-green-50"
                       disabled={busy} onClick={() => callBack(r)}>
@@ -213,33 +209,47 @@ export default function IncomingCalls() {
           </div>
         )}
 
-        {/* Link-to-school dialog */}
+        {/* Search-first, create-fallback dialog: checks CRM + Prospect together */}
         {linkingRow && (
           <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4"
             onClick={() => setLinkingRow(null)}>
             <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-5 space-y-3" onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold text-sm text-gray-800">
-                  Link {linkingRow.school_phone} to a school
+                  Who is {linkingRow.school_phone}?
                 </h3>
                 <button onClick={() => setLinkingRow(null)}><X className="h-4 w-4 text-gray-400" /></button>
               </div>
-              <Input autoFocus placeholder="Search CRM schools by name…" value={search}
-                onChange={e => searchSchools(e.target.value)} />
-              <div className="max-h-60 overflow-y-auto divide-y divide-gray-50">
-                {hits.map(h => (
-                  <button key={h.id} disabled={busy} onClick={() => linkToSchool(h.id)}
-                    className="w-full text-left px-3 py-2.5 hover:bg-indigo-50 rounded-lg">
-                    <p className="text-sm font-medium text-gray-800">{h.school_name}</p>
-                    {h.district && <p className="text-xs text-gray-400">{h.district}</p>}
+              <Input autoFocus placeholder="Search school name (CRM + Prospect)…" value={search}
+                onChange={e => searchCallers(e.target.value)} />
+              <div className="max-h-72 overflow-y-auto divide-y divide-gray-50">
+                {searching && <p className="text-xs text-gray-400 py-3 text-center">Searching…</p>}
+                {!searching && hits.map(h => (
+                  <button key={`${h.source}-${h.id}`} disabled={busy} onClick={() => linkToHit(h)}
+                    className="w-full text-left px-3 py-2.5 hover:bg-indigo-50 rounded-lg flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-800 truncate">{h.school_name}</p>
+                      <p className="text-xs text-gray-400 truncate">{[h.district, h.state].filter(Boolean).join(", ")}</p>
+                    </div>
+                    <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                      h.source === "crm" ? "bg-indigo-100 text-indigo-700" : "bg-gray-100 text-gray-600"}`}>
+                      {h.source === "crm" ? "CRM" : "Prospect"}
+                    </span>
                   </button>
                 ))}
-                {search.length >= 2 && hits.length === 0 && (
-                  <p className="text-xs text-gray-400 py-3 text-center">No schools match "{search}"</p>
+                {!searching && search.trim().length >= 2 && hits.length === 0 && (
+                  <p className="text-xs text-gray-400 py-3 text-center">No match for "{search}"</p>
                 )}
               </div>
+              {search.trim().length >= 2 && (
+                <button disabled={busy} onClick={() => createNewLead(linkingRow, search.trim())}
+                  className="w-full text-left px-3 py-2.5 rounded-lg border border-dashed border-gray-200 hover:border-indigo-300 hover:bg-indigo-50 flex items-center gap-2 text-sm text-indigo-700">
+                  <Plus className="h-3.5 w-3.5 flex-shrink-0" />
+                  Create new prospect lead: "{search.trim()}"
+                </button>
+              )}
               <p className="text-[11px] text-gray-400">
-                The number is saved on the school record — every future call from it will attach automatically.
+                The number is saved on the record — every future call from it will attach automatically.
               </p>
             </div>
           </div>
