@@ -83,6 +83,17 @@ const WorkflowEditor = ({ school, onUpdate }: WorkflowEditorProps) => {
     sendWhatsapp({ schoolId: school.id, templateKey: key }).catch(console.error);
   };
 
+  // Interest acknowledgment email: static boilerplate content, no per-send
+  // review needed — auto-send silently, same as its WhatsApp counterpart,
+  // instead of routing through the payment/result email confirmation dialog.
+  const autoSendEmail = async (stage: string, status: string) => {
+    if (stage !== 'registration_interest' || status !== 'Interested') return;
+    if (!school.current_project_id) return;
+    const template = await getActiveTemplate(school.current_project_id, 'interest_acknowledged');
+    if (!template) return;
+    sendTemplateEmail(school.id, 'interest_acknowledged').catch(console.error);
+  };
+
   const handleStatusUpdate = async () => {
     if (!selectedStage || !selectedStatus) return;
     const oldValue = school[selectedStage as keyof School] as string;
@@ -145,6 +156,7 @@ const WorkflowEditor = ({ school, onUpdate }: WorkflowEditorProps) => {
       // No email trigger → update + auto-send WA if template exists
       await performStatusUpdate(selectedStage, selectedStatus, oldValue);
       autoSendWhatsApp(selectedStage, selectedStatus);
+      autoSendEmail(selectedStage, selectedStatus);
     } catch (error) {
       console.error('Error updating workflow status:', error);
       toast.error('Failed to update status');
