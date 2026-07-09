@@ -75,6 +75,8 @@ Deno.serve(async (req: Request) => {
       .single();
 
     const results: Record<string, string> = {};
+    let emailSentAt: string | null = null;
+    let whatsappSentAt: string | null = null;
 
     // ── Email ──────────────────────────────────────────────────────────────
     if (reg.email && project && RESEND_API_KEY) {
@@ -109,6 +111,7 @@ Deno.serve(async (req: Request) => {
           html,
         });
         results.email = emailErr ? `failed: ${JSON.stringify(emailErr)}` : "sent";
+        if (!emailErr) emailSentAt = new Date().toISOString();
       } else {
         results.email = "no template";
       }
@@ -181,6 +184,7 @@ Deno.serve(async (req: Request) => {
         const waBody = await waRes.json().catch(() => ({}));
         const waOk   = waRes.ok && waBody?.status !== "error" && waBody?.success !== false;
         results.whatsapp = waOk ? "sent" : `failed: ${JSON.stringify(waBody).slice(0, 200)}`;
+        if (waOk) whatsappSentAt = new Date().toISOString();
       } else {
         results.whatsapp = "no template";
       }
@@ -189,6 +193,15 @@ Deno.serve(async (req: Request) => {
     }
 
     console.log(`notify-registration-welcome reg=${registration_id}`, results);
+
+    // Record send times so a communications entry can be backfilled once this
+    // registration links to a real CRM school (see trg_backfill_welcome_comms).
+    if (emailSentAt || whatsappSentAt) {
+      await supabase.from("school_portal_registrations").update({
+        ...(emailSentAt && { welcome_email_sent_at: emailSentAt }),
+        ...(whatsappSentAt && { welcome_whatsapp_sent_at: whatsappSentAt }),
+      }).eq("id", registration_id);
+    }
 
     return new Response(JSON.stringify({ ok: true, results }), { headers: json });
   } catch (err: any) {

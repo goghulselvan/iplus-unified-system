@@ -1546,7 +1546,7 @@ const SchoolDetail = () => {
                             </span>
                           </div>
                           <p className="text-sm">{comm.message}</p>
-                          {(comm as any).communication_type === 'AI Call' && (
+                          {(comm.communication_type === 'AI Call' || comm.communication_type === 'Phone') && (
                             <div className="mt-2 space-y-1">
                               {(comm as any).ai_summary && (
                                 <p className="text-sm text-purple-700 bg-purple-50 rounded px-2 py-1">{(comm as any).ai_summary}</p>
@@ -1554,7 +1554,9 @@ const SchoolDetail = () => {
                               <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
                                 {(comm as any).direction && <span className="capitalize">📞 {(comm as any).direction}</span>}
                                 {(comm as any).language_used && <span>🗣 {(comm as any).language_used}</span>}
-                                {(comm as any).duration_seconds && <span>⏱ {Math.floor((comm as any).duration_seconds / 60)}m {(comm as any).duration_seconds % 60}s</span>}
+                                {(comm as any).duration_seconds != null && (
+                                  <span>⏱ {Math.floor((comm as any).duration_seconds / 60)}m {(comm as any).duration_seconds % 60}s</span>
+                                )}
                                 {(comm as any).outcome && <span className="capitalize font-medium">Outcome: {(comm as any).outcome.replace(/_/g, ' ')}</span>}
                                 {(comm as any).recording_url && (
                                   <a href={(comm as any).recording_url} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">▶ Recording</a>

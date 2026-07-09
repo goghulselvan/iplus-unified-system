@@ -76,7 +76,7 @@ Deno.serve(async (req) => {
   let user: { id: string | null };
   if (authHeader === `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`) {
     // Trusted system call (e.g. portal registration) — attribute logs to the system account
-    user = { id: "20d0f6a6-2e15-4882-8784-3127376911ea" };
+    user = { id: "8dd2a8b7-1349-4e7e-b821-3171bd6bf2cc" }; // iPlus Super Admin's profiles.user_id (FK target on communications.user_id)
   } else {
     const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       global: { headers: { Authorization: authHeader } },
