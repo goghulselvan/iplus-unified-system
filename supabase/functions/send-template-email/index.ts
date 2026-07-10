@@ -17,6 +17,12 @@ const BRAND_COLORS = {
 
 const BRAND_TAGLINE = 'Ignite Inspire Impact';
 
+// Expected/validation failures (missing email, no template, etc.) → 400,
+// not a generic 500 which reads as a server crash for a clean data problem.
+class ClientError extends Error {
+  status = 400;
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -118,21 +124,21 @@ serve(async (req: Request): Promise<Response> => {
       .single();
 
     if (schoolError || !school) {
-      throw new Error(`School not found: ${schoolError?.message}`);
+      throw new ClientError(`School not found: ${schoolError?.message}`);
     }
 
     // Use email override if provided, otherwise use school email
     let recipientEmail = emailOverride || school.email;
 
     if (!recipientEmail) {
-      throw new Error("School email is missing");
+      throw new ClientError("School email is missing");
     }
 
     // Auto-clean email address (remove spaces, extra dots, etc.)
     recipientEmail = cleanEmail(recipientEmail);
 
     if (!recipientEmail.includes('@')) {
-      throw new Error(`Invalid email after cleaning: ${emailOverride || school.email}`);
+      throw new ClientError(`Invalid email after cleaning: ${emailOverride || school.email}`);
     }
 
     // Get active template for this project and type
@@ -145,7 +151,7 @@ serve(async (req: Request): Promise<Response> => {
       .single();
 
     if (templateError || !template) {
-      throw new Error(`Template not found: ${templateError?.message}`);
+      throw new ClientError(`Template not found: ${templateError?.message}`);
     }
 
     // Get student count for this school
@@ -230,12 +236,12 @@ serve(async (req: Request): Promise<Response> => {
   } catch (error: any) {
     console.error("Error in send-template-email:", error);
     return new Response(
-      JSON.stringify({ 
-        success: false, 
-        error: error.message 
+      JSON.stringify({
+        success: false,
+        error: error.message
       }),
       {
-        status: 500,
+        status: error instanceof ClientError ? error.status : 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       }
     );
