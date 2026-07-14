@@ -31,6 +31,7 @@ import { ExamScheduleManager } from '@/components/schools/ExamScheduleManager';
 import { RegistrationSummaryTable } from '@/components/schools/RegistrationSummaryTable';
 import { SchoolResultsSummary } from '@/components/results/SchoolResultsSummary';
 import { PortalRegistrationView } from '@/components/schools/PortalRegistrationView';
+import { SendEbrochureDialog } from '@/components/schools/SendEbrochureDialog';
 import { useToast } from '@/hooks/use-toast';
 
 const SchoolDetail = () => {
@@ -127,22 +128,7 @@ const SchoolDetail = () => {
     }
   };
 
-  // E-Brochure send dialog — checkbox multi-select, sends to every checked number
   const [ebrochureOpen, setEbrochureOpen] = useState(false);
-  const [ebrochureChecked, setEbrochureChecked] = useState<Set<string>>(new Set());
-  const [ebrochureManual, setEbrochureManual] = useState('');
-  const [ebrochureContactName, setEbrochureContactName] = useState('');
-  const [ebrochureContactRole, setEbrochureContactRole] = useState('');
-  const [ebrochureSaveContact, setEbrochureSaveContact] = useState(false);
-  const [ebrochureSending, setEbrochureSending] = useState(false);
-
-  const toggleEbrochureNumber = (key: string) => {
-    setEbrochureChecked(prev => {
-      const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
-      return next;
-    });
-  };
 
   // Fetch school data when component mounts or ID changes
   useEffect(() => {
@@ -405,104 +391,6 @@ const SchoolDetail = () => {
     setEditForm({});
   };
 
-  const handleSendEbrochure = async () => {
-    if (!school || !id) return;
-    const recipients: { phone: string; contactName?: string; contactRole?: string; isManual?: boolean }[] = [];
-    if (ebrochureChecked.has('mobile1') && school.mobile1) recipients.push({ phone: school.mobile1 });
-    if (ebrochureChecked.has('mobile2') && school.mobile2) recipients.push({ phone: school.mobile2 });
-    ((school as any).additional_contacts ?? []).forEach((c: any, i: number) => {
-      if (ebrochureChecked.has(`contact_${i}`) && c.mobile) {
-        recipients.push({ phone: c.mobile, contactName: c.name, contactRole: c.role });
-      }
-    });
-    if (ebrochureChecked.has('manual')) {
-      if (ebrochureManual.replace(/\D/g, '').length < 10) {
-        toast({ title: 'Error', description: 'Please enter a valid 10-digit manual phone number', variant: 'destructive' });
-        return;
-      }
-      recipients.push({
-        phone: ebrochureManual,
-        contactName: ebrochureContactName || undefined,
-        contactRole: ebrochureContactRole || undefined,
-        isManual: true,
-      });
-    }
-    // Dedupe by last 10 digits
-    const seen = new Set<string>();
-    const unique = recipients.filter(r => {
-      const d = r.phone.replace(/\D/g, '').slice(-10);
-      if (seen.has(d)) return false;
-      seen.add(d);
-      return true;
-    });
-    if (unique.length === 0) {
-      toast({ title: 'Error', description: 'Select at least one phone number', variant: 'destructive' });
-      return;
-    }
-    setEbrochureSending(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        throw new Error('Your login session has expired — please refresh the page and log in again.');
-      }
-      let sentCount = 0;
-      const failed: string[] = [];
-      let firstError = '';
-      for (const r of unique) {
-        try {
-          const res = await supabase.functions.invoke('send-ebrochure', {
-            headers: { Authorization: `Bearer ${session.access_token}` },
-            body: {
-              schoolId: id,
-              phone: r.phone,
-              schoolName: school.school_name,
-              district: school.district,
-              state: school.state,
-              saveContact: ebrochureSaveContact && r.isManual,
-              contactName: r.contactName,
-              contactRole: r.contactRole,
-            },
-          });
-          if (res.error) {
-            const body = await (res.error as any).context?.json?.().catch(() => null);
-            throw new Error(body?.error || res.error.message);
-          }
-          if (!res.data?.success) throw new Error(res.data?.error || 'Send failed');
-          sentCount++;
-        } catch (err: any) {
-          failed.push(r.phone);
-          if (!firstError) firstError = err.message;
-        }
-      }
-      if (failed.length === 0) {
-        toast({ title: 'E-Brochure sent!', description: sentCount === 1 ? `Sent to ${unique[0].phone}` : `Sent to ${sentCount} numbers` });
-      } else {
-        toast({
-          title: sentCount > 0 ? 'Partially sent' : 'Send failed',
-          description: `${sentCount} sent · failed for ${failed.join(', ')} — ${firstError}`,
-          variant: 'destructive',
-        });
-      }
-      if (sentCount > 0) {
-        setEbrochureOpen(false);
-        setEbrochureManual('');
-        setEbrochureContactName('');
-        setEbrochureContactRole('');
-        setEbrochureChecked(new Set());
-        // Refresh school to pick up updated additional_contacts
-        if (ebrochureSaveContact && ebrochureChecked.has('manual')) {
-          const { data } = await supabase.from('schools').select('*').eq('id', id).single();
-          if (data) setSchool(data as any);
-        }
-        setEbrochureSaveContact(false);
-      }
-    } catch (err: any) {
-      toast({ title: 'Send failed', description: err.message, variant: 'destructive' });
-    } finally {
-      setEbrochureSending(false);
-    }
-  };
-
   const handleAddCommunication = async () => {
     if (!newCommunication.message.trim() || !id) return;
 
@@ -685,7 +573,7 @@ const SchoolDetail = () => {
                 <Download className="h-4 w-4 mr-2" />
                 Export Ledger
               </Button>
-              <Button variant="default" onClick={() => { setEbrochureChecked(new Set(school.mobile1 ? ['mobile1'] : [])); setEbrochureOpen(true); }}>
+              <Button variant="default" onClick={() => setEbrochureOpen(true)}>
                 <Send className="h-4 w-4 mr-2" />
                 Send E-Brochure
               </Button>
@@ -696,76 +584,25 @@ const SchoolDetail = () => {
 
         <WorkflowPipeline school={school} />
 
-        {/* E-Brochure Send Dialog */}
-        <Dialog open={ebrochureOpen} onOpenChange={setEbrochureOpen}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Send E-Brochure via WhatsApp</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 pt-2">
-              <div>
-                <Label className="text-sm font-medium mb-2 block">Select WhatsApp numbers (sent to all checked)</Label>
-                <div className="space-y-2">
-                  <div className="flex items-center gap-3 border rounded-md px-3 py-2">
-                    <Checkbox checked={ebrochureChecked.has('mobile1')} onCheckedChange={() => toggleEbrochureNumber('mobile1')} id="eb_m1" disabled={!school.mobile1} />
-                    <Label htmlFor="eb_m1" className="cursor-pointer flex-1">
-                      <span className="text-xs text-muted-foreground">Mobile 1</span>
-                      <p className="font-medium">{school.mobile1 || <span className="text-muted-foreground italic">Not set</span>}</p>
-                    </Label>
-                  </div>
-                  <div className="flex items-center gap-3 border rounded-md px-3 py-2">
-                    <Checkbox checked={ebrochureChecked.has('mobile2')} onCheckedChange={() => toggleEbrochureNumber('mobile2')} id="eb_m2" disabled={!school.mobile2} />
-                    <Label htmlFor="eb_m2" className="cursor-pointer flex-1">
-                      <span className="text-xs text-muted-foreground">Mobile 2 (WhatsApp)</span>
-                      <p className="font-medium">{school.mobile2 || <span className="text-muted-foreground italic">Not set</span>}</p>
-                    </Label>
-                  </div>
-                  {(school as any).additional_contacts?.map((c: any, i: number) => (
-                    <div key={i} className="flex items-center gap-3 border rounded-md px-3 py-2">
-                      <Checkbox checked={ebrochureChecked.has(`contact_${i}`)} onCheckedChange={() => toggleEbrochureNumber(`contact_${i}`)} id={`eb_c${i}`} disabled={!c.mobile} />
-                      <Label htmlFor={`eb_c${i}`} className="cursor-pointer flex-1">
-                        <span className="text-xs text-muted-foreground">{c.role || 'Contact'} — {c.name}</span>
-                        <p className="font-medium">{c.mobile}</p>
-                      </Label>
-                    </div>
-                  ))}
-                  <div className="flex items-center gap-3 border rounded-md px-3 py-2">
-                    <Checkbox checked={ebrochureChecked.has('manual')} onCheckedChange={() => toggleEbrochureNumber('manual')} id="eb_manual" />
-                    <Label htmlFor="eb_manual" className="cursor-pointer">Enter manually</Label>
-                  </div>
-                </div>
-              </div>
-
-              {ebrochureChecked.has('manual') && (
-                <div className="space-y-3 border-l-2 border-primary pl-3">
-                  <div>
-                    <Label htmlFor="eb_number" className="text-xs">Phone Number</Label>
-                    <Input id="eb_number" value={ebrochureManual} onChange={(e) => setEbrochureManual(e.target.value)} placeholder="10-digit mobile number" className="mt-1" />
-                  </div>
-                  <div>
-                    <Label htmlFor="eb_cname" className="text-xs">Contact Name (optional)</Label>
-                    <Input id="eb_cname" value={ebrochureContactName} onChange={(e) => setEbrochureContactName(e.target.value)} placeholder="e.g., Principal Ravi" className="mt-1" />
-                  </div>
-                  <div>
-                    <Label htmlFor="eb_crole" className="text-xs">Role (optional)</Label>
-                    <Input id="eb_crole" value={ebrochureContactRole} onChange={(e) => setEbrochureContactRole(e.target.value)} placeholder="e.g., Principal, Coordinator" className="mt-1" />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input type="checkbox" id="eb_save" checked={ebrochureSaveContact} onChange={(e) => setEbrochureSaveContact(e.target.checked)} className="rounded" />
-                    <Label htmlFor="eb_save" className="text-xs cursor-pointer">Save this number to school's contacts</Label>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex gap-2 pt-2">
-                <Button variant="outline" className="flex-1" onClick={() => setEbrochureOpen(false)}>Cancel</Button>
-                <Button className="flex-1" onClick={handleSendEbrochure} disabled={ebrochureSending}>
-                  {ebrochureSending ? 'Sending...' : 'Send E-Brochure'}
-                </Button>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
+        <SendEbrochureDialog
+          open={ebrochureOpen}
+          onOpenChange={setEbrochureOpen}
+          target={{
+            kind: 'school',
+            schoolId: id!,
+            schoolName: school.school_name,
+            district: school.district,
+            state: school.state,
+            mobile1: school.mobile1 ?? null,
+            mobile2: school.mobile2 ?? null,
+            email: school.email ?? null,
+            contacts: school.additional_contacts ?? [],
+          }}
+          onSent={async () => {
+            const { data } = await supabase.from('schools').select('*').eq('id', id).single();
+            if (data) setSchool(data as any);
+          }}
+        />
 
         {/* Click2Call dialog */}
         <Dialog open={callDialogOpen} onOpenChange={open => { if (!calling) setCallDialogOpen(open); }}>

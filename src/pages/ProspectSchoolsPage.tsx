@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useActiveProject } from '@/hooks/useOlympiadProjects';
 import { useAuth } from '@/hooks/useAuth';
 import ProspectUploadSchools from '@/components/prospect/ProspectUploadSchools';
+import { SendEbrochureDialog } from '@/components/schools/SendEbrochureDialog';
 import { toCSV } from '@/utils/csvExport';
 
 type ProspectContact = { name: string; role: string; mobile: string };
@@ -74,22 +75,7 @@ export default function ProspectSchoolsPage() {
   const [interestNotif, setInterestNotif] = useState<InterestNotif | null>(null);
   const [notifSending, setNotifSending] = useState(false);
 
-  // E-Brochure state — checkbox multi-select, sends to every checked number
   const [ebrochureOpen, setEbrochureOpen] = useState(false);
-  const [ebrochureChecked, setEbrochureChecked] = useState<Set<string>>(new Set());
-  const [ebrochureManual, setEbrochureManual] = useState('');
-  const [ebrochureManualName, setEbrochureManualName] = useState('');
-  const [ebrochureManualRole, setEbrochureManualRole] = useState('');
-  const [ebrochureSaveMobile, setEbrochureSaveMobile] = useState(false);
-  const [ebrochureSending, setEbrochureSending] = useState(false);
-
-  const toggleEbrochureNumber = (key: string) => {
-    setEbrochureChecked(prev => {
-      const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
-      return next;
-    });
-  };
 
   const isSuperAdmin = profile?.role === 'superadmin';
 
@@ -333,123 +319,6 @@ export default function ProspectSchoolsPage() {
       toast({ title: 'Call failed', description: e.message, variant: 'destructive' });
     } finally {
       setCalling(false);
-    }
-  };
-
-  const openEbrochureDialog = () => {
-    if (!selected) return;
-    setEbrochureChecked(new Set(selected.mobile ? ['mobile'] : []));
-    setEbrochureManual('');
-    setEbrochureManualName('');
-    setEbrochureManualRole('');
-    setEbrochureSaveMobile(false);
-    setEbrochureOpen(true);
-  };
-
-  const handleSendEbrochure = async () => {
-    if (!selected) return;
-    const recipients: { phone: string; contactName?: string; isManual?: boolean }[] = [];
-    if (ebrochureChecked.has('mobile') && selected.mobile) recipients.push({ phone: selected.mobile });
-    (selected.additional_contacts ?? []).forEach((c, i) => {
-      if (ebrochureChecked.has(`contact_${i}`) && c.mobile) recipients.push({ phone: c.mobile, contactName: c.name });
-    });
-    if (ebrochureChecked.has('manual')) {
-      if (ebrochureManual.replace(/\D/g, '').length < 10) {
-        toast({ title: 'Error', description: 'Please enter a valid 10-digit manual phone number', variant: 'destructive' });
-        return;
-      }
-      recipients.push({ phone: ebrochureManual, contactName: ebrochureManualName || undefined, isManual: true });
-    }
-    // Dedupe by last 10 digits
-    const seen = new Set<string>();
-    const unique = recipients.filter(r => {
-      const d = r.phone.replace(/\D/g, '').slice(-10);
-      if (seen.has(d)) return false;
-      seen.add(d);
-      return true;
-    });
-    if (unique.length === 0) {
-      toast({ title: 'Error', description: 'Select at least one phone number', variant: 'destructive' });
-      return;
-    }
-    setEbrochureSending(true);
-    try {
-      // getSession refreshes an expired token; without this the invoke can fall back
-      // to the anon key and the function returns "Unauthorized"
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        throw new Error('Your login session has expired — please refresh the page and log in again.');
-      }
-      let sentCount = 0;
-      const failed: string[] = [];
-      let firstError = '';
-      for (const r of unique) {
-        try {
-          const res = await supabase.functions.invoke('send-ebrochure', {
-            headers: { Authorization: `Bearer ${session.access_token}` },
-            body: {
-              prospectSchoolId: selected.id,
-              phone: r.phone,
-              schoolName: selected.school_name,
-              district: selected.district,
-              state: selected.state,
-              contactName: r.contactName,
-            },
-          });
-          if (res.error) {
-            const body = await (res.error as any).context?.json?.().catch(() => null);
-            throw new Error(body?.error || res.error.message);
-          }
-          if (!res.data?.success) throw new Error(res.data?.error || 'Send failed');
-          sentCount++;
-        } catch (e: any) {
-          failed.push(r.phone);
-          if (!firstError) firstError = e.message;
-        }
-      }
-      if (failed.length === 0) {
-        toast({ title: 'E-Brochure sent!', description: sentCount === 1 ? `Sent to ${unique[0].phone}` : `Sent to ${sentCount} numbers` });
-      } else {
-        toast({
-          title: sentCount > 0 ? 'Partially sent' : 'Send failed',
-          description: `${sentCount} sent · failed for ${failed.join(', ')} — ${firstError}`,
-          variant: 'destructive',
-        });
-      }
-      // Save the manual number to the school's contacts if requested
-      const manualSent = ebrochureChecked.has('manual') && !failed.includes(ebrochureManual);
-      if (manualSent && ebrochureSaveMobile) {
-        const digits = ebrochureManual.replace(/\D/g, '').slice(-10);
-        let updated: ProspectSchool | null = null;
-        if (!selected.mobile) {
-          const { error } = await supabase.from('prospect_schools').update({ mobile: digits }).eq('id', selected.id);
-          if (!error) updated = { ...selected, mobile: digits };
-        } else {
-          const existing = selected.additional_contacts ?? [];
-          const isDup = existing.some(c => c.mobile.replace(/\D/g, '').slice(-10) === digits) || selected.mobile.replace(/\D/g, '').slice(-10) === digits;
-          if (!isDup && existing.length < MAX_CONTACTS) {
-            const contacts = [...existing, { name: ebrochureManualName, role: ebrochureManualRole, mobile: digits }];
-            const { error } = await supabase.from('prospect_schools').update({ additional_contacts: contacts }).eq('id', selected.id);
-            if (!error) updated = { ...selected, additional_contacts: contacts };
-          }
-        }
-        if (updated) {
-          setSelected(updated);
-          setSchools(prev => prev.map(s => s.id === updated!.id ? updated! : s));
-        }
-      }
-      if (sentCount > 0) {
-        setEbrochureOpen(false);
-        setEbrochureManual('');
-        setEbrochureManualName('');
-        setEbrochureManualRole('');
-        setEbrochureSaveMobile(false);
-        setEbrochureChecked(new Set());
-      }
-    } catch (e: any) {
-      toast({ title: 'Send failed', description: e.message, variant: 'destructive' });
-    } finally {
-      setEbrochureSending(false);
     }
   };
 
@@ -961,7 +830,7 @@ export default function ProspectSchoolsPage() {
 
                 {/* Send E-Brochure — always fetches the active project's brochure */}
                 <button
-                  onClick={openEbrochureDialog}
+                  onClick={() => setEbrochureOpen(true)}
                   className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 text-sm font-semibold hover:bg-indigo-100 transition-colors"
                 >
                   <Send className="h-4 w-4" />
@@ -1139,91 +1008,45 @@ export default function ProspectSchoolsPage() {
       </Dialog>
 
       {/* E-Brochure send dialog */}
-      <Dialog open={ebrochureOpen} onOpenChange={open => { if (!ebrochureSending) setEbrochureOpen(open); }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Send className="h-5 w-5 text-indigo-600" />
-              Send E-Brochure via WhatsApp
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 pt-2">
-            <p className="text-xs text-gray-500">
-              Sends the <span className="font-semibold text-gray-700">{activeProject?.project_name ?? 'active project'}</span> brochure to <span className="font-semibold text-gray-700">{selected?.school_name}</span>.
-            </p>
-            <div>
-              <Label className="text-sm font-medium mb-2 block">Select WhatsApp numbers (sent to all checked)</Label>
-              <div className="space-y-2">
-                <div className="flex items-center gap-3 border rounded-md px-3 py-2">
-                  <Checkbox checked={ebrochureChecked.has('mobile')} onCheckedChange={() => toggleEbrochureNumber('mobile')} id="peb_mobile" disabled={!selected?.mobile} />
-                  <Label htmlFor="peb_mobile" className="cursor-pointer flex-1">
-                    <span className="text-xs text-muted-foreground">School Mobile</span>
-                    <p className="font-medium">{selected?.mobile || <span className="text-muted-foreground italic">Not set</span>}</p>
-                  </Label>
-                </div>
-                {(selected?.additional_contacts ?? []).map((c, i) => (
-                  <div key={i} className="flex items-center gap-3 border rounded-md px-3 py-2">
-                    <Checkbox checked={ebrochureChecked.has(`contact_${i}`)} onCheckedChange={() => toggleEbrochureNumber(`contact_${i}`)} id={`peb_c${i}`} disabled={!c.mobile} />
-                    <Label htmlFor={`peb_c${i}`} className="cursor-pointer flex-1">
-                      <span className="text-xs text-muted-foreground">{[c.role || 'Contact', c.name].filter(Boolean).join(' — ')}</span>
-                      <p className="font-medium">{c.mobile}</p>
-                    </Label>
-                  </div>
-                ))}
-                <div className="flex items-center gap-3 border rounded-md px-3 py-2">
-                  <Checkbox checked={ebrochureChecked.has('manual')} onCheckedChange={() => toggleEbrochureNumber('manual')} id="peb_manual" />
-                  <Label htmlFor="peb_manual" className="cursor-pointer">Enter manually</Label>
-                </div>
-              </div>
-            </div>
-
-            {ebrochureChecked.has('manual') && (
-              <div className="space-y-3 border-l-2 border-indigo-400 pl-3">
-                <div>
-                  <Label htmlFor="peb_number" className="text-xs">Phone Number</Label>
-                  <Input
-                    id="peb_number"
-                    value={ebrochureManual}
-                    onChange={e => setEbrochureManual(e.target.value.replace(/\D/g, '').slice(-10))}
-                    placeholder="10-digit mobile number"
-                    className="mt-1"
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <div className="flex-1">
-                    <Label htmlFor="peb_cname" className="text-xs">Name (optional)</Label>
-                    <Input id="peb_cname" value={ebrochureManualName} onChange={e => setEbrochureManualName(e.target.value)} placeholder="e.g., Principal Ravi" className="mt-1" />
-                  </div>
-                  <div className="w-32">
-                    <Label htmlFor="peb_crole" className="text-xs">Role (optional)</Label>
-                    <select
-                      id="peb_crole"
-                      value={ebrochureManualRole}
-                      onChange={e => setEbrochureManualRole(e.target.value)}
-                      className="mt-1 w-full h-10 text-sm border border-input rounded-md px-2 bg-background focus:outline-none focus:ring-1 focus:ring-indigo-400"
-                    >
-                      <option value="">Role…</option>
-                      {CONTACT_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                    </select>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input type="checkbox" id="peb_save" checked={ebrochureSaveMobile} onChange={e => setEbrochureSaveMobile(e.target.checked)} className="rounded" />
-                  <Label htmlFor="peb_save" className="text-xs cursor-pointer">Save this number to school's contacts</Label>
-                </div>
-              </div>
-            )}
-
-            <div className="flex gap-2 pt-2">
-              <Button variant="outline" className="flex-1" onClick={() => setEbrochureOpen(false)} disabled={ebrochureSending}>Cancel</Button>
-              <Button className="flex-1" onClick={handleSendEbrochure} disabled={ebrochureSending}>
-                {ebrochureSending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
-                {ebrochureSending ? 'Sending…' : 'Send E-Brochure'}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {selected && (
+        <SendEbrochureDialog
+          open={ebrochureOpen}
+          onOpenChange={setEbrochureOpen}
+          target={{
+            kind: 'prospect',
+            prospectSchoolId: selected.id,
+            schoolName: selected.school_name,
+            district: selected.district,
+            state: selected.state,
+            mobile: selected.mobile,
+            email: selected.email,
+            contacts: selected.additional_contacts ?? [],
+          }}
+          onSaveManualContact={async (contact) => {
+            const digits = contact.mobile.replace(/\D/g, '').slice(-10);
+            if (!selected.mobile) {
+              const { error } = await supabase.from('prospect_schools').update({ mobile: digits }).eq('id', selected.id);
+              if (!error) {
+                const updated = { ...selected, mobile: digits };
+                setSelected(updated);
+                setSchools(prev => prev.map(s => s.id === updated.id ? updated : s));
+              }
+            } else {
+              const existing = selected.additional_contacts ?? [];
+              const isDup = existing.some(c => c.mobile.replace(/\D/g, '').slice(-10) === digits) || selected.mobile.replace(/\D/g, '').slice(-10) === digits;
+              if (!isDup && existing.length < MAX_CONTACTS) {
+                const contacts = [...existing, { name: contact.name, role: contact.role ?? '', mobile: digits }];
+                const { error } = await supabase.from('prospect_schools').update({ additional_contacts: contacts }).eq('id', selected.id);
+                if (!error) {
+                  const updated = { ...selected, additional_contacts: contacts };
+                  setSelected(updated);
+                  setSchools(prev => prev.map(s => s.id === updated.id ? updated : s));
+                }
+              }
+            }
+          }}
+        />
+      )}
 
       {/* Interest notification popup */}
       <Dialog open={!!interestNotif} onOpenChange={open => { if (!open && !notifSending) setInterestNotif(null); }}>
