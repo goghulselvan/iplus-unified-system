@@ -39,7 +39,8 @@ const Schools = () => {
     getNextSSNo,
     deleteSchool,
     getFilterOptions,
-    getDistrictsByState
+    getDistrictsByState,
+    getBoardsFromDatabase
   } = useSchoolsPaginated(activeProject?.id);
   const { toast } = useToast();
   
@@ -492,12 +493,16 @@ const Schools = () => {
             <AddSchoolDialog
               open={isCreateDialogOpen}
               onOpenChange={setIsCreateDialogOpen}
+              getDistrictsByState={getDistrictsByState}
+              getBoardsFromDatabase={getBoardsFromDatabase}
               onCreated={() => applyFilters({ search: searchTerm, statusFilter, workflowFilter, paymentFilter, stateFilter, districtFilter, boardFilter, schoolIds: projectSchoolIds, projectId: activeProject?.id})}
             />
             <AddSchoolDialog
               open={isInterestedDialogOpen}
               onOpenChange={setIsInterestedDialogOpen}
               mode="interested"
+              getDistrictsByState={getDistrictsByState}
+              getBoardsFromDatabase={getBoardsFromDatabase}
               onCreated={() => {
                 applyFilters({ search: searchTerm, statusFilter, workflowFilter, paymentFilter, stateFilter, districtFilter, boardFilter, schoolIds: projectSchoolIds, projectId: activeProject?.id});
                 supabase.from('school_project_workflow')

@@ -20,17 +20,18 @@ type ProspectSchool = {
 
 type Step = 'search' | 'confirm' | 'manual' | 'notify';
 
+const STATES = ['Tamil Nadu', 'Puducherry', 'Karnataka', 'Kerala', 'Andhra Pradesh', 'Telangana'];
+
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreated: () => void;
   mode?: 'register' | 'interested'; // interested = Pending, register = In Progress
+  getDistrictsByState: (state: string) => Promise<string[]>;
+  getBoardsFromDatabase: () => Promise<string[]>;
 }
 
-const BOARDS = ['State Board', 'Matriculation', 'CBSE', 'ICSE', 'International Board'];
-const STATES = ['Tamil Nadu', 'Puducherry', 'Karnataka', 'Kerala', 'Andhra Pradesh', 'Telangana'];
-
-export function AddSchoolDialog({ open, onOpenChange, onCreated, mode = 'register' }: Props) {
+export function AddSchoolDialog({ open, onOpenChange, onCreated, mode = 'register', getDistrictsByState, getBoardsFromDatabase }: Props) {
   const isInterested = mode === 'interested';
   const { toast } = useToast();
   const { data: activeProject } = useActiveProject();
@@ -49,9 +50,10 @@ export function AddSchoolDialog({ open, onOpenChange, onCreated, mode = 'registe
   // Manual form state
   const [manual, setManual] = useState({
     school_name: '', state: '', district: '', board: '',
-    email: '', mobile: '', address: '', pincode: '',
+    email: '', mobile: '', mobile2: '', address: '', pincode: '',
   });
   const [manualDistricts, setManualDistricts] = useState<string[]>([]);
+  const [manualBoards, setManualBoards] = useState<string[]>([]);
 
   // Reset when dialog closes
   useEffect(() => {
@@ -59,21 +61,22 @@ export function AddSchoolDialog({ open, onOpenChange, onCreated, mode = 'registe
       setTimeout(() => {
         setStep('search'); setQuery(''); setResults([]);
         setSelected(null); setSaving(false); setNotifSending(false); setCreatedInfo(null);
-        setManual({ school_name: '', state: '', district: '', board: '', email: '', mobile: '', address: '', pincode: '' });
+        setManual({ school_name: '', state: '', district: '', board: '', email: '', mobile: '', mobile2: '', address: '', pincode: '' });
       }, 200);
     }
   }, [open]);
 
-  // Load districts when manual state changes
+  // Active boards, loaded once per dialog open (from Board Management, not hardcoded)
+  useEffect(() => {
+    if (open) getBoardsFromDatabase().then(setManualBoards);
+  }, [open, getBoardsFromDatabase]);
+
+  // Load districts when manual state changes (canonical district_codes list, not
+  // capped by PostgREST's 1000-row default that was silently truncating prospect_schools queries)
   useEffect(() => {
     if (!manual.state) { setManualDistricts([]); return; }
-    supabase.from('prospect_schools').select('district')
-      .eq('state', manual.state).order('district')
-      .then(({ data }) => {
-        const unique = [...new Set((data || []).map(r => r.district).filter(Boolean))] as string[];
-        setManualDistricts(unique);
-      });
-  }, [manual.state]);
+    getDistrictsByState(manual.state).then(setManualDistricts);
+  }, [manual.state, getDistrictsByState]);
 
   // Debounced search in prospect_schools
   useEffect(() => {
@@ -134,7 +137,7 @@ export function AddSchoolDialog({ open, onOpenChange, onCreated, mode = 'registe
           board:          selected.board,
           mobile1:        selected.mobile,
           email:          selected.email,
-          school_address: selected.address,
+          school_address: selected.address || '',
           pincode:        selected.pincode,
           prospect_school_id: selected.id,
           current_project_id: activeProject.id,
@@ -181,6 +184,8 @@ export function AddSchoolDialog({ open, onOpenChange, onCreated, mode = 'registe
     if (!activeProject) { toast({ title: 'No active project', variant: 'destructive' }); return; }
     setSaving(true);
     try {
+      const mobile2 = manual.mobile2.trim() || null;
+
       // Create in prospect_schools first (gets new SS NO from sequence)
       const { data: newProspect, error: prospectErr } = await supabase.from('prospect_schools').insert({
         school_name: manual.school_name.trim(),
@@ -189,6 +194,7 @@ export function AddSchoolDialog({ open, onOpenChange, onCreated, mode = 'registe
         board:       manual.board || null,
         email:       manual.email.trim() || null,
         mobile:      manual.mobile.trim() || null,
+        additional_contacts: mobile2 ? [{ name: '', mobile: mobile2, role: 'School' }] : [],
         address:     manual.address.trim() || null,
         pincode:     manual.pincode.trim() || null,
         stage:       isInterested ? 'interested' : 'registered',
@@ -206,8 +212,9 @@ export function AddSchoolDialog({ open, onOpenChange, onCreated, mode = 'registe
         state:          manual.state,
         board:          manual.board || null,
         mobile1:        manual.mobile.trim() || null,
+        mobile2:        mobile2,
         email:          manual.email.trim() || null,
-        school_address: manual.address.trim() || null,
+        school_address: manual.address.trim(),
         pincode:        manual.pincode.trim() || null,
         prospect_school_id: newProspect.id,
         current_project_id: activeProject.id,
@@ -409,7 +416,7 @@ export function AddSchoolDialog({ open, onOpenChange, onCreated, mode = 'registe
               <Label>Board *</Label>
               <Select value={manual.board} onValueChange={v => setManual(m => ({ ...m, board: v }))}>
                 <SelectTrigger><SelectValue placeholder="Select board" /></SelectTrigger>
-                <SelectContent>{BOARDS.map(b => <SelectItem key={b} value={b}>{b}</SelectItem>)}</SelectContent>
+                <SelectContent>{manualBoards.map(b => <SelectItem key={b} value={b}>{b}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -427,6 +434,15 @@ export function AddSchoolDialog({ open, onOpenChange, onCreated, mode = 'registe
                   onChange={e => setManual(m => ({ ...m, mobile: e.target.value.replace(/\D/g, '').slice(-10) }))}
                 />
               </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Mobile 2 (optional)</Label>
+              <Input
+                type="tel"
+                placeholder="10-digit number"
+                value={manual.mobile2}
+                onChange={e => setManual(m => ({ ...m, mobile2: e.target.value.replace(/\D/g, '').slice(-10) }))}
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
