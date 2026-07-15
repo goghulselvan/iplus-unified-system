@@ -361,6 +361,33 @@ serve(async (req) => {
       console.error('Failed to record backup metadata:', recordError)
     }
 
+    // Email the daily backup only — manual backups are never emailed.
+    // Delegates to a separate function (send-backup-email) so the
+    // base64/Resend work runs in its own fresh invocation, not sharing
+    // memory pressure with the heavy table-streaming work above.
+    if (backupType === 'daily') {
+      try {
+        const emailResp = await fetch(`${supabaseUrl}/functions/v1/send-backup-email`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${supabaseAnonKey}`,
+            'X-Backup-Email-Token': Deno.env.get('BACKUP_CRON_SECRET') ?? '',
+          },
+          body: JSON.stringify({
+            storagePath, filename, fileSize, totalRecords, tableCount: tables.length,
+          }),
+        })
+        if (!emailResp.ok) {
+          console.error('send-backup-email call failed:', await emailResp.text())
+        }
+      } catch (emailErr) {
+        // Email failure must never fail the backup itself — the backup
+        // already succeeded and is safely stored.
+        console.error('Failed to trigger backup email:', emailErr)
+      }
+    }
+
     // Clean up old backups (keep only last 30 days)
     await cleanupOldBackups(supabase)
 
