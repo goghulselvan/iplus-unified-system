@@ -12,23 +12,23 @@ async function cleanupOldBackups(supabase: any) {
     console.log('Starting cleanup of old automatic backups...')
     
     // Retention policy:
-    // - Keep last 7 days of automatic (daily) backups
+    // - Keep last 30 days of automatic (daily) backups
     // - Manual backups are kept FOREVER (only deleted explicitly by superadmin)
-    
-    const sevenDaysAgo = new Date()
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
-    
-    // Get automatic backups older than 7 days
+
+    const retentionCutoff = new Date()
+    retentionCutoff.setDate(retentionCutoff.getDate() - 30)
+
+    // Get automatic backups older than 30 days
     const { data: oldAutomaticBackups, error: autoError } = await supabase
       .from('database_backups')
       .select('*')
       .eq('backup_type', 'daily')
-      .lt('created_at', sevenDaysAgo.toISOString())
-    
+      .lt('created_at', retentionCutoff.toISOString())
+
     if (autoError) {
       console.error('Error fetching old automatic backups:', autoError)
     } else if (oldAutomaticBackups && oldAutomaticBackups.length > 0) {
-      console.log(`Found ${oldAutomaticBackups.length} automatic backups older than 7 days to clean up`)
+      console.log(`Found ${oldAutomaticBackups.length} automatic backups older than 30 days to clean up`)
       
       for (const backup of oldAutomaticBackups) {
         try {
@@ -59,7 +59,7 @@ async function cleanupOldBackups(supabase: any) {
         }
       }
     } else {
-      console.log('No automatic backup cleanup needed (all within 7 days)')
+      console.log('No automatic backup cleanup needed (all within 30 days)')
     }
     
     // NOTE: Manual backups are NEVER auto-deleted - only superadmins can delete them explicitly
@@ -82,8 +82,23 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!
     
-    // Check if this is a scheduled backup
-    const isScheduledBackup = req.headers.get('X-Scheduled-Backup') === 'true'
+    // Check if this is a scheduled backup — verified via shared secret,
+    // not just the presence of a header (which is spoofable by anyone
+    // who knows the function's public URL).
+    const scheduledToken = req.headers.get('X-Scheduled-Backup-Token') ?? ''
+    const expectedScheduledToken = Deno.env.get('BACKUP_CRON_SECRET') ?? ''
+    const isScheduledBackup =
+      req.headers.get('X-Scheduled-Backup') === 'true' &&
+      expectedScheduledToken.length > 0 &&
+      scheduledToken === expectedScheduledToken
+
+    if (req.headers.get('X-Scheduled-Backup') === 'true' && !isScheduledBackup) {
+      console.error('Rejected scheduled-backup request with invalid or missing token')
+      return new Response(
+        JSON.stringify({ success: false, error: 'Invalid scheduled backup token' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401 }
+      )
+    }
     
     let userId: string | null = null
     let backupType = 'manual'
@@ -237,63 +252,92 @@ serve(async (req) => {
 
     console.log('Starting database backup process...')
 
-    // Get all tables to backup (use correct table names)
-    const tables = [
-      'schools', 'communications', 'follow_ups', 'workflow_history', 
-      'activity_logs', 'profiles', 'student_registrations', 'student_subjects',
-      'olympiad_results', 'olympiad_projects', 'olympiad_subjects',
-      'consent_forms', 'boards', 'state_codes', 'district_codes', 'school_codes',
-      'payment_transactions', 'receipt_numbers', 'exam_schedules',
-      'communication_templates', 'registration_format_config',
-      'student_registration_sequences', 'security_audit_logs'
-    ]
+    // Discover every table dynamically — no hardcoded list, so newly
+    // added tables are automatically included (true A-to-Z coverage).
+    const { data: tableRows, error: tablesError } = await supabase.rpc('list_backup_tables')
+    if (tablesError || !tableRows) {
+      throw new Error(`Failed to list tables for backup: ${tablesError?.message ?? 'unknown error'}`)
+    }
+    const tables: string[] = (tableRows as any[]).map((row: any) =>
+      typeof row === 'string' ? row : row.list_backup_tables
+    )
+    console.log(`Discovered ${tables.length} tables to back up: ${tables.join(', ')}`)
 
-    const backupData: any = {}
+    // Stream the entire backup into a single gzip file, one page (max
+    // 1000 rows) at a time. Peak raw memory is always bounded to one
+    // page regardless of total table size — this is what makes the
+    // backup safe at any future scale, not just today's ~118k total
+    // rows. A prior version of this function built one big in-memory
+    // object across all 81 tables before stringifying it whole, and
+    // failed in production (WORKER_RESOURCE_LIMIT) once prospect_schools
+    // (55k+ rows) and campaign_schools (57k+ rows) were included.
+    //
+    // Output format: NDJSON (newline-delimited JSON), not one parseable
+    // JSON document — the first line is a metadata marker, then one
+    // line per (table, page). This is a deliberate format change from
+    // v1.0 backups; anything reading these files must decompress with
+    // gzip then parse line-by-line.
+    const PAGE_SIZE = 1000
+    const gzip = new CompressionStream('gzip')
+    const gzipWriter = gzip.writable.getWriter()
+    const compressedPromise = new Response(gzip.readable).arrayBuffer()
+    const encoder = new TextEncoder()
+
     let totalRecords = 0
+    const tableRecordCounts: Record<string, number> = {}
 
-    // Backup each table
     for (const table of tables) {
+      let from = 0
+      let page = 0
+      let tableTotal = 0
       try {
-        console.log(`Backing up table: ${table}`)
-        const { data, error } = await supabase.from(table).select('*')
-        
-        if (error) {
-          console.error(`Error backing up ${table}:`, error)
-          continue
+        while (true) {
+          const { data, error } = await supabase
+            .from(table)
+            .select('*')
+            .range(from, from + PAGE_SIZE - 1)
+          if (error) {
+            console.error(`Error backing up ${table} at offset ${from}:`, error)
+            break
+          }
+          if (!data || data.length === 0) break
+          await gzipWriter.write(
+            encoder.encode(JSON.stringify({ table, page, rows: data }) + '\n')
+          )
+          tableTotal += data.length
+          totalRecords += data.length
+          if (data.length < PAGE_SIZE) break
+          from += PAGE_SIZE
+          page += 1
         }
-
-        backupData[table] = data || []
-        totalRecords += (data || []).length
-        console.log(`Backed up ${(data || []).length} records from ${table}`)
       } catch (err) {
         console.error(`Failed to backup table ${table}:`, err)
       }
+      tableRecordCounts[table] = tableTotal
+      console.log(`Backed up ${tableTotal} records from ${table}`)
     }
 
-    // Create backup metadata
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-    const filename = `database-backup-${timestamp}.json`
-    
-    const backupContent = {
-      metadata: {
+    const filename = `database-backup-${timestamp}.json.gz`
+    await gzipWriter.write(
+      encoder.encode(JSON.stringify({
+        __meta__: true,
         created_at: new Date().toISOString(),
         total_tables: tables.length,
         total_records: totalRecords,
-        backup_version: '1.0'
-      },
-      data: backupData
-    }
+        table_record_counts: tableRecordCounts,
+        backup_version: '2.0',
+      }) + '\n')
+    )
+    await gzipWriter.close()
+    const compressedBuf = new Uint8Array(await compressedPromise)
+    const fileSize = compressedBuf.byteLength
 
-    // Convert to JSON string
-    const jsonContent = JSON.stringify(backupContent, null, 2)
-    const fileSize = new Blob([jsonContent]).size
-
-    // Upload to storage
     const storagePath = `backups/${filename}`
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('database-backups')
-      .upload(storagePath, jsonContent, {
-        contentType: 'application/json',
+      .upload(storagePath, compressedBuf, {
+        contentType: 'application/gzip',
         upsert: false
       })
 
@@ -317,7 +361,7 @@ serve(async (req) => {
       console.error('Failed to record backup metadata:', recordError)
     }
 
-    // Clean up old backups (keep only last 7 days)
+    // Clean up old backups (keep only last 30 days)
     await cleanupOldBackups(supabase)
 
     console.log(`Backup completed successfully: ${filename}`)
