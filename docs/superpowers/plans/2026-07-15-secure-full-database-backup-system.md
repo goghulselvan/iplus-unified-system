@@ -465,6 +465,17 @@ git commit -m "fix: dynamic A-to-Z table discovery, paginate past PostgREST 1000
 
 ### Task 5: Email the daily backup via a separate `send-backup-email` function, with a signed-link fallback for oversized files
 
+> **Third revision (2026-07-16, post-completion):** the separate-function design below ALSO hit
+> `WORKER_RESOURCE_LIMIT` (3rd incident) — even a fresh invocation cannot afford to download and
+> base64-encode an 11.6MB file (the std base64 encode + Resend's JSON serialization of the ~15.5MB
+> string exceed the worker compute budget; the real constraint was never email size). Final fix:
+> no download, no encoding — pass a 1-hour signed URL as the Resend attachment `path`, so Resend's
+> servers fetch and attach the file; worker cost stays flat at any backup size. Attachment cutoff
+> raised to 30MB compressed (Resend's total-message cap is 40MB). Also: `resend.emails.send`
+> returns `{data, error}` and never throws — both branches now check `error` explicitly, otherwise
+> a rejected send reports success. Verified live: the identical payload that returned 546 returns
+> 200 with the email accepted.
+
 Only fires for `backup_type === 'daily'`. Manual backups are never emailed (per explicit instruction). Threshold for "too big to attach" is set conservatively at 15MB of **compressed** bytes — base64 encoding (required for email attachments) inflates size by ~37%, so 15MB compressed becomes ~20.5MB encoded, safely under both Gmail's 25MB message-size cap and Resend's attachment limit, leaving headroom for the HTML body/headers.
 
 **Revision note (second attempt — first attempt caused a second live production incident today):** the first version of this task added the email-sending code (base64-encode + `resend.emails.send`) directly inline in `database-backup/index.ts`, right after the streaming backup upload, in the SAME function invocation. Deployed and run for real, it hit `WORKER_RESOURCE_LIMIT` twice in a row on an 11.6MB file — well under the 15MB threshold. Root cause: the 15MB threshold was sized against email-provider attachment limits (Gmail/Resend), a completely different constraint from the edge function's own runtime memory ceiling, which is much tighter and was already under some pressure from the heavy 81-table streaming/pagination work that had just run in the same invocation (V8/Deno doesn't necessarily reclaim everything instantly). The implementer correctly rolled the deployed function back to Task 4's last known-good commit before the live 11:59 PM IST cron could fire on the broken code, and confirmed with a real run that production was safe again — nothing was left broken.
