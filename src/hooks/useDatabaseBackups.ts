@@ -52,12 +52,16 @@ export const useDatabaseBackups = () => {
         return;
       }
 
-      // Create download link
-      const blob = new Blob([data], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
+      // Backups are stored gzip-compressed (see database-backup edge
+      // function) — decompress client-side so the downloaded file is
+      // plain readable JSON, matching the pre-compression UX.
+      const decompressedStream = data.stream().pipeThrough(new DecompressionStream('gzip'));
+      const decompressedBlob = await new Response(decompressedStream).blob();
+
+      const url = URL.createObjectURL(decompressedBlob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = backup.filename;
+      a.download = backup.filename.replace(/\.gz$/, '');
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -67,39 +71,6 @@ export const useDatabaseBackups = () => {
     } catch (error) {
       console.error('Error downloading backup:', error);
       toast.error('Failed to download backup file');
-    }
-  };
-
-  const deleteBackup = async (backup: BackupFile) => {
-    try {
-      // Delete from storage
-      const { error: storageError } = await supabase.storage
-        .from('database-backups')
-        .remove([backup.storage_path]);
-
-      if (storageError) {
-        console.error('Error deleting from storage:', storageError);
-        toast.error('Failed to delete backup file from storage');
-        return;
-      }
-
-      // Delete from database
-      const { error: dbError } = await supabase
-        .from('database_backups')
-        .delete()
-        .eq('id', backup.id);
-
-      if (dbError) {
-        console.error('Error deleting from database:', dbError);
-        toast.error('Failed to delete backup record');
-        return;
-      }
-
-      toast.success('Backup file deleted successfully');
-      fetchBackups(); // Refresh the list
-    } catch (error) {
-      console.error('Error deleting backup:', error);
-      toast.error('Failed to delete backup file');
     }
   };
 
@@ -168,7 +139,6 @@ export const useDatabaseBackups = () => {
     loading,
     fetchBackups,
     downloadBackup,
-    deleteBackup,
     triggerBackup
   };
 };

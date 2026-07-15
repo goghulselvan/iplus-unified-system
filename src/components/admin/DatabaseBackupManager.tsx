@@ -3,13 +3,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { Download, Trash2, Database, RefreshCw, Clock, User } from 'lucide-react';
+import { Download, Database, RefreshCw, Clock, User } from 'lucide-react';
 import { useDatabaseBackups, BackupFile } from '@/hooks/useDatabaseBackups';
 import { format, isAfter, subDays } from 'date-fns';
 
 const DatabaseBackupManager: React.FC = () => {
-  const { backups, loading, downloadBackup, deleteBackup, triggerBackup } = useDatabaseBackups();
+  const { backups, loading, downloadBackup, triggerBackup } = useDatabaseBackups();
 
   const formatFileSize = (bytes: number) => {
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
@@ -35,13 +34,13 @@ const DatabaseBackupManager: React.FC = () => {
   const automaticBackups = backups.filter(b => b.backup_type === 'daily');
   const manualBackups = backups.filter(b => b.backup_type === 'manual');
 
-  // Filter automatic backups to show only last 7 days
-  const sevenDaysAgo = subDays(new Date(), 7);
-  const recentAutomaticBackups = automaticBackups.filter(b => 
-    isAfter(new Date(b.created_at), sevenDaysAgo)
+  // Filter automatic backups to show only last 30 days
+  const thirtyDaysAgo = subDays(new Date(), 30);
+  const recentAutomaticBackups = automaticBackups.filter(b =>
+    isAfter(new Date(b.created_at), thirtyDaysAgo)
   );
 
-  const renderBackupTable = (backupList: BackupFile[], showDeleteButton: boolean) => {
+  const renderBackupTable = (backupList: BackupFile[]) => {
     if (backupList.length === 0) {
       return (
         <div className="text-center py-6 text-muted-foreground">
@@ -97,32 +96,6 @@ const DatabaseBackupManager: React.FC = () => {
                     <Download className="h-4 w-4 mr-1" />
                     Download
                   </Button>
-                  {showDeleteButton && (
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button variant="outline" size="sm">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Delete Backup</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Are you sure you want to delete "{backup.filename}"? This action cannot be undone.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction 
-                            onClick={() => deleteBackup(backup)}
-                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                          >
-                            Delete
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  )}
                 </div>
               </TableCell>
             </TableRow>
@@ -165,7 +138,7 @@ const DatabaseBackupManager: React.FC = () => {
                 Automatic Backups
               </CardTitle>
               <CardDescription>
-                Daily backups at 11:59 PM IST. <strong>Retention:</strong> Last 7 days only (older backups are auto-deleted).
+                Daily backups at 11:59 PM IST. <strong>Retention:</strong> Last 30 days only (older backups are auto-deleted).
               </CardDescription>
             </div>
             <Badge variant="outline" className="text-sm">
@@ -174,7 +147,7 @@ const DatabaseBackupManager: React.FC = () => {
           </div>
         </CardHeader>
         <CardContent>
-          {renderBackupTable(recentAutomaticBackups, false)}
+          {renderBackupTable(recentAutomaticBackups)}
         </CardContent>
       </Card>
 
@@ -188,7 +161,7 @@ const DatabaseBackupManager: React.FC = () => {
                 Manual Backups
               </CardTitle>
               <CardDescription>
-                On-demand backups created by superadmins. <strong>Retention:</strong> Stored forever until explicitly deleted.
+                On-demand backups created by superadmins. <strong>Retention:</strong> Stored forever — cannot be deleted by anyone, including superadmins.
               </CardDescription>
             </div>
             <div className="flex items-center gap-3">
@@ -203,7 +176,7 @@ const DatabaseBackupManager: React.FC = () => {
           </div>
         </CardHeader>
         <CardContent>
-          {renderBackupTable(manualBackups, true)}
+          {renderBackupTable(manualBackups)}
         </CardContent>
       </Card>
     </div>
