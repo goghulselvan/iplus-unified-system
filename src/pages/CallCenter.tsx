@@ -144,6 +144,9 @@ export default function CallCenter() {
   const [doneTarget, setDoneTarget] = useState<QueueRow | null>(null);
   const [doneNote, setDoneNote] = useState("");
 
+  const [callTarget, setCallTarget] = useState<{ phone: string; prospectId: string | null } | null>(null);
+  const [callStaffPhone, setCallStaffPhone] = useState(() => localStorage.getItem("cc_staff_phone") ?? "");
+
   // ── Timeline state ──────────────────────────────────────────────────────────
   const [tlNumber, setTlNumber] = useState("");
   const [tlLoading, setTlLoading] = useState(false);
@@ -247,17 +250,26 @@ export default function CallCenter() {
 
   // ── Call back ───────────────────────────────────────────────────────────────
 
-  const callBack = async (phone: string | null, prospectId?: string | null) => {
+  const callBack = (phone: string | null, prospectId?: string | null) => {
     const num = last10(phone);
     if (!/^[6-9]\d{9}$/.test(num)) { toast({ title: "Invalid number", variant: "destructive" }); return; }
+    setCallTarget({ phone: num, prospectId: prospectId ?? null });
+  };
+
+  const confirmCallBack = async () => {
+    if (!callTarget) return;
+    const staff = callStaffPhone.replace(/\D/g, "").slice(-10);
+    if (!/^[6-9]\d{9}$/.test(staff)) { toast({ title: "Enter your 10-digit mobile number", variant: "destructive" }); return; }
     setBusy(true);
     try {
       const { data, error } = await supabase.functions.invoke("bonvoice-click2call", {
-        body: { type: "click2call", school_phone: num, prospect_school_id: prospectId ?? undefined },
+        body: { type: "click2call", school_phone: callTarget.phone, staff_phone: staff, prospect_school_id: callTarget.prospectId ?? undefined },
       });
       if (error) throw new Error(error.message);
       if (data?.error) throw new Error(data.error);
-      toast({ title: "Call bridging started", description: "Your phone will ring first, then the caller is connected." });
+      localStorage.setItem("cc_staff_phone", staff);
+      toast({ title: "Call bridging started", description: `Bonvoice rings your phone (${staff}) first, then connects ${callTarget.phone}.` });
+      setCallTarget(null);
     } catch (e: any) {
       toast({ title: "Call failed", description: e.message, variant: "destructive" });
     } finally { setBusy(false); }
@@ -1014,6 +1026,26 @@ export default function CallCenter() {
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setDoneTarget(null)}>Cancel</Button>
               <Button onClick={markDone} disabled={busy}>{busy ? "Saving…" : "Mark done"}</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* ── Call-back dialog ────────────────────────────────────────────────── */}
+        <Dialog open={!!callTarget} onOpenChange={open => { if (!open) setCallTarget(null); }}>
+          <DialogContent className="max-w-xs">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-sm">
+                <PhoneCall className="h-4 w-4" /> Call {callTarget?.phone}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-1.5">
+              <Label htmlFor="cc-staff-phone">Your mobile — Bonvoice rings you first, then bridges the call</Label>
+              <Input id="cc-staff-phone" type="tel" maxLength={10} placeholder="10-digit mobile" autoFocus
+                value={callStaffPhone} onChange={e => setCallStaffPhone(e.target.value.replace(/\D/g, "").slice(-10))} />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setCallTarget(null)}>Cancel</Button>
+              <Button onClick={confirmCallBack} disabled={busy || callStaffPhone.length !== 10}>{busy ? "Calling…" : "Call"}</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
