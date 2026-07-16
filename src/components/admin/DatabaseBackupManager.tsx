@@ -76,27 +76,15 @@ const DatabaseBackupManager: React.FC = () => {
                 {format(new Date(backup.created_at), 'MMM dd, yyyy HH:mm')}
               </TableCell>
               <TableCell>
-                <div className="flex gap-2">
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={() => downloadBackup(backup)}
-                    disabled={backup.status !== 'completed'}
-                    className="bg-green-600 hover:bg-green-700 text-white"
-                  >
-                    <RefreshCw className="h-4 w-4 mr-1" />
-                    Restore
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => downloadBackup(backup)}
-                    disabled={backup.status !== 'completed'}
-                  >
-                    <Download className="h-4 w-4 mr-1" />
-                    Download
-                  </Button>
-                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => downloadBackup(backup)}
+                  disabled={backup.status !== 'completed'}
+                >
+                  <Download className="h-4 w-4 mr-1" />
+                  Download
+                </Button>
               </TableCell>
             </TableRow>
           ))}
