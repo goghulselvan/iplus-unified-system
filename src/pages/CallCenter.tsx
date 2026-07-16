@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   PhoneIncoming, PhoneOutgoing, PhoneCall, RefreshCw, Link2, Plus, X, PlayCircle,
-  MessageSquare, AlarmClock, CheckCircle2, Flame, UserRound,
+  MessageSquare, AlarmClock, CheckCircle2, Flame, UserRound, Mail, Bot, Download, History,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -29,6 +29,7 @@ type CallRow = {
   created_by: string | null;
   staff_comment: string | null;
   disposition: string | null;
+  bonvoice_status: string | null;
   school_id: string | null;
   prospect_school_id: string | null;
   school: { school_name: string } | null;
@@ -59,6 +60,24 @@ type QueueRow = {
 type StaffProfile = { user_id: string; full_name: string | null; username: string };
 type CallerHit = { source: "crm" | "prospect"; id: string; school_name: string; district: string | null; state: string | null };
 
+type TimelineEvent = {
+  kind: "call" | "comm";
+  when: string;
+  direction: string | null;
+  title: string;
+  detail: string | null;
+  commType?: string;
+  recordingUrl?: string | null;
+  status?: string | null;
+};
+
+type ReportData = {
+  totals: { total: number; inbound: number; outbound: number; connected: number; missed: number; answer_rate_pct: number | null };
+  daily: { day: string; inbound: number; outbound: number; missed: number; connected: number }[];
+  staff: { user_id: string; name: string; outbound: number; connected: number; talk_seconds: number }[];
+  callback: { numbers_missed: number; called_back: number; never_called_back: number; avg_callback_hours: number | null };
+};
+
 const STATUS_COLOR: Record<string, string> = {
   completed: "bg-green-100 text-green-700",
   answered: "bg-green-100 text-green-700",
@@ -87,6 +106,7 @@ const last10 = (phone: string | null | undefined) => (phone ?? "").replace(/\D/g
 export default function CallCenter() {
   const { toast } = useToast();
   const { profile: currentProfile } = useAuth();
+  const [tab, setTab] = useState("calls");
 
   // ── All Calls state ─────────────────────────────────────────────────────────
   const [rows, setRows] = useState<CallRow[]>([]);
@@ -124,13 +144,28 @@ export default function CallCenter() {
   const [doneTarget, setDoneTarget] = useState<QueueRow | null>(null);
   const [doneNote, setDoneNote] = useState("");
 
+  // ── Timeline state ──────────────────────────────────────────────────────────
+  const [tlNumber, setTlNumber] = useState("");
+  const [tlLoading, setTlLoading] = useState(false);
+  const [tlEvents, setTlEvents] = useState<TimelineEvent[]>([]);
+  const [tlParty, setTlParty] = useState<{ name: string | null; source: string | null; prospectId: string | null } | null>(null);
+  const [tlLoaded, setTlLoaded] = useState(false);
+
+  // ── Reports state ───────────────────────────────────────────────────────────
+  const today = new Date().toISOString().slice(0, 10);
+  const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const [repFrom, setRepFrom] = useState(monthAgo);
+  const [repTo, setRepTo] = useState(today);
+  const [repData, setRepData] = useState<ReportData | null>(null);
+  const [repLoading, setRepLoading] = useState(false);
+
   // ── Fetchers ────────────────────────────────────────────────────────────────
 
   const fetchCalls = useCallback(async () => {
     setLoading(true);
     let q = supabase
       .from("bonvoice_call_logs")
-      .select("id, call_id, school_phone, status, call_duration, resource_url, created_at, start_time, end_time, direction, created_by, staff_comment, disposition, school_id, prospect_school_id, school:schools(school_name), prospect:prospect_schools(school_name)")
+      .select("id, call_id, school_phone, status, call_duration, resource_url, created_at, start_time, end_time, direction, created_by, staff_comment, disposition, bonvoice_status, school_id, prospect_school_id, school:schools(school_name), prospect:prospect_schools(school_name)")
       .order("created_at", { ascending: false })
       .limit(200);
     if (fDirection !== "all") q = q.eq("direction", fDirection);
@@ -350,6 +385,108 @@ export default function CallCenter() {
     } finally { setBusy(false); }
   };
 
+  // ── Timeline ────────────────────────────────────────────────────────────────
+
+  const loadTimeline = async (rawNum: string) => {
+    const num = last10(rawNum);
+    if (num.length !== 10) { toast({ title: "Enter a 10-digit number", variant: "destructive" }); return; }
+    setTlNumber(num);
+    setTlLoading(true);
+    setTlLoaded(true);
+    try {
+      const { data: m } = await supabase.rpc("match_phone_all", { p_last10: num });
+      const match = Array.isArray(m) ? m[0] : m;
+      const schoolId = match?.school_id ?? null;
+      const prospectId = match?.prospect_school_id ?? null;
+
+      let partyName: string | null = null;
+      if (schoolId) {
+        const { data: s } = await supabase.from("schools").select("school_name").eq("id", schoolId).maybeSingle();
+        partyName = s?.school_name ?? null;
+      } else if (prospectId) {
+        const { data: p } = await supabase.from("prospect_schools").select("school_name").eq("id", prospectId).maybeSingle();
+        partyName = p?.school_name ?? null;
+      }
+      setTlParty({ name: partyName, source: schoolId ? "CRM" : prospectId ? "Prospect" : null, prospectId });
+
+      const { data: callData } = await supabase
+        .from("bonvoice_call_logs")
+        .select("status, bonvoice_status, call_duration, resource_url, created_at, start_time, direction, staff_comment, disposition")
+        .like("school_phone", `%${num}`)
+        .order("created_at", { ascending: false })
+        .limit(100);
+
+      let commData: any[] = [];
+      if (schoolId) {
+        const { data: c } = await supabase
+          .from("communications")
+          .select("communication_type, message, created_at, direction, duration_seconds, recording_url, delivery_status")
+          .eq("school_id", schoolId)
+          .order("created_at", { ascending: false })
+          .limit(100);
+        commData = (c as any[]) ?? [];
+      }
+
+      const events: TimelineEvent[] = [
+        ...((callData as any[]) ?? []).map((c): TimelineEvent => ({
+          kind: "call",
+          when: c.start_time ?? c.created_at,
+          direction: c.direction,
+          title: `${c.direction === "outbound" ? "Outgoing" : "Incoming"} call — ${(c.status ?? "").replace("_", " ")}${c.bonvoice_status ? ` (${c.bonvoice_status})` : ""}`,
+          detail: [
+            c.call_duration > 0 ? `${Math.floor(c.call_duration / 60)}m ${c.call_duration % 60}s` : null,
+            c.disposition ? DISPOSITIONS.find(d => d.value === c.disposition)?.label : null,
+            c.staff_comment ? `💬 ${c.staff_comment}` : null,
+          ].filter(Boolean).join(" · ") || null,
+          recordingUrl: c.resource_url,
+          status: c.status,
+        })),
+        ...commData
+          .filter(c => c.communication_type !== "Phone") // phone rows duplicate the call log
+          .map((c): TimelineEvent => ({
+            kind: "comm",
+            when: c.created_at,
+            direction: c.direction,
+            commType: c.communication_type,
+            title: `${c.communication_type}${c.direction ? ` (${c.direction})` : ""}${c.delivery_status ? ` — ${c.delivery_status}` : ""}`,
+            detail: (c.message ?? "").slice(0, 200) || null,
+          })),
+      ].sort((a, b) => (a.when < b.when ? 1 : -1));
+
+      setTlEvents(events);
+    } catch (e: any) {
+      toast({ title: "Failed to load timeline", description: e.message, variant: "destructive" });
+    } finally { setTlLoading(false); }
+  };
+
+  const openTimeline = (phone: string | null) => {
+    const num = last10(phone);
+    if (num.length !== 10) return;
+    setTab("timeline");
+    loadTimeline(num);
+  };
+
+  // ── Reports ─────────────────────────────────────────────────────────────────
+
+  const loadReports = useCallback(async () => {
+    setRepLoading(true);
+    const { data, error } = await supabase.rpc("get_call_reports", { p_from: repFrom, p_to: repTo });
+    if (error) toast({ title: "Failed to load reports", description: error.message, variant: "destructive" });
+    setRepData((data as ReportData) ?? null);
+    setRepLoading(false);
+  }, [repFrom, repTo, toast]);
+
+  useEffect(() => { if (tab === "reports") loadReports(); }, [tab, loadReports]);
+
+  const downloadCsv = (filename: string, headers: string[], rows: (string | number | null)[][]) => {
+    const csv = [headers.join(","), ...rows.map(r => r.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(","))].join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   // ── Derived ─────────────────────────────────────────────────────────────────
 
   const visible = rows.filter(r => {
@@ -392,12 +529,14 @@ export default function CallCenter() {
           </Button>
         </div>
 
-        <Tabs defaultValue="calls">
+        <Tabs value={tab} onValueChange={setTab}>
           <TabsList>
             <TabsTrigger value="calls">All Calls</TabsTrigger>
             <TabsTrigger value="queue">
               Follow-up Queue{queue.length > 0 ? ` (${queue.length})` : ""}
             </TabsTrigger>
+            <TabsTrigger value="timeline">Timeline</TabsTrigger>
+            <TabsTrigger value="reports">Reports</TabsTrigger>
           </TabsList>
 
           {/* ══ TAB: ALL CALLS ══════════════════════════════════════════════════ */}
@@ -462,13 +601,21 @@ export default function CallCenter() {
                         : <PhoneIncoming className="h-4 w-4 text-emerald-600 flex-shrink-0" />}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-mono text-sm font-semibold text-gray-800">{r.school_phone}</span>
+                          <button className="font-mono text-sm font-semibold text-gray-800 hover:text-indigo-600 hover:underline"
+                            onClick={() => openTimeline(r.school_phone)} title="View timeline">
+                            {r.school_phone}
+                          </button>
                           {isLead
                             ? <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-rose-100 text-rose-700">New lead</span>
                             : <span className="text-xs text-gray-600 truncate">{matchedName}{r.school_id ? " (CRM)" : " (Prospect)"}</span>}
                           {r.status && (
                             <span className={`px-2 py-0.5 rounded-full text-xs ${STATUS_COLOR[r.status] ?? "bg-gray-100 text-gray-500"}`}>
                               {r.status.replace("_", " ")}
+                            </span>
+                          )}
+                          {r.bonvoice_status && r.bonvoice_status !== "ANSWERED" && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                              {r.bonvoice_status}
                             </span>
                           )}
                         </div>
@@ -542,7 +689,10 @@ export default function CallCenter() {
                     </span>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-mono text-sm font-semibold text-gray-800">{q.phone_last10}</span>
+                        <button className="font-mono text-sm font-semibold text-gray-800 hover:text-indigo-600 hover:underline"
+                          onClick={() => openTimeline(q.phone_last10)} title="View timeline">
+                          {q.phone_last10}
+                        </button>
                         {q.school_name
                           ? <span className="text-xs text-gray-600 truncate">{q.school_name}{q.school_id ? " (CRM)" : " (Prospect)"}</span>
                           : <span className="px-2 py-0.5 rounded-full text-[10px] border border-dashed border-gray-300 text-gray-500">Unidentified</span>}
@@ -592,6 +742,178 @@ export default function CallCenter() {
                   </div>
                 ))}
               </div>
+            )}
+          </TabsContent>
+
+          {/* ══ TAB: TIMELINE ══════════════════════════════════════════════════ */}
+          <TabsContent value="timeline" className="space-y-3">
+            <div className="flex gap-2">
+              <Input placeholder="10-digit phone number…" value={tlNumber}
+                onChange={e => setTlNumber(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                onKeyDown={e => { if (e.key === "Enter") loadTimeline(tlNumber); }}
+                className="w-56 bg-white font-mono" />
+              <Button size="sm" onClick={() => loadTimeline(tlNumber)} disabled={tlLoading || tlNumber.length !== 10}>
+                <History className="h-3.5 w-3.5 mr-1" />Load timeline
+              </Button>
+            </div>
+
+            {tlLoading ? (
+              <div className="text-center py-14 text-gray-400"><RefreshCw className="h-5 w-5 animate-spin mx-auto" /></div>
+            ) : !tlLoaded ? (
+              <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
+                <History className="h-9 w-9 text-gray-300 mx-auto mb-2" />
+                <p className="text-gray-500 font-medium text-sm">Enter a number — or click any number in the other tabs</p>
+                <p className="text-gray-400 text-xs mt-1">Shows every call, WhatsApp, and email exchanged with that number's school.</p>
+              </div>
+            ) : (
+              <>
+                <div className="bg-white rounded-xl border border-gray-200 px-4 py-3 flex items-center gap-3 flex-wrap">
+                  <span className="font-mono font-semibold text-gray-800">{tlNumber}</span>
+                  {tlParty?.name
+                    ? <span className="text-sm text-gray-700">{tlParty.name} <span className="text-xs text-gray-400">({tlParty.source})</span></span>
+                    : <span className="px-2 py-0.5 rounded-full text-[10px] border border-dashed border-gray-300 text-gray-500">Unidentified</span>}
+                  <Button variant="outline" size="sm" className="h-7 text-xs ml-auto border-green-200 text-green-700 hover:bg-green-50"
+                    disabled={busy} onClick={() => callBack(tlNumber, tlParty?.prospectId)}>
+                    <PhoneCall className="h-3 w-3 mr-1" />Call
+                  </Button>
+                </div>
+                {tlEvents.length === 0 ? (
+                  <div className="text-center py-10 bg-white rounded-xl border border-gray-200 text-sm text-gray-400">
+                    No interactions recorded with this number yet.
+                  </div>
+                ) : (
+                  <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-50">
+                    {tlEvents.map((ev, i) => (
+                      <div key={i} className="px-4 py-3 flex items-start gap-3">
+                        <span className="flex-shrink-0 mt-0.5">
+                          {ev.kind === "call"
+                            ? (ev.direction === "outbound"
+                              ? <PhoneOutgoing className="h-4 w-4 text-blue-500" />
+                              : <PhoneIncoming className="h-4 w-4 text-emerald-600" />)
+                            : ev.commType === "WhatsApp"
+                              ? <MessageSquare className="h-4 w-4 text-green-600" />
+                              : ev.commType === "AI Call"
+                                ? <Bot className="h-4 w-4 text-purple-500" />
+                                : <Mail className="h-4 w-4 text-indigo-500" />}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-medium text-gray-800">{ev.title}</span>
+                            <span className="text-xs text-gray-400">{fmtWhen(ev.when)}</span>
+                            {ev.recordingUrl && (
+                              <a href={ev.recordingUrl} target="_blank" rel="noopener noreferrer"
+                                className="text-xs text-indigo-600 hover:underline inline-flex items-center gap-0.5">
+                                <PlayCircle className="h-3 w-3" />recording
+                              </a>
+                            )}
+                          </div>
+                          {ev.detail && <p className="text-xs text-gray-500 mt-0.5 break-words">{ev.detail}</p>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </TabsContent>
+
+          {/* ══ TAB: REPORTS ═══════════════════════════════════════════════════ */}
+          <TabsContent value="reports" className="space-y-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Input type="date" value={repFrom} onChange={e => setRepFrom(e.target.value)} className="w-36 h-8 text-xs bg-white" />
+              <span className="text-xs text-gray-400">to</span>
+              <Input type="date" value={repTo} onChange={e => setRepTo(e.target.value)} className="w-36 h-8 text-xs bg-white" />
+              <Button size="sm" className="h-8 text-xs" onClick={loadReports} disabled={repLoading}>
+                {repLoading ? "Loading…" : "Run report"}
+              </Button>
+            </div>
+
+            {repData && (
+              <>
+                <div className="flex flex-wrap gap-2">
+                  <span className="px-3 py-1 rounded-full text-xs bg-white border border-gray-200 text-gray-600">Total calls: <b className="text-gray-900">{repData.totals.total}</b></span>
+                  <span className="px-3 py-1 rounded-full text-xs bg-white border border-gray-200 text-gray-600">Incoming: <b className="text-gray-900">{repData.totals.inbound}</b></span>
+                  <span className="px-3 py-1 rounded-full text-xs bg-white border border-gray-200 text-gray-600">Outgoing: <b className="text-gray-900">{repData.totals.outbound}</b></span>
+                  <span className="px-3 py-1 rounded-full text-xs bg-white border border-gray-200 text-gray-600">Answer rate: <b className="text-gray-900">{repData.totals.answer_rate_pct ?? "—"}%</b></span>
+                  <span className="px-3 py-1 rounded-full text-xs bg-amber-50 border border-amber-200 text-amber-800">Missed: <b>{repData.totals.missed}</b></span>
+                  <span className="px-3 py-1 rounded-full text-xs bg-red-50 border border-red-200 text-red-700">Numbers never called back: <b>{repData.callback.never_called_back}</b></span>
+                  <span className="px-3 py-1 rounded-full text-xs bg-white border border-gray-200 text-gray-600">Avg callback time: <b className="text-gray-900">{repData.callback.avg_callback_hours != null ? `${repData.callback.avg_callback_hours}h` : "—"}</b></span>
+                </div>
+
+                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="px-4 py-2.5 flex items-center justify-between border-b border-gray-100">
+                    <h3 className="text-sm font-semibold text-gray-800">Daily volumes</h3>
+                    <Button variant="outline" size="sm" className="h-7 text-xs"
+                      onClick={() => downloadCsv(`calls_daily_${repFrom}_${repTo}.csv`,
+                        ["Day", "Incoming", "Outgoing", "Missed", "Connected"],
+                        repData.daily.map(d => [d.day, d.inbound, d.outbound, d.missed, d.connected]))}>
+                      <Download className="h-3 w-3 mr-1" />CSV
+                    </Button>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-gray-500 border-b border-gray-100">
+                          <th className="text-left px-4 py-2 font-medium">Day</th>
+                          <th className="text-right px-4 py-2 font-medium">Incoming</th>
+                          <th className="text-right px-4 py-2 font-medium">Outgoing</th>
+                          <th className="text-right px-4 py-2 font-medium">Missed</th>
+                          <th className="text-right px-4 py-2 font-medium">Connected</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {repData.daily.map(d => (
+                          <tr key={d.day} className="border-b border-gray-50">
+                            <td className="px-4 py-1.5 font-mono">{d.day}</td>
+                            <td className="px-4 py-1.5 text-right">{d.inbound}</td>
+                            <td className="px-4 py-1.5 text-right">{d.outbound}</td>
+                            <td className={`px-4 py-1.5 text-right ${d.missed > 0 ? "text-amber-700 font-medium" : ""}`}>{d.missed}</td>
+                            <td className="px-4 py-1.5 text-right">{d.connected}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="px-4 py-2.5 flex items-center justify-between border-b border-gray-100">
+                    <h3 className="text-sm font-semibold text-gray-800">Staff outbound activity</h3>
+                    <Button variant="outline" size="sm" className="h-7 text-xs"
+                      onClick={() => downloadCsv(`calls_staff_${repFrom}_${repTo}.csv`,
+                        ["Staff", "Outbound calls", "Connected", "Talk time (min)"],
+                        repData.staff.map(s => [s.name, s.outbound, s.connected, Math.round(s.talk_seconds / 60)]))}>
+                      <Download className="h-3 w-3 mr-1" />CSV
+                    </Button>
+                  </div>
+                  {repData.staff.length === 0 ? (
+                    <p className="px-4 py-6 text-xs text-gray-400 text-center">No staff-placed outbound calls in this period.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-gray-500 border-b border-gray-100">
+                            <th className="text-left px-4 py-2 font-medium">Staff</th>
+                            <th className="text-right px-4 py-2 font-medium">Outbound</th>
+                            <th className="text-right px-4 py-2 font-medium">Connected</th>
+                            <th className="text-right px-4 py-2 font-medium">Talk time</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {repData.staff.map(s => (
+                            <tr key={s.user_id} className="border-b border-gray-50">
+                              <td className="px-4 py-1.5">{s.name}</td>
+                              <td className="px-4 py-1.5 text-right">{s.outbound}</td>
+                              <td className="px-4 py-1.5 text-right">{s.connected}</td>
+                              <td className="px-4 py-1.5 text-right">{Math.round(s.talk_seconds / 60)}m</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </>
             )}
           </TabsContent>
         </Tabs>
