@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.courier-webhook]
 verify_jwt = false
+
+[functions.bonvoice-webhook]
+verify_jwt = false

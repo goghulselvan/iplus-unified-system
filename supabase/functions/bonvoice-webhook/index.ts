@@ -59,6 +59,10 @@ Deno.serve(async (req: Request) => {
   const callDuration = body.CallDuration !== undefined ? Number(body.CallDuration) : null;
   const dtmf         = body.DTMF         as string | undefined;
   const resourceURL  = body.ResourceURL  as string | undefined;
+  // Raw Bonvoice statuses (ANSWERED/NOANSWER/BUSY/NOINPUT/NO_CHANNEL) — richer
+  // than the callType-derived status; captured as-is for the Call Center UI
+  const bvStatus     = body.Status       as string | undefined;
+  const agentStatus  = body.AgentStatus  as string | undefined;
 
   // Inbound calls carry no eventID (it's outbound-only per Bonvoice docs) — key them by callID
   if (!eventID && !callID) return new Response("ok", { status: 200, headers: CORS });
@@ -83,6 +87,8 @@ Deno.serve(async (req: Request) => {
   if (callDuration !== null) update.call_duration = callDuration;
   if (dtmf)                  update.dtmf          = dtmf;
   if (resourceURL)           update.resource_url  = resourceURL;
+  if (bvStatus)              update.bonvoice_status = bvStatus;
+  if (agentStatus)           update.agent_status  = agentStatus;
 
   if (Object.keys(update).length > 0 && eventID) {
     await supabase.from("bonvoice_call_logs").update(update).eq("event_id", eventID);
@@ -127,6 +133,8 @@ Deno.serve(async (req: Request) => {
         end_time: endTime ?? null,
         call_duration: callDuration,
         resource_url: resourceURL ?? null,
+        bonvoice_status: bvStatus ?? null,
+        agent_status: agentStatus ?? null,
         school_id: schoolId,
         prospect_school_id: prospectId,
       });
