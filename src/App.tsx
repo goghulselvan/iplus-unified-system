@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import ProtectedRoute from "@/components/layout/ProtectedRoute";
 import Auth from "./pages/Auth";
@@ -33,7 +33,7 @@ import PaymentQueuePage from "./pages/PaymentQueuePage";
 import MarketingMessages from "./pages/MarketingMessages";
 import TemplateManagement from "./pages/TemplateManagement";
 import VoiceTemplates from "./pages/VoiceTemplates";
-import IncomingCalls from "./pages/IncomingCalls";
+import CallCenter from "./pages/CallCenter";
 import DataManagement from "./pages/DataManagement";
 import ModuleSelect from "./pages/ModuleSelect";
 import ProspectDashboard from "./pages/ProspectDashboard";
@@ -328,9 +328,10 @@ const AppContent = () => {
            element={<ProtectedRoute><VoiceTemplates /></ProtectedRoute>}
          />
          <Route
-           path="/incoming-calls"
-           element={<ProtectedRoute><IncomingCalls /></ProtectedRoute>}
+           path="/calls"
+           element={<ProtectedRoute><CallCenter /></ProtectedRoute>}
          />
+         <Route path="/incoming-calls" element={<Navigate to="/calls" replace />} />
          <Route
            path="/data-management"
            element={<ProtectedRoute adminOnly><DataManagement /></ProtectedRoute>}
