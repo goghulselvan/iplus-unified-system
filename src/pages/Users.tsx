@@ -14,7 +14,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { Plus, Trash2, RefreshCw, Shield, MapPin, MessageSquare, ChevronDown, ChevronUp, Pencil, UserPlus } from 'lucide-react';
+import { Plus, Trash2, Shield, MapPin, MessageSquare, ChevronDown, ChevronUp, Pencil, UserPlus } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 const ALL_MODULES: { key: string; label: string; description: string }[] = [
@@ -206,21 +206,6 @@ const Users = () => {
     }
   };
 
-  // ── Reset password ─────────────────────────────────────────────────────────
-
-  const handleResetPassword = async (user: Profile) => {
-    const email = user.email || `${user.username}@iplusedu.in`;
-    try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/auth`,
-      });
-      if (error) throw error;
-      toast({ title: 'Reset email sent', description: `Sent to ${email}` });
-    } catch (err: any) {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
-    }
-  };
-
   // ── Bulk WhatsApp permission ────────────────────────────────────────────────
 
   const toggleBulkWhatsApp = async (user: Profile) => {
@@ -374,9 +359,6 @@ const Users = () => {
                       <div className="flex items-center gap-2 flex-shrink-0">
                         <Button variant="outline" size="sm" onClick={() => openEdit(user)} title="Edit user">
                           <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => handleResetPassword(user)} title="Send password reset email">
-                          <RefreshCw className="h-4 w-4" />
                         </Button>
                         {!isSelf && (
                           <Button
