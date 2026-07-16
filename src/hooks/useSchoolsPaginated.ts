@@ -372,8 +372,9 @@ export const useSchoolsPaginated = (scopeProjectId?: string) => {
         school.id === id ? { ...school, ...normalizedUpdates } : school
       ));
 
-      // Sync contact fields back to prospect_schools — school-provided data is authoritative
-      const CONTACT_FIELD_MAP: Record<string, string> = {
+      // Sync school-provided fields back to prospect_schools — CRM edits are authoritative
+      const PROSPECT_SYNC_FIELD_MAP: Record<string, string> = {
+        school_name:          'school_name',
         mobile1:              'mobile',
         email:                'email',
         contact_person_name:  'principal_name',
@@ -381,7 +382,7 @@ export const useSchoolsPaginated = (scopeProjectId?: string) => {
         school_address:       'address',
       };
       const prospectUpdate: Record<string, any> = {};
-      for (const [schoolField, prospectField] of Object.entries(CONTACT_FIELD_MAP)) {
+      for (const [schoolField, prospectField] of Object.entries(PROSPECT_SYNC_FIELD_MAP)) {
         if (schoolField in updates) prospectUpdate[prospectField] = (data as any)?.[schoolField] ?? null;
       }
       if (Object.keys(prospectUpdate).length > 0 && (data as any)?.prospect_school_id) {
