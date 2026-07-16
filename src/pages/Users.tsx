@@ -14,7 +14,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { Plus, Trash2, Shield, MapPin, MessageSquare, ChevronDown, ChevronUp, Pencil, UserPlus } from 'lucide-react';
+import { Plus, Trash2, KeyRound, Shield, MapPin, MessageSquare, ChevronDown, ChevronUp, Pencil, UserPlus } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 const ALL_MODULES: { key: string; label: string; description: string }[] = [
@@ -72,6 +72,12 @@ const Users = () => {
   const [regionalOpen, setRegionalOpen] = useState(false);
   const [regionalTarget, setRegionalTarget] = useState<{ userId: string; username: string } | null>(null);
   const [regionalDistricts, setRegionalDistricts] = useState<string[]>([]);
+
+  // Change password dialog
+  const [pwdOpen, setPwdOpen] = useState(false);
+  const [pwdUser, setPwdUser] = useState<Profile | null>(null);
+  const [pwdForm, setPwdForm] = useState({ newPassword: '', confirmPassword: '' });
+  const [changingPwd, setChangingPwd] = useState(false);
 
   // Module permissions
   const [modulePerms, setModulePerms] = useState<Record<string, Record<string, boolean>>>({});
@@ -203,6 +209,39 @@ const Users = () => {
       toast({ title: 'User deleted' });
     } catch (err: any) {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    }
+  };
+
+  // ── Change password ─────────────────────────────────────────────────────────
+
+  const openChangePassword = (user: Profile) => {
+    setPwdUser(user);
+    setPwdForm({ newPassword: '', confirmPassword: '' });
+    setPwdOpen(true);
+  };
+
+  const pwdMismatch = pwdForm.confirmPassword.length > 0 && pwdForm.newPassword !== pwdForm.confirmPassword;
+  const pwdValid = pwdForm.newPassword.length >= 6 && pwdForm.newPassword === pwdForm.confirmPassword;
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pwdUser || !pwdValid) return;
+    setChangingPwd(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('update-user-password', {
+        body: { userId: pwdUser.user_id, password: pwdForm.newPassword },
+      });
+      if (error) {
+        const body = await (error as any).context?.json?.().catch(() => null);
+        throw new Error(body?.error || data?.error || error.message);
+      }
+      if (!data?.success) throw new Error(data?.error || 'Failed to change password');
+      setPwdOpen(false);
+      toast({ title: 'Password changed', description: `New password set for ${pwdUser.full_name || pwdUser.username}.` });
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setChangingPwd(false);
     }
   };
 
@@ -359,6 +398,9 @@ const Users = () => {
                       <div className="flex items-center gap-2 flex-shrink-0">
                         <Button variant="outline" size="sm" onClick={() => openEdit(user)} title="Edit user">
                           <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => openChangePassword(user)} title="Change password">
+                          <KeyRound className="h-4 w-4" />
                         </Button>
                         {!isSelf && (
                           <Button
@@ -577,6 +619,39 @@ const Users = () => {
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save Changes'}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Change Password Dialog ─────────────────────────────────────────────── */}
+      <Dialog open={pwdOpen} onOpenChange={open => { setPwdOpen(open); if (!open) { setPwdUser(null); setPwdForm({ newPassword: '', confirmPassword: '' }); } }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="h-4 w-4" />
+              Change Password
+            </DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleChangePassword} className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              {pwdUser?.full_name || pwdUser?.username} · {pwdUser?.email || `${pwdUser?.username}@iplusedu.in`}
+            </p>
+            <div className="space-y-1.5">
+              <Label htmlFor="p-new">New Password</Label>
+              <Input id="p-new" type="password" autoComplete="new-password" value={pwdForm.newPassword} onChange={e => setPwdForm(f => ({ ...f, newPassword: e.target.value }))} required minLength={6} />
+              {pwdForm.newPassword.length > 0 && pwdForm.newPassword.length < 6 && (
+                <p className="text-xs text-destructive">Must be at least 6 characters</p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="p-confirm">Confirm Password</Label>
+              <Input id="p-confirm" type="password" autoComplete="new-password" value={pwdForm.confirmPassword} onChange={e => setPwdForm(f => ({ ...f, confirmPassword: e.target.value }))} required />
+              {pwdMismatch && <p className="text-xs text-destructive">Passwords do not match</p>}
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setPwdOpen(false)}>Cancel</Button>
+              <Button type="submit" disabled={!pwdValid || changingPwd}>{changingPwd ? 'Changing…' : 'Change Password'}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
