@@ -124,6 +124,11 @@ export const EnhancedPaymentTracker: React.FC<EnhancedPaymentTrackerProps> = ({ 
   const dbStatus = school.payment_status as string | null;
   const statusConfig = PAYMENT_STATUS_CONFIG[dbStatus ?? ''] ?? PAYMENT_STATUS_CONFIG['Pending'];
 
+  // Same rule as the portal acknowledge flow: Partial gets the partial template,
+  // everything else the full confirmation (with receipt document on WA).
+  const paymentTemplateKey: 'payment_received' | 'payment_partial' =
+    dbStatus === 'Partial' ? 'payment_partial' : 'payment_received';
+
   const handlePaymentAdded = async () => {
     await supabase.rpc('recalculate_school_payment_totals', { p_school_id: school.id });
     qc.invalidateQueries({ queryKey: ['payment-transactions', school.id] });
@@ -172,7 +177,7 @@ export const EnhancedPaymentTracker: React.FC<EnhancedPaymentTrackerProps> = ({ 
 
   const handleSendPaymentEmail = async (transaction: PaymentTransaction) => {
     if (!school.current_project_id) { toast.error('No project assigned to this school'); return; }
-    const template = await getActiveTemplate(school.current_project_id, 'payment_received');
+    const template = await getActiveTemplate(school.current_project_id, paymentTemplateKey);
     if (!template) {
       toast.error('No active payment confirmation template found.', { duration: 5000 });
       return;
@@ -202,7 +207,7 @@ export const EnhancedPaymentTracker: React.FC<EnhancedPaymentTrackerProps> = ({ 
     const r = await sendPaymentReceiptComms({
       schoolId: school.id,
       transactionId: selectedTransaction.id,
-      templateType: 'payment_received',
+      templateType: paymentTemplateKey,
       userId: profile?.user_id,
     });
     if (r.errors.length) {
@@ -490,8 +495,8 @@ export const EnhancedPaymentTracker: React.FC<EnhancedPaymentTrackerProps> = ({ 
           open={emailDialogOpen}
           onOpenChange={setEmailDialogOpen}
           school={{ id: school.id, school_name: school.school_name, email: school.email, mobile1: school.mobile1, ss_no: school.ss_no }}
-          templateType="payment_received"
-          templateName="Payment Confirmation"
+          templateType={paymentTemplateKey}
+          templateName={paymentTemplateKey === 'payment_partial' ? 'Payment Partial' : 'Payment Confirmation'}
           emailPreview={emailPreview}
           onConfirm={handleConfirmSendEmail}
         />
