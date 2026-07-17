@@ -104,6 +104,8 @@ interface SendEmailRequest {
   emailOverride?: string; // Optional: use this email instead of fetching from DB
   attachmentUrl?: string;      // Optional: URL Resend fetches and attaches (e.g. receipt PDF)
   attachmentFilename?: string; // Filename shown for the attachment
+  transactionId?: string;      // Optional: the payment this message is about — enables
+                               // {this_payment}/{this_payment_date}/{payment_history} variables
 }
 
 serve(async (req: Request): Promise<Response> => {
@@ -112,7 +114,7 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    const { schoolId, templateType, userId, emailOverride, attachmentUrl, attachmentFilename }: SendEmailRequest = await req.json();
+    const { schoolId, templateType, userId, emailOverride, attachmentUrl, attachmentFilename, transactionId }: SendEmailRequest = await req.json();
     
     console.log(`Processing email request - School: ${schoolId}, Template: ${templateType}, Email override: ${emailOverride}`);
 
@@ -162,6 +164,37 @@ serve(async (req: Request): Promise<Response> => {
       .select("*", { count: "exact", head: true })
       .eq("school_id", schoolId);
 
+    // Per-payment breakdown: this payment + prior payments + running total.
+    // Status is derived purely from the balance — there is no "final payment".
+    const fmtINR = (n: number) => `₹${Number(n).toLocaleString("en-IN")}`;
+    const fmtDate = (d: string) => {
+      const dt = new Date(d + "T00:00:00");
+      return isNaN(dt.getTime()) ? d : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }).replace(/ /g, "-");
+    };
+    let thisPayment = "";
+    let thisPaymentDate = "";
+    let paymentHistory = "—";
+    let totalReceived = school.payment_received?.toString() || "0";
+    if (transactionId) {
+      const { data: txs } = await supabase
+        .from("payment_transactions")
+        .select("id, payment_amount, payment_date")
+        .eq("school_id", schoolId)
+        .order("payment_date", { ascending: true })
+        .order("created_at", { ascending: true });
+      const all = txs ?? [];
+      const current = all.find(t => t.id === transactionId);
+      if (current) {
+        thisPayment = Number(current.payment_amount).toLocaleString("en-IN");
+        thisPaymentDate = fmtDate(current.payment_date);
+        const prior = all.filter(t => t.id !== transactionId);
+        if (prior.length) {
+          paymentHistory = prior.map(t => `${fmtDate(t.payment_date)} — ${fmtINR(t.payment_amount)}`).join("<br/>");
+        }
+        totalReceived = String(all.reduce((s, t) => s + Number(t.payment_amount), 0));
+      }
+    }
+
     // Replace template variables
     const variables: Record<string, string> = {
       "{school_name}": school.school_name || "",
@@ -172,6 +205,10 @@ serve(async (req: Request): Promise<Response> => {
       "{payment_amount}": school.payment_received?.toString() || school.payment_amount?.toString() || "",
       "{payment_date}": school.payment_date || "",
       "{amount_received}": school.payment_received?.toString() || "0",
+      "{this_payment}": thisPayment || Number(school.payment_received ?? 0).toLocaleString("en-IN"),
+      "{this_payment_date}": thisPaymentDate,
+      "{payment_history}": paymentHistory,
+      "{total_received}": Number(totalReceived).toLocaleString("en-IN"),
       "{balance_due}": school.outstanding_balance?.toString() || "0",
       "{outstanding_balance}": school.outstanding_balance?.toString() || "0",
       "{expected_amount}": school.expected_amount?.toString() || "0",

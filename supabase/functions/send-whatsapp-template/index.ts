@@ -17,6 +17,8 @@ const BodySchema = z.object({
   // template is a document-header template; overrides the static header_media_url.
   documentUrl: z.string().url().optional(),
   documentFilename: z.string().max(200).optional(),
+  // The payment this message is about — enables this_payment* variable sources
+  transactionId: z.string().uuid().optional(),
 });
 
 function normalizeMobile(raw: string | null | undefined): string | null {
@@ -32,9 +34,11 @@ function resolveVariable(
   customText: string | undefined,
   ctx: {
     school: any; project: any; workflow: any; studentCount: number;
+    thisPayment?: number | null;
   }
 ): string {
-  const { school, project, workflow, studentCount } = ctx;
+  const { school, project, workflow, studentCount, thisPayment } = ctx;
+  const inr = (n: unknown) => Number(n ?? 0).toLocaleString("en-IN");
   switch (source) {
     case "school_name": return school?.school_name || "";
     case "ss_no": return String(school?.ss_no ?? "");
@@ -52,6 +56,13 @@ function resolveVariable(
     // workflow copies are not updated by acknowledge_portal_payment — reading
     // them showed ₹0 while the email showed the real amount.
     case "payment_amount": return String(school?.payment_received ?? workflow?.payment_received ?? 0);
+    case "this_payment": return inr(thisPayment ?? school?.payment_received);
+    // Fits the approved "Amount Received: ₹{{n}}" slot with the full picture:
+    // "4,900 (this payment) · Total: ₹15,900"
+    case "this_payment_with_total":
+      return thisPayment != null
+        ? `${inr(thisPayment)} (this payment) · Total: ₹${inr(school?.payment_received)}`
+        : inr(school?.payment_received);
     case "payment_date": return workflow?.payment_date || "";
     case "expected_amount": return String(school?.expected_amount ?? workflow?.expected_amount ?? 0);
     case "outstanding_balance": return String(school?.outstanding_balance ?? workflow?.outstanding_balance ?? 0);
@@ -107,7 +118,7 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ success: false, error: parsed.error.flatten() }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
-  const { schoolId, templateKey, mobileOverride, documentUrl, documentFilename } = parsed.data;
+  const { schoolId, templateKey, mobileOverride, documentUrl, documentFilename, transactionId } = parsed.data;
 
   const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -145,7 +156,16 @@ Deno.serve(async (req) => {
   }
 
   // Build AskEVA payload
-  const ctx = { school, project, workflow, studentCount: studentCount || 0 };
+  let thisPayment: number | null = null;
+  if (transactionId) {
+    const { data: tx } = await admin
+      .from("payment_transactions")
+      .select("payment_amount")
+      .eq("id", transactionId)
+      .maybeSingle();
+    thisPayment = tx ? Number(tx.payment_amount) : null;
+  }
+  const ctx = { school, project, workflow, studentCount: studentCount || 0, thisPayment };
   const components: any[] = [];
 
   if (template.header_media_url && (template.template_type as string).includes("image")) {

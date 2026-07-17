@@ -43,6 +43,7 @@ export async function sendPaymentReceiptComms(opts: {
         schoolId: opts.schoolId,
         templateType: opts.templateType,
         userId: opts.userId ?? undefined,
+        transactionId: opts.transactionId,
         ...(receipt ? { attachmentUrl: receipt.url, attachmentFilename: receipt.filename } : {}),
       },
     });
@@ -62,6 +63,7 @@ export async function sendPaymentReceiptComms(opts: {
       body: {
         schoolId: opts.schoolId,
         templateKey: 'payment_receipt',
+        transactionId: opts.transactionId,
         documentUrl: receipt.url,
         documentFilename: receipt.filename,
       },
@@ -71,7 +73,7 @@ export async function sendPaymentReceiptComms(opts: {
   if (!waOk) {
     try {
       const { data, error } = await supabase.functions.invoke('send-whatsapp-template', {
-        body: { schoolId: opts.schoolId, templateKey: opts.templateType },
+        body: { schoolId: opts.schoolId, templateKey: opts.templateType, transactionId: opts.transactionId },
       });
       if (error) throw new Error(error.message);
       if (data?.success === false) throw new Error(data?.error ?? 'send failed');
