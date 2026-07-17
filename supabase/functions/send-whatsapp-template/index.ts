@@ -57,6 +57,8 @@ function resolveVariable(
     // them showed ₹0 while the email showed the real amount.
     case "payment_amount": return String(school?.payment_received ?? workflow?.payment_received ?? 0);
     case "this_payment": return inr(thisPayment ?? school?.payment_received);
+    // Running total (schools.payment_received is the maintained cumulative sum)
+    case "total_received": return inr(school?.payment_received);
     // Fits the approved "Amount Received: ₹{{n}}" slot with the full picture:
     // "4,900 (this payment) · Total: ₹15,900"
     case "this_payment_with_total":

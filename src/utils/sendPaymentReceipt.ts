@@ -12,9 +12,10 @@ export interface ReceiptCommsResult {
  * Payment acknowledgement comms for one transaction:
  * 1. generate-receipt → PDF in the receipts bucket + signed URL
  * 2. Email via send-template-email with the receipt attached
- * 3. WhatsApp: tries the `payment_receipt` document-header template (PDF in
- *    chat); until that AskEVA template exists/is active, falls back to the
- *    plain-text template matching the email (payment_received / payment_partial).
+ * 3. WhatsApp: tries the matching document-header template (`payment_receipt`
+ *    for full payments, `payment_receipt_partial` for partial — PDF in chat);
+ *    until each is approved/active on AskEVA, falls back to the plain-text
+ *    template matching the email (payment_received / payment_partial).
  */
 export async function sendPaymentReceiptComms(opts: {
   schoolId: string;
@@ -56,13 +57,12 @@ export async function sendPaymentReceiptComms(opts: {
 
   let waOk = false;
   let waViaDocument = false;
-  // The payment_receipt template body says "fully confirmed / Status: Paid" —
-  // only true for full payments. Partial payments stay on the payment_partial text.
-  if (receipt && opts.templateType === 'payment_received') {
+  const documentTemplateKey = opts.templateType === 'payment_partial' ? 'payment_receipt_partial' : 'payment_receipt';
+  if (receipt) {
     const { data, error } = await supabase.functions.invoke('send-whatsapp-template', {
       body: {
         schoolId: opts.schoolId,
-        templateKey: 'payment_receipt',
+        templateKey: documentTemplateKey,
         transactionId: opts.transactionId,
         documentUrl: receipt.url,
         documentFilename: receipt.filename,

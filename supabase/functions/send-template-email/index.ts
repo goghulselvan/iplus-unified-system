@@ -216,11 +216,11 @@ serve(async (req: Request): Promise<Response> => {
       // Only portal-registered schools have a login to "complete payment online" —
       // most CRM schools (manually entered, courier/offline registration) don't.
       "{balance_settlement_block}": school.portal_registered
-        ? `<p style="margin:0 0 12px;font-size:15px;color:#374151;line-height:1.8;">To ensure a smooth registration process for all your students, please settle the remaining balance at your earliest convenience. You can view your detailed invoice and make payments through the school portal.</p>
+        ? `<p style="margin:0 0 12px;font-size:15px;color:#374151;line-height:1.8;">Kindly clear the balance due before the registration deadline. You can view your detailed invoice and make payments through the school portal.</p>
 <p style="text-align:center;margin:32px 0 8px;">
 <a href="https://iplusedu.in/school/login" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:#ffffff;text-decoration:none;padding:15px 40px;border-radius:10px;font-size:14px;font-weight:700;display:inline-block;">Complete Your Payment &rarr;</a>
 </p>`
-        : `<p style="margin:0 0 12px;font-size:15px;color:#374151;line-height:1.8;">To ensure a smooth registration process for all your students, please settle the remaining balance at your earliest convenience. Contact our team at <a href="mailto:contact@iplusedu.in" style="color:#4f46e5;font-weight:600;">contact@iplusedu.in</a> or <a href="tel:+918111066556" style="color:#4f46e5;font-weight:600;">+91 81110 66556</a> to complete the payment.</p>`,
+        : `<p style="margin:0 0 12px;font-size:15px;color:#374151;line-height:1.8;">Kindly clear the balance due before the registration deadline. Contact our team at <a href="mailto:contact@iplusedu.in" style="color:#4f46e5;font-weight:600;">contact@iplusedu.in</a> or <a href="tel:+918111066556" style="color:#4f46e5;font-weight:600;">+91 81110 66556</a> to complete the payment.</p>`,
       "{district}": school.district || "",
       "{state}": school.state || "",
     };
