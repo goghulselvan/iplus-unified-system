@@ -13,6 +13,10 @@ const BodySchema = z.object({
   schoolId: z.string().uuid(),
   templateKey: z.string().min(1).max(100),
   mobileOverride: z.string().optional(),
+  // Per-send document header (e.g. a school's receipt PDF) — only used when the
+  // template is a document-header template; overrides the static header_media_url.
+  documentUrl: z.string().url().optional(),
+  documentFilename: z.string().max(200).optional(),
 });
 
 function normalizeMobile(raw: string | null | undefined): string | null {
@@ -100,7 +104,7 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ success: false, error: parsed.error.flatten() }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
-  const { schoolId, templateKey, mobileOverride } = parsed.data;
+  const { schoolId, templateKey, mobileOverride, documentUrl, documentFilename } = parsed.data;
 
   const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -151,14 +155,14 @@ Deno.serve(async (req) => {
       type: "header",
       parameters: [{ type: "video", video: { link: template.header_media_url } }],
     });
-  } else if (template.header_media_url && (template.template_type as string).includes("document")) {
+  } else if ((documentUrl || template.header_media_url) && (template.template_type as string).includes("document")) {
     components.push({
       type: "header",
       parameters: [{
         type: "document",
         document: {
-          link: template.header_media_url,
-          filename: template.header_document_filename || "document.pdf",
+          link: documentUrl || template.header_media_url,
+          filename: documentFilename || template.header_document_filename || "document.pdf",
         },
       }],
     });

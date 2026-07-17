@@ -11,6 +11,7 @@ interface PaymentTransaction {
   notes?: string;
   created_at: string;
   receipt_number?: number;
+  receipt_fy?: number;
 }
 
 /**

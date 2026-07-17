@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { CheckCircle2, ExternalLink, RefreshCw } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
+import { sendPaymentReceiptComms } from '@/utils/sendPaymentReceipt';
 
 interface PaymentSubmission {
   id: string;
@@ -48,7 +49,7 @@ export function PaymentQueue() {
         p_admin_user_id: user!.id,
       });
       if (error) throw error;
-      return data as { success: boolean; payment_status: string; total_paid: number; expected: number };
+      return data as { success: boolean; payment_status: string; total_paid: number; expected: number; transaction_id?: string };
     },
     onSuccess: (result, submissionId) => {
       qc.invalidateQueries({ queryKey: ['admin-payment-queue'] });
@@ -57,20 +58,30 @@ export function PaymentQueue() {
         title: 'Payment Acknowledged',
         description: `Status: ${result.payment_status === 'Received' ? '✓ Paid in full' : '⚠ Partial — awaiting balance'}`,
       });
-      // Auto-send email + WA to school
+      // Auto-send email + WA with the receipt PDF attached
       const submission = submissions.find(s => s.id === submissionId);
-      if (submission) {
+      if (submission && result.transaction_id) {
         const templateKey = result.payment_status === 'Partial' ? 'payment_partial' : 'payment_received';
-        supabase.auth.getUser().then(({ data: { user: u } }) => {
-          Promise.allSettled([
-            supabase.functions.invoke('send-template-email', {
-              body: { schoolId: submission.school_id, templateType: templateKey, userId: u?.id },
-            }),
-            supabase.functions.invoke('send-whatsapp-template', {
-              body: { schoolId: submission.school_id, templateKey },
-            }),
-          ]);
-        });
+        supabase.auth.getUser()
+          .then(({ data: { user: u } }) =>
+            sendPaymentReceiptComms({
+              schoolId: submission.school_id,
+              transactionId: result.transaction_id!,
+              templateType: templateKey,
+              userId: u?.id,
+            }))
+          .then(r => {
+            if (r.errors.length) {
+              toast({ title: 'Receipt comms incomplete', description: r.errors.join(' · '), variant: 'destructive' });
+            } else {
+              toast({
+                title: `Receipt ${r.receiptNo ?? ''} sent`,
+                description: r.waViaDocument
+                  ? 'Email + WhatsApp sent with the receipt PDF.'
+                  : 'Email sent with receipt PDF; WhatsApp sent as text (receipt template not active yet).',
+              });
+            }
+          });
       }
     },
     onError: (err: Error) => {

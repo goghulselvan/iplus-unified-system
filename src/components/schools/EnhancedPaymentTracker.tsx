@@ -15,6 +15,7 @@ import { AddPaymentDialog } from './AddPaymentDialog';
 import { AddRefundDialog } from './AddRefundDialog';
 import { useAuth } from '@/hooks/useAuth';
 import { generateReceipt } from '@/utils/receiptGenerator';
+import { sendPaymentReceiptComms } from '@/utils/sendPaymentReceipt';
 import { EmailConfirmationDialog } from '@/components/communication/EmailConfirmationDialog';
 import { useCommunicationTemplates } from '@/hooks/useCommunicationTemplates';
 
@@ -29,6 +30,7 @@ interface PaymentTransaction {
   notes?: string;
   created_at: string;
   receipt_number?: number;
+  receipt_fy?: number;
 }
 
 interface EnhancedPaymentTrackerProps {
@@ -51,7 +53,7 @@ export const EnhancedPaymentTracker: React.FC<EnhancedPaymentTrackerProps> = ({ 
   const [selectedTransaction, setSelectedTransaction] = useState<PaymentTransaction | null>(null);
   const [emailPreview, setEmailPreview] = useState({ subject: '', body: '' });
 
-  const { getActiveTemplate, sendTemplateEmail } = useCommunicationTemplates(school.current_project_id || undefined);
+  const { getActiveTemplate } = useCommunicationTemplates(school.current_project_id || undefined);
 
   const { data: workflowData, isLoading: workflowLoading } = useSchoolWorkflow(school.id);
   const { data: paymentTransactions = [], isLoading: txLoading } = usePaymentTransactions(school.id);
@@ -136,6 +138,7 @@ export const EnhancedPaymentTracker: React.FC<EnhancedPaymentTrackerProps> = ({ 
     try {
       const pdfBlob = await generateReceipt({
         receiptNumber: transaction.receipt_number,
+        fy: transaction.receipt_fy ?? 26,
         ssNo: school.ss_no,
         schoolName: school.school_name,
         paymentDate: new Date(transaction.payment_date),
@@ -144,7 +147,7 @@ export const EnhancedPaymentTracker: React.FC<EnhancedPaymentTrackerProps> = ({ 
       const url = URL.createObjectURL(pdfBlob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Receipt_${transaction.receipt_number}-${school.ss_no}_${school.school_name.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+      a.download = `Receipt_${transaction.receipt_fy ?? 26}-${transaction.receipt_number}-${school.ss_no}_${school.school_name.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
       toast.success('Receipt downloaded');
@@ -195,8 +198,22 @@ export const EnhancedPaymentTracker: React.FC<EnhancedPaymentTrackerProps> = ({ 
 
   const handleConfirmSendEmail = async () => {
     if (!selectedTransaction) return;
-    await sendTemplateEmail(school.id, 'payment_received');
     setEmailDialogOpen(false);
+    const r = await sendPaymentReceiptComms({
+      schoolId: school.id,
+      transactionId: selectedTransaction.id,
+      templateType: 'payment_received',
+      userId: profile?.user_id,
+    });
+    if (r.errors.length) {
+      toast.error(`Receipt comms incomplete: ${r.errors.join(' · ')}`);
+    } else {
+      toast.success(
+        r.waViaDocument
+          ? `Receipt ${r.receiptNo ?? ''} sent — email + WhatsApp with PDF`
+          : `Receipt ${r.receiptNo ?? ''} sent — email with PDF; WhatsApp as text (receipt template not active yet)`,
+      );
+    }
     setSelectedTransaction(null);
   };
 

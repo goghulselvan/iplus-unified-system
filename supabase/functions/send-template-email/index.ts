@@ -102,6 +102,8 @@ interface SendEmailRequest {
   templateType: string;
   userId: string;
   emailOverride?: string; // Optional: use this email instead of fetching from DB
+  attachmentUrl?: string;      // Optional: URL Resend fetches and attaches (e.g. receipt PDF)
+  attachmentFilename?: string; // Filename shown for the attachment
 }
 
 serve(async (req: Request): Promise<Response> => {
@@ -110,7 +112,7 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    const { schoolId, templateType, userId, emailOverride }: SendEmailRequest = await req.json();
+    const { schoolId, templateType, userId, emailOverride, attachmentUrl, attachmentFilename }: SendEmailRequest = await req.json();
     
     console.log(`Processing email request - School: ${schoolId}, Template: ${templateType}, Email override: ${emailOverride}`);
 
@@ -198,8 +200,17 @@ serve(async (req: Request): Promise<Response> => {
       to: [recipientEmail],
       subject: subject,
       html: brandedEmailHTML,
+      // Resend fetches the URL server-side and attaches it — no download/encode
+      // in this worker (see edge-fn compute limits).
+      ...(attachmentUrl
+        ? { attachments: [{ path: attachmentUrl, filename: attachmentFilename || "attachment.pdf" }] }
+        : {}),
     });
 
+    // resend.send never throws — rejections come back as { error }
+    if ((emailResponse as any)?.error) {
+      throw new ClientError(`Resend rejected the email: ${JSON.stringify((emailResponse as any).error)}`);
+    }
     console.log("Email sent successfully:", emailResponse);
 
     // Log communication in database

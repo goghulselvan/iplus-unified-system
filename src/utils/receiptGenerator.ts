@@ -4,6 +4,7 @@ import { numberToWords } from './numberToWords';
 
 interface ReceiptData {
   receiptNumber: number;
+  fy: number; // Indian financial year prefix (26 = FY 2026-27, resets each Apr 1)
   ssNo: number;
   schoolName: string;
   paymentDate: Date;
@@ -61,7 +62,7 @@ export async function generateReceipt(data: ReceiptData): Promise<Blob> {
     .trim();
   
   // Format data
-  const receiptNo = `${data.receiptNumber}-${String(data.ssNo).padStart(4, '0')}`;
+  const receiptNo = `${data.fy}-${data.receiptNumber}-${String(data.ssNo).padStart(4, '0')}`;
   const dateStr = format(data.paymentDate, 'dd-MMM-yyyy');
   const amountStr = `Rs. ${data.amount.toFixed(2)}`;
   const amountInWords = numberToWords(data.amount);
@@ -91,7 +92,7 @@ export async function generateReceipt(data: ReceiptData): Promise<Blob> {
   });
   
   // School Name: 9.5cm from left, 9.25cm from top (lowered by 0.25cm, second line at 10.5cm)
-  const schoolNameLines = splitTextIntoLines(sanitizedSchoolName, fontBold, 13, 400);
+  const schoolNameLines = splitTextIntoLines(sanitizedSchoolName, fontBold, 13, 300);
   schoolNameLines.forEach((line, index) => {
     firstPage.drawText(line, {
       x: (index === 0 ? 9.5 : 10.5) * 28.35, // First line at 9.5cm, subsequent at 10.5cm
@@ -112,7 +113,7 @@ export async function generateReceipt(data: ReceiptData): Promise<Blob> {
   });
   
   // Amount in words: 9.5cm from left, 12.5cm from top (raised by 0.5cm, second line at 10.5cm)
-  const amountInWordsLines = splitTextIntoLines(amountInWords, font, 13, 400);
+  const amountInWordsLines = splitTextIntoLines(amountInWords, font, 13, 300);
   amountInWordsLines.forEach((line, index) => {
     firstPage.drawText(line, {
       x: (index === 0 ? 9.5 : 10.5) * 28.35, // First line at 9.5cm, subsequent at 10.5cm
