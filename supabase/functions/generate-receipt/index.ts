@@ -69,16 +69,27 @@ function splitLines(text: string, font: PDFFont, size: number, maxWidth: number)
 
 const IST_FMT_DATE = new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata" });
 const IST_FMT_DT = new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" });
-const fmtDate = (d: Date) => IST_FMT_DATE.format(d).replace(/ /g, "-");
+// ICU may emit U+202F (narrow no-break space) before AM/PM — WinAnsi fonts
+// cannot encode it, so normalize every exotic space to a plain one.
+const plainSpaces = (s: string) => s.replace(/[\u202f\u00a0\u2009\u2007]/g, " ");
+const fmtDate = (d: Date) => plainSpaces(IST_FMT_DATE.format(d)).replace(/ /g, "-");
 const fmtDateTime = (d: Date) => {
-  const s = IST_FMT_DT.format(d); // "17 Jul 2026, 10:05 pm"
+  const s = plainSpaces(IST_FMT_DT.format(d)); // "17 Jul 2026, 10:05 pm"
   const [datePart, timePart] = s.split(", ");
-  return `${datePart.replace(/ /g, "-")} ${timePart.toUpperCase()}`;
+  return `${datePart.replace(/ /g, "-")} ${(timePart ?? "").toUpperCase()}`;
 };
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS_HEADERS });
+  try {
+    return await handle(req);
+  } catch (e: any) {
+    console.error("generate-receipt crashed:", e);
+    return json({ error: `generate-receipt failed: ${e?.message ?? e}` }, 500);
+  }
+});
 
+async function handle(req: Request): Promise<Response> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const admin = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
@@ -159,4 +170,4 @@ Deno.serve(async (req: Request) => {
 
   console.log(`Receipt generated: ${receiptNo} for school SS ${school.ss_no}`);
   return json({ ok: true, receiptNo, url: signed.signedUrl, filename });
-});
+}
