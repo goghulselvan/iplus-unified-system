@@ -55,7 +55,9 @@ export async function sendPaymentReceiptComms(opts: {
 
   let waOk = false;
   let waViaDocument = false;
-  if (receipt) {
+  // The payment_receipt template body says "fully confirmed / Status: Paid" —
+  // only true for full payments. Partial payments stay on the payment_partial text.
+  if (receipt && opts.templateType === 'payment_received') {
     const { data, error } = await supabase.functions.invoke('send-whatsapp-template', {
       body: {
         schoolId: opts.schoolId,
