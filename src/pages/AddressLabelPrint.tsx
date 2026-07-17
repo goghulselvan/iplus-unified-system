@@ -10,6 +10,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useActiveProject } from '@/hooks/useOlympiadProjects';
 import jsPDF from 'jspdf';
+import parcelStickerUrl from '@/assets/parcel-sticker-a5.jpg';
 
 const PRESETS = [
   { label: '2.5 × 3 in', w: 2.5, h: 3 },
@@ -28,7 +29,18 @@ type LabelSchool = {
   district: string | null;
   state: string | null;
   pincode: string | null;
+  phones: string[];
 };
+
+// Valid Indian mobile from any raw format (strips +91/0/spaces, keeps last 10)
+function cleanMobile(raw?: string | null): string {
+  const d = String(raw ?? '').replace(/\D/g, '').slice(-10);
+  return /^[6-9]\d{9}$/.test(d) ? d : '';
+}
+
+function collectPhones(...raws: (string | null | undefined)[]): string[] {
+  return [...new Set(raws.map(cleanMobile).filter(Boolean))];
+}
 
 type CrmSchool = LabelSchool & {
   registration_status: string | null;
@@ -107,6 +119,11 @@ function LabelPreview({ school, wIn, hIn, namePt, addrPt, pinPt }: {
       <span style={{ fontSize: addrPt, color: '#374151', lineHeight: 1.35, wordBreak: 'break-word', flex: 1 }}>
         {addr}
       </span>
+      {school.phones.length > 0 && (
+        <span style={{ fontSize: addrPt, fontWeight: 600, color: '#111827' }}>
+          Ph: {school.phones.join(', ')}
+        </span>
+      )}
       {school.pincode && (
         <span style={{ fontSize: pinPt, fontWeight: 700, color: '#111827', borderTop: '1px solid #e5e7eb', paddingTop: 3, marginTop: 2 }}>
           {school.pincode}
@@ -155,9 +172,10 @@ function generatePdf(
     const LH = 1.25; // line-height factor (conservative ≥ jsPDF's default)
 
     const addr = addressLine(school.address, school.state, school.pincode);
+    const phoneLine = school.phones.length ? `Ph: ${school.phones.join(', ')}` : '';
 
-    // Auto-fit: shrink name/address fonts (to ~55%) so name + address always fit
-    // above the footer — long names/addresses no longer overrun it.
+    // Auto-fit: shrink name/address fonts (to ~55%) so name + address + phone
+    // always fit above the footer — long names/addresses no longer overrun it.
     let scale = 1, nameLines: string[] = [], addrLines: string[] = [];
     for (; scale >= 0.5; scale -= 0.05) {
       const np = namePt * scale, ap = addrPt * scale;
@@ -166,10 +184,12 @@ function generatePdf(
       doc.setFont('helvetica', 'normal'); doc.setFontSize(ap);
       addrLines = addr ? doc.splitTextToSize(addr, maxW) : [];
       const h = nameLines.length * np * LH
-        + (addrLines.length ? 3 + addrLines.length * ap * LH : 0);
+        + (addrLines.length ? 3 + addrLines.length * ap * LH : 0)
+        + (phoneLine ? 3 + ap * LH : 0);
       if (h <= bodyAvail) break;
     }
     const np = namePt * scale, ap = addrPt * scale;
+    const phoneReserve = phoneLine ? 3 + ap * LH : 0;
 
     let y = bodyTop + nameTop;
     doc.setTextColor(17, 24, 39);
@@ -183,9 +203,10 @@ function generatePdf(
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(ap);
       doc.setTextColor(55, 65, 81);
-      // Final safety clamp: never draw address lines into the footer zone.
+      // Final safety clamp: never draw address lines into the footer zone
+      // (keeps room for the phone line below the address).
       const lineH = ap * LH;
-      const fit = Math.max(0, Math.floor((bodyBottom - y) / lineH));
+      const fit = Math.max(0, Math.floor((bodyBottom - phoneReserve - y) / lineH));
       let lines = addrLines;
       if (fit === 0) {
         lines = [];
@@ -193,7 +214,18 @@ function generatePdf(
         lines = addrLines.slice(0, fit);
         lines[lines.length - 1] = lines[lines.length - 1].replace(/\s*\S*$/, '') + '…';
       }
-      if (lines.length) doc.text(lines, margin, y);
+      if (lines.length) {
+        doc.text(lines, margin, y);
+        y += lines.length * lineH;
+      }
+    }
+
+    if (phoneLine && y + 3 <= bodyBottom) {
+      y += 3;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(ap);
+      doc.setTextColor(17, 24, 39);
+      doc.text(phoneLine, margin, y);
     }
 
     if (hasPin) {
@@ -220,6 +252,121 @@ function generatePdf(
   } else {
     doc.save(fname);
     toast({ title: 'PDF saved', description: `${schools.length} labels at ${wIn}" × ${hIn}"` });
+  }
+}
+
+// ─── A5 parcel stickers (2 per A4, iPlus "Important Material" artwork) ────────
+// The artwork is the office's pre-designed A5-landscape courier sticker; the
+// school address + phone are drawn inside its empty "TO" box. Geometry below is
+// measured from the source artwork (1290×917 px): TO box = x 598–1182, y 238–481.
+
+const loadImage = (url: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+  const img = new Image();
+  img.onload = () => resolve(img);
+  img.onerror = () => reject(new Error('Failed to load sticker artwork'));
+  img.src = url;
+});
+
+async function generateParcelPdf(
+  schools: LabelSchool[],
+  tag: string,
+  toast: ReturnType<typeof useToast>['toast'],
+  print = false,
+) {
+  if (!schools.length) return;
+  const img = await loadImage(parcelStickerUrl);
+
+  const A4W = 595.28, A4H = 841.89;
+  const SW = 585.3, SH = SW * 917 / 1290;          // sticker size on page (pt)
+  const SX = (A4W - SW) / 2;
+  const slotY = [4.5, A4H - 4.5 - SH];             // top + bottom sticker
+  const S = SW / 1290;                             // pt per artwork pixel
+  const bx = SX + 598 * S, bw = (1182 - 598) * S;  // TO box on page
+  const byRel = 238 * S, bh = (481 - 238) * S;
+  const pad = 10;
+  const LH = 1.3;
+
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: [A4W, A4H] });
+
+  const pages = Math.ceil(schools.length / 2);
+  for (let pg = 0; pg < pages; pg++) {
+    if (pg > 0) doc.addPage([A4W, A4H]);
+    for (let slot = 0; slot < 2; slot++) {
+      const sy = slotY[slot];
+      // Artwork always drawn — an unused bottom half is still a usable blank sticker.
+      doc.addImage(img, 'JPEG', SX, sy, SW, SH);
+      const school = schools[pg * 2 + slot];
+      if (!school) continue;
+
+      const tx = bx + pad, tw = bw - pad * 2;
+      const top = sy + byRel + pad, bottom = sy + byRel + bh - pad;
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(130, 130, 130);
+      doc.text(`SS ${school.ss_no}`, bx + bw, sy + byRel - 4, { align: 'right' });
+
+      const addr = addressLine(school.address, school.state, school.pincode);
+      const lastLine = [
+        school.pincode ? `PIN ${school.pincode}` : '',
+        school.phones.length ? `Ph: ${school.phones.join(', ')}` : '',
+      ].filter(Boolean).join('   ');
+
+      // Auto-fit within the TO box
+      let scale = 1, nameLines: string[] = [], addrLines: string[] = [];
+      const baseName = 14, baseAddr = 11.5, baseLast = 12;
+      for (; scale >= 0.55; scale -= 0.05) {
+        const np = baseName * scale, ap = baseAddr * scale, lp = baseLast * scale;
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(np);
+        nameLines = doc.splitTextToSize(school.school_name, tw);
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(ap);
+        addrLines = addr ? doc.splitTextToSize(addr, tw) : [];
+        const h = nameLines.length * np * LH
+          + (addrLines.length ? 4 + addrLines.length * ap * LH : 0)
+          + (lastLine ? 6 + lp * LH : 0);
+        if (h <= bottom - top) break;
+      }
+      const np = baseName * scale, ap = baseAddr * scale, lp = baseLast * scale;
+
+      let y = top + np;
+      doc.setTextColor(17, 24, 39);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(np);
+      doc.text(nameLines, tx, y);
+      y += nameLines.length * np * LH;
+
+      if (addrLines.length) {
+        y += 4;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(ap);
+        doc.setTextColor(55, 65, 81);
+        doc.text(addrLines, tx, y);
+        y += addrLines.length * ap * LH;
+      }
+
+      if (lastLine && y + 6 <= bottom + lp) {
+        y += 6;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(lp);
+        doc.setTextColor(17, 24, 39);
+        doc.text(lastLine, tx, y);
+      }
+    }
+  }
+
+  const fname = `iplus-parcel-stickers-${tag}-${schools.length}schools.pdf`;
+  if (print) {
+    doc.autoPrint();
+    const win = window.open(doc.output('bloburl'), '_blank');
+    if (!win) {
+      doc.save(fname);
+      toast({ title: 'Pop-up blocked — downloaded instead', description: 'Allow pop-ups for one-click printing.', variant: 'destructive' });
+    } else {
+      toast({ title: 'Opening print dialog', description: `${schools.length} parcel stickers on ${pages} A4 sheet${pages === 1 ? '' : 's'} — print at 100% / Actual size, then cut in half.` });
+    }
+  } else {
+    doc.save(fname);
+    toast({ title: 'PDF saved', description: `${schools.length} parcel stickers on ${pages} A4 sheet${pages === 1 ? '' : 's'}` });
   }
 }
 
@@ -333,7 +480,7 @@ function CrmLabelMode({ activeProject }: { activeProject: any }) {
     setLoading(true);
     supabase
       .from('school_project_workflow')
-      .select('registration_status, payment_status, schools!inner(id, ss_no, school_name, school_address, district, state, pincode)')
+      .select('registration_status, payment_status, schools!inner(id, ss_no, school_name, school_address, district, state, pincode, mobile1, mobile2)')
       .eq('project_id', activeProject.id)
       .then(({ data, error }) => {
         setLoading(false);
@@ -346,6 +493,7 @@ function CrmLabelMode({ activeProject }: { activeProject: any }) {
           district: r.schools.district,
           state: r.schools.state,
           pincode: r.schools.pincode,
+          phones: collectPhones(r.schools.mobile1, r.schools.mobile2),
           registration_status: r.registration_status,
           payment_status: r.payment_status,
         }));
@@ -411,6 +559,30 @@ function CrmLabelMode({ activeProject }: { activeProject: any }) {
         activeProject?.project_name?.replace(/\s+/g, '-') ?? 'crm',
         toast,
       );
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleParcelPrint = async () => {
+    const noPhone = selectedSchools.filter(s => !s.phones.length);
+    if (noPhone.length) {
+      toast({
+        title: `${noPhone.length} school${noPhone.length === 1 ? ' has' : 's have'} no phone number`,
+        description: 'Sticker prints without a phone — add mobile numbers in School Detail for courier contact.',
+        variant: 'destructive',
+      });
+    }
+    setGenerating(true);
+    try {
+      await generateParcelPdf(
+        selectedSchools,
+        activeProject?.project_name?.replace(/\s+/g, '-') ?? 'crm',
+        toast,
+        true,
+      );
+    } catch (e: any) {
+      toast({ title: 'Error', description: e.message, variant: 'destructive' });
     } finally {
       setGenerating(false);
     }
@@ -569,6 +741,25 @@ function CrmLabelMode({ activeProject }: { activeProject: any }) {
               ? 'Select schools to print'
               : `Print ${selectedIds.size} label${selectedIds.size === 1 ? '' : 's'}`}
         </Button>
+
+        <div className="bg-white rounded-xl border p-4 space-y-2">
+          <p className="font-semibold text-sm">A5 Parcel Stickers</p>
+          <p className="text-xs text-muted-foreground">
+            The iPlus "Important Material" courier sticker with the address + phone
+            printed in the TO box. 2 stickers per A4 sheet — print at 100%, cut in half.
+          </p>
+          <Button
+            variant="outline"
+            className="w-full border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+            onClick={handleParcelPrint}
+            disabled={selectedIds.size === 0 || generating}
+          >
+            <Printer className="h-4 w-4 mr-2" />
+            {selectedIds.size === 0
+              ? 'Select schools first'
+              : `Print ${selectedIds.size} parcel sticker${selectedIds.size === 1 ? '' : 's'} (${Math.ceil(selectedIds.size / 2)} A4)`}
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -620,7 +811,7 @@ function ProspectLabelMode() {
     try {
       let q = supabase
         .from('prospect_schools' as any)
-        .select('id, ss_no, school_name, address, district, state, pincode')
+        .select('id, ss_no, school_name, address, district, state, pincode, mobile')
         .order('ss_no');
 
       if (stateFilter !== 'all') q = (q as any).eq('state', stateFilter);
@@ -638,6 +829,7 @@ function ProspectLabelMode() {
         district: r.district,
         state: r.state,
         pincode: r.pincode,
+        phones: collectPhones(r.mobile),
       }));
       setSchools(normalised);
     } catch (e: any) {
@@ -664,7 +856,7 @@ function ProspectLabelMode() {
     setGenerating(true);
     try {
       let q = supabase.from('prospect_schools' as any)
-        .select('id, ss_no, school_name, address, district, state, pincode')
+        .select('id, ss_no, school_name, address, district, state, pincode, mobile')
         .eq('state', stateFilter)
         .is('label_printed_at', null)
         .order('ss_no')
@@ -672,7 +864,9 @@ function ProspectLabelMode() {
       if (districtFilter !== 'all') q = (q as any).eq('district', districtFilter);
       const { data, error } = await (q as any);
       if (error) throw error;
-      const batch = (data || []) as LabelSchool[];
+      const batch: LabelSchool[] = ((data || []) as any[]).map(r => ({
+        ...r, phones: collectPhones(r.mobile),
+      }));
       if (!batch.length) { toast({ title: 'All done', description: `No unprinted labels left for ${stateFilter}.` }); return; }
 
       generatePdf(batch, wIn, hIn, namePt, addrPt, pinPt, `prospect-${stateFilter}`, toast, true);
