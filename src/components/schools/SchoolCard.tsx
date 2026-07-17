@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Eye, Trash2 } from 'lucide-react';
+import { Eye, Trash2, Globe, Phone } from 'lucide-react';
 import { formatForDisplay } from '@/utils/dataHelpers';
 
 interface SchoolCardProps {
@@ -68,6 +68,15 @@ export const SchoolCard: React.FC<SchoolCardProps> = ({ school, onDelete, showDe
             </div>
           </div>
           <div className="flex items-center space-x-2">
+            {school.portal_registered ? (
+              <Badge variant="outline" className="border-blue-300 bg-blue-50 text-blue-700 gap-1">
+                <Globe className="h-3 w-3" /> Portal
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="border-gray-300 bg-gray-50 text-gray-600 gap-1">
+                <Phone className="h-3 w-3" /> Manual
+              </Badge>
+            )}
             <Badge className={getStatusColor(school.registration_status)}>
               {school.registration_status}
             </Badge>

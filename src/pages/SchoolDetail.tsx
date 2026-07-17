@@ -4,6 +4,7 @@ import { School } from '@/types/database';
 import { useAuth } from '@/hooks/useAuth';
 import { useSchoolsPaginated } from '@/hooks/useSchoolsPaginated';
 import { WorkflowPipeline } from '@/components/schools/WorkflowPipeline';
+import { PortalRegistrationJourney } from '@/components/schools/PortalRegistrationJourney';
 import { useFollowUps } from '@/hooks/useFollowUps';
 import { useCommunications } from '@/hooks/useCommunications';
 import { useActiveProject } from '@/hooks/useOlympiadProjects';
@@ -18,7 +19,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ArrowLeft, Calendar, Clock, MessageSquare, User, Phone, Mail, Edit, Save, X, Download, Bot, Send, Plus, Trash2, PhoneCall, Loader2 } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, MessageSquare, User, Phone, Mail, Edit, Save, X, Download, Bot, Send, Plus, Trash2, PhoneCall, Loader2, Globe } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { format } from 'date-fns';
@@ -491,7 +492,18 @@ const SchoolDetail = () => {
           <div className="flex justify-between items-start">
             <div>
               <h1 className="text-3xl font-bold text-foreground">{school.school_name}</h1>
-              <p className="text-muted-foreground mt-2">SS No: {school.ss_no}</p>
+              <div className="flex items-center gap-2 mt-2">
+                <p className="text-muted-foreground">SS No: {school.ss_no}</p>
+                {school.portal_registered ? (
+                  <Badge variant="outline" className="border-blue-300 bg-blue-50 text-blue-700 gap-1">
+                    <Globe className="h-3 w-3" /> Portal
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="border-gray-300 bg-gray-50 text-gray-600 gap-1">
+                    <Phone className="h-3 w-3" /> Manual
+                  </Badge>
+                )}
+              </div>
             </div>
             <div className="flex items-center space-x-2">
               <Button 
@@ -583,6 +595,8 @@ const SchoolDetail = () => {
         </div>
 
         <WorkflowPipeline school={school} />
+
+        {school.portal_registered && <PortalRegistrationJourney school={school} />}
 
         <SendEbrochureDialog
           open={ebrochureOpen}
