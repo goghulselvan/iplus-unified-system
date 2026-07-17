@@ -48,10 +48,13 @@ function resolveVariable(
     case "project_name_year": return [project?.project_name, project?.project_year].filter(Boolean).join(" ");
     case "district_state": return [school?.district, school?.state].filter(Boolean).join(", ");
     case "student_count": return String(studentCount ?? 0);
-    case "payment_amount": return String(workflow?.payment_received ?? 0);
+    // Payment figures live on schools (maintained by the payment RPCs); the
+    // workflow copies are not updated by acknowledge_portal_payment — reading
+    // them showed ₹0 while the email showed the real amount.
+    case "payment_amount": return String(school?.payment_received ?? workflow?.payment_received ?? 0);
     case "payment_date": return workflow?.payment_date || "";
-    case "expected_amount": return String(workflow?.expected_amount ?? 0);
-    case "outstanding_balance": return String(workflow?.outstanding_balance ?? 0);
+    case "expected_amount": return String(school?.expected_amount ?? workflow?.expected_amount ?? 0);
+    case "outstanding_balance": return String(school?.outstanding_balance ?? workflow?.outstanding_balance ?? 0);
     case "registration_status": return workflow?.registration_status || "";
     case "custom": return customText || "";
     default: return "";
