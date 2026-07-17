@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Printer, FileDown, Search, X } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -272,9 +273,22 @@ async function generateParcelPdf(
   tag: string,
   toast: ReturnType<typeof useToast>['toast'],
   print = false,
+  singleSlot: 'top' | 'bottom' = 'top',
 ) {
   if (!schools.length) return;
   const img = await loadImage(parcelStickerUrl);
+
+  // Sheet layout: pairs fill top→bottom; an odd last school stays on top so the
+  // sheet's bottom half remains blank and reusable. A single school goes on the
+  // caller-chosen slot (feed a half-used sheet back in and print the other half).
+  const pageSlots: (LabelSchool | null)[][] = [];
+  if (schools.length === 1 && singleSlot === 'bottom') {
+    pageSlots.push([null, schools[0]]);
+  } else {
+    for (let i = 0; i < schools.length; i += 2) {
+      pageSlots.push([schools[i], schools[i + 1] ?? null]);
+    }
+  }
 
   const A4W = 595.28, A4H = 841.89;
   const SW = 585.3, SH = SW * 917 / 1290;          // sticker size on page (pt)
@@ -288,15 +302,16 @@ async function generateParcelPdf(
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: [A4W, A4H] });
 
-  const pages = Math.ceil(schools.length / 2);
+  const pages = pageSlots.length;
   for (let pg = 0; pg < pages; pg++) {
     if (pg > 0) doc.addPage([A4W, A4H]);
     for (let slot = 0; slot < 2; slot++) {
-      const sy = slotY[slot];
-      // Artwork always drawn — an unused bottom half is still a usable blank sticker.
-      doc.addImage(img, 'JPEG', SX, sy, SW, SH);
-      const school = schools[pg * 2 + slot];
+      const school = pageSlots[pg][slot];
+      // Empty slot stays fully blank (no artwork) so a half-used sheet can be
+      // fed back in later without double-printing the design.
       if (!school) continue;
+      const sy = slotY[slot];
+      doc.addImage(img, 'JPEG', SX, sy, SW, SH);
 
       const tx = bx + pad, tw = bw - pad * 2;
       const top = sy + byRel + pad, bottom = sy + byRel + bh - pad;
@@ -474,6 +489,7 @@ function CrmLabelMode({ activeProject }: { activeProject: any }) {
   const [namePt, setNamePt] = useState(14);
   const [addrPt, setAddrPt] = useState(12);
   const [pinPt, setPinPt] = useState(12);
+  const [slotDialogOpen, setSlotDialogOpen] = useState(false);
 
   useEffect(() => {
     if (!activeProject?.id) return;
@@ -564,7 +580,8 @@ function CrmLabelMode({ activeProject }: { activeProject: any }) {
     }
   };
 
-  const handleParcelPrint = async () => {
+  const runParcelPrint = async (singleSlot: 'top' | 'bottom' = 'top') => {
+    setSlotDialogOpen(false);
     const noPhone = selectedSchools.filter(s => !s.phones.length);
     if (noPhone.length) {
       toast({
@@ -580,12 +597,19 @@ function CrmLabelMode({ activeProject }: { activeProject: any }) {
         activeProject?.project_name?.replace(/\s+/g, '-') ?? 'crm',
         toast,
         true,
+        singleSlot,
       );
     } catch (e: any) {
       toast({ title: 'Error', description: e.message, variant: 'destructive' });
     } finally {
       setGenerating(false);
     }
+  };
+
+  // One school → ask which half of the sheet to print on (reuse half-used sheets).
+  const handleParcelPrint = () => {
+    if (selectedSchools.length === 1) setSlotDialogOpen(true);
+    else runParcelPrint();
   };
 
   return (
@@ -760,6 +784,27 @@ function CrmLabelMode({ activeProject }: { activeProject: any }) {
               : `Print ${selectedIds.size} parcel sticker${selectedIds.size === 1 ? '' : 's'} (${Math.ceil(selectedIds.size / 2)} A4)`}
           </Button>
         </div>
+
+        {/* Single sticker → which half of the sheet? (lets a half-used sheet be reused) */}
+        <Dialog open={slotDialogOpen} onOpenChange={setSlotDialogOpen}>
+          <DialogContent className="max-w-xs">
+            <DialogHeader>
+              <DialogTitle className="text-sm">Print on which sticker?</DialogTitle>
+            </DialogHeader>
+            <p className="text-xs text-muted-foreground -mt-1">
+              The other half of the sheet stays blank, so you can feed the same
+              sheet again later and print on the unused sticker.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant="outline" className="h-16 flex-col gap-1" onClick={() => runParcelPrint('top')}>
+                <span className="text-lg leading-none">⬒</span> Top sticker
+              </Button>
+              <Button variant="outline" className="h-16 flex-col gap-1" onClick={() => runParcelPrint('bottom')}>
+                <span className="text-lg leading-none">⬓</span> Bottom sticker
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );
