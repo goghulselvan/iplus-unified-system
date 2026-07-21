@@ -132,6 +132,9 @@ const DOC_CONFIG: Record<DocType, {
   emailSubject: (year: unknown, schoolName: string) => string;
   label: string;
   missingUrlError: string;
+  // Body params must match the AskEVA template's body variable count exactly —
+  // a mismatch here is silently rejected by WhatsApp with no clear error.
+  bodyParams: (schoolName: string, projectName: unknown, projectYear: unknown) => string[];
 }> = {
   ebrochure: {
     urlColumn: "brochure_url",
@@ -142,6 +145,7 @@ const DOC_CONFIG: Record<DocType, {
     emailSubject: (year, schoolName) => `iPlus Olympiads ${year ?? ""} — Brochure for ${schoolName}`,
     label: "E-Brochure",
     missingUrlError: "No brochure uploaded for the active project. Please upload one in Project Management.",
+    bodyParams: (schoolName) => [schoolName],
   },
   consent_form: {
     urlColumn: "consent_form_url",
@@ -152,6 +156,8 @@ const DOC_CONFIG: Record<DocType, {
     emailSubject: (year, schoolName) => `iPlus Olympiads ${year ?? ""} — Parent's Consent Form for ${schoolName}`,
     label: "Parents Consent Form",
     missingUrlError: "No consent form uploaded for the active project.",
+    bodyParams: (schoolName, projectName, projectYear) =>
+      [schoolName, [projectName, projectYear].filter(Boolean).join(" ")],
   },
 };
 
@@ -277,9 +283,8 @@ serve(async (req) => {
             },
             {
               type: "body",
-              parameters: [
-                { type: "text", text: schoolName },
-              ],
+              parameters: doc.bodyParams(schoolName, project.project_name, project.project_year)
+                .map(text => ({ type: "text", text })),
             },
           ],
         },
@@ -295,7 +300,8 @@ serve(async (req) => {
       const wamid: string | null = body?.messages?.[0]?.id ?? null;
 
       if (!res.ok) {
-        return new Response(JSON.stringify({ success: false, error: body?.error?.message ?? "WhatsApp send failed" }), {
+        console.error("AskEVA WhatsApp send failed:", JSON.stringify(body));
+        return new Response(JSON.stringify({ success: false, error: body?.error?.message ?? body?.message ?? JSON.stringify(body) ?? "WhatsApp send failed" }), {
           status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
