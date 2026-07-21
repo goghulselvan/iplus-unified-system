@@ -10,15 +10,23 @@ import { Send, Loader2 } from 'lucide-react';
 
 export interface EbrochureContact { name: string; mobile: string; role?: string }
 
+export type SendDocType = 'ebrochure' | 'consent_form';
+
 type Target =
   | {
       kind: 'school'; schoolId: string; schoolName: string; district?: string; state?: string;
       mobile1: string | null; mobile2: string | null; email: string | null; contacts: EbrochureContact[];
+      principalMobile?: string | null; coordMobile?: string | null; corrMobile?: string | null;
     }
   | {
       kind: 'prospect'; prospectSchoolId: string; schoolName: string; district?: string; state?: string;
       mobile: string | null; email: string | null; contacts: EbrochureContact[];
     };
+
+const DOC_LABELS: Record<SendDocType, string> = {
+  ebrochure: 'E-Brochure',
+  consent_form: 'Parents Consent Form',
+};
 
 interface Props {
   open: boolean;
@@ -39,6 +47,7 @@ type Job =
 
 export function SendEbrochureDialog({ open, onOpenChange, target, onSaveManualContact, onSent }: Props) {
   const { toast } = useToast();
+  const [docType, setDocType] = useState<SendDocType>('ebrochure');
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [manualPhone, setManualPhone] = useState('');
   const [manualContactName, setManualContactName] = useState('');
@@ -67,7 +76,7 @@ export function SendEbrochureDialog({ open, onOpenChange, target, onSaveManualCo
 
   const reset = () => {
     setManualPhone(''); setManualContactName(''); setManualContactRole(''); setSaveContact(false);
-    setManualEmail('');
+    setManualEmail(''); setDocType('ebrochure');
   };
 
   const handleSend = async () => {
@@ -76,6 +85,9 @@ export function SendEbrochureDialog({ open, onOpenChange, target, onSaveManualCo
     if (target.kind === 'school') {
       if (checked.has('mobile1') && target.mobile1) jobs.push({ channel: 'whatsapp', phone: target.mobile1 });
       if (checked.has('mobile2') && target.mobile2) jobs.push({ channel: 'whatsapp', phone: target.mobile2 });
+      if (checked.has('principal_mobile') && target.principalMobile) jobs.push({ channel: 'whatsapp', phone: target.principalMobile, contactRole: 'Principal' });
+      if (checked.has('coord_mobile') && target.coordMobile) jobs.push({ channel: 'whatsapp', phone: target.coordMobile, contactRole: 'Coordinator' });
+      if (checked.has('corr_mobile') && target.corrMobile) jobs.push({ channel: 'whatsapp', phone: target.corrMobile, contactRole: 'Correspondent' });
     } else {
       if (checked.has('mobile') && target.mobile) jobs.push({ channel: 'whatsapp', phone: target.mobile });
     }
@@ -148,6 +160,7 @@ export function SendEbrochureDialog({ open, onOpenChange, target, onSaveManualCo
               saveContact: job.channel === 'whatsapp' && saveContact && job.isManual,
               contactName: job.channel === 'whatsapp' ? job.contactName : undefined,
               contactRole: job.channel === 'whatsapp' ? job.contactRole : undefined,
+              docType,
             },
           });
           if (res.error) {
@@ -165,7 +178,7 @@ export function SendEbrochureDialog({ open, onOpenChange, target, onSaveManualCo
       if (failed.length === 0) {
         const first = unique[0];
         const firstLabel = first.channel === 'whatsapp' ? first.phone : first.email;
-        toast({ title: 'E-Brochure sent!', description: sentCount === 1 ? `Sent to ${firstLabel}` : `Sent to ${sentCount} recipients` });
+        toast({ title: `${DOC_LABELS[docType]} sent!`, description: sentCount === 1 ? `Sent to ${firstLabel}` : `Sent to ${sentCount} recipients` });
       } else {
         toast({
           title: sentCount > 0 ? 'Partially sent' : 'Send failed',
@@ -200,10 +213,29 @@ export function SendEbrochureDialog({ open, onOpenChange, target, onSaveManualCo
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Send className="h-5 w-5 text-indigo-600" />
-            Send E-Brochure
+            Send {DOC_LABELS[docType]}
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-4 pt-2">
+          {target.kind === 'school' && (
+            <div>
+              <Label className="text-sm font-medium mb-2 block">Document</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {(Object.keys(DOC_LABELS) as SendDocType[]).map(dt => (
+                  <button
+                    key={dt}
+                    type="button"
+                    onClick={() => setDocType(dt)}
+                    className={`px-3 py-2 rounded-md text-sm font-medium border transition-colors ${
+                      docType === dt ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-200 hover:border-indigo-400'
+                    }`}
+                  >
+                    {DOC_LABELS[dt]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div>
             <Label className="text-sm font-medium mb-2 block">WhatsApp numbers</Label>
             <div className="space-y-2">
@@ -221,6 +253,27 @@ export function SendEbrochureDialog({ open, onOpenChange, target, onSaveManualCo
                     <Label htmlFor="eb_m2" className="cursor-pointer flex-1">
                       <span className="text-xs text-muted-foreground">Mobile 2</span>
                       <p className="font-medium">{target.mobile2 || <span className="text-muted-foreground italic">Not set</span>}</p>
+                    </Label>
+                  </div>
+                  <div className="flex items-center gap-3 border rounded-md px-3 py-2">
+                    <Checkbox checked={checked.has('principal_mobile')} onCheckedChange={() => toggle('principal_mobile')} id="eb_pm" disabled={!target.principalMobile} />
+                    <Label htmlFor="eb_pm" className="cursor-pointer flex-1">
+                      <span className="text-xs text-muted-foreground">Principal Mobile</span>
+                      <p className="font-medium">{target.principalMobile || <span className="text-muted-foreground italic">Not set</span>}</p>
+                    </Label>
+                  </div>
+                  <div className="flex items-center gap-3 border rounded-md px-3 py-2">
+                    <Checkbox checked={checked.has('coord_mobile')} onCheckedChange={() => toggle('coord_mobile')} id="eb_cm" disabled={!target.coordMobile} />
+                    <Label htmlFor="eb_cm" className="cursor-pointer flex-1">
+                      <span className="text-xs text-muted-foreground">Coordinator Mobile</span>
+                      <p className="font-medium">{target.coordMobile || <span className="text-muted-foreground italic">Not set</span>}</p>
+                    </Label>
+                  </div>
+                  <div className="flex items-center gap-3 border rounded-md px-3 py-2">
+                    <Checkbox checked={checked.has('corr_mobile')} onCheckedChange={() => toggle('corr_mobile')} id="eb_corrm" disabled={!target.corrMobile} />
+                    <Label htmlFor="eb_corrm" className="cursor-pointer flex-1">
+                      <span className="text-xs text-muted-foreground">Correspondent Mobile</span>
+                      <p className="font-medium">{target.corrMobile || <span className="text-muted-foreground italic">Not set</span>}</p>
                     </Label>
                   </div>
                 </>
@@ -298,7 +351,7 @@ export function SendEbrochureDialog({ open, onOpenChange, target, onSaveManualCo
             <Button variant="outline" className="flex-1" onClick={() => onOpenChange(false)} disabled={sending}>Cancel</Button>
             <Button className="flex-1" onClick={handleSend} disabled={sending}>
               {sending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-              {sending ? 'Sending…' : 'Send E-Brochure'}
+              {sending ? 'Sending…' : `Send ${DOC_LABELS[docType]}`}
             </Button>
           </div>
         </div>

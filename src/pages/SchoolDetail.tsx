@@ -587,7 +587,7 @@ const SchoolDetail = () => {
               </Button>
               <Button variant="default" onClick={() => setEbrochureOpen(true)}>
                 <Send className="h-4 w-4 mr-2" />
-                Send E-Brochure
+                Send Message
               </Button>
               <WorkflowStatusBadge school={school} />
             </div>
@@ -611,6 +611,9 @@ const SchoolDetail = () => {
             mobile2: school.mobile2 ?? null,
             email: school.email ?? null,
             contacts: school.additional_contacts ?? [],
+            principalMobile: school.principal_mobile ?? null,
+            coordMobile: school.coord_mobile ?? null,
+            corrMobile: school.corr_mobile ?? null,
           }}
           onSent={async () => {
             const { data } = await supabase.from('schools').select('*').eq('id', id).single();

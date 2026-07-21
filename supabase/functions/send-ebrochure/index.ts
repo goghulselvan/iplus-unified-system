@@ -71,14 +71,96 @@ const EBROCHURE_EMAIL_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
+// Same brand system, retargeted for the Parent's Consent Form document.
+// {school_name}, {consent_form_url}, {project_year} substituted before sending.
+const CONSENT_FORM_EMAIL_HTML = `<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background-color:#f4f4f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#f4f4f7;">
+  <tr><td align="center" style="padding:20px 10px;">
+    <table width="600" cellpadding="0" cellspacing="0" role="presentation" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+
+      <!-- Header -->
+      <tr><td style="background:linear-gradient(135deg,#7C3AED 0%,#4F46E5 100%);padding:40px 32px 36px;text-align:center;">
+        <div style="font-size:11px;font-weight:600;letter-spacing:3px;color:rgba(255,255,255,0.7);text-transform:uppercase;margin-bottom:16px;">iPlus Olympiads {project_year}</div>
+        <div style="font-size:30px;font-weight:700;color:#ffffff;line-height:1.25;margin-bottom:12px;">Parent's Consent<br/>Form</div>
+        <div style="font-size:13px;color:rgba(255,255,255,0.8);font-style:italic;">Ignite Genius. Inspire Excellence.</div>
+      </td></tr>
+
+      <!-- Status banner -->
+      <tr><td style="background:#f5f3ff;border-bottom:1px solid #ede9fe;padding:12px 32px;text-align:center;">
+        <span style="font-size:11px;font-weight:700;letter-spacing:2px;color:#4F46E5;text-transform:uppercase;">&#10003;&nbsp;&nbsp;CONSENT FORM</span>
+      </td></tr>
+
+      <!-- Body -->
+      <tr><td style="padding:32px 32px 24px;">
+        <p style="margin:0 0 16px;font-size:16px;font-weight:700;color:#1a1a2e;">Dear {school_name} Team,</p>
+        <p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#374151;">Please find the iPlus Olympiads {project_year} Parent's Consent Form below. Kindly share it with your students so parents/guardians can fill in the required details and select the Olympiads their child will participate in, then return the signed form to your school coordinator.</p>
+      </td></tr>
+
+      <!-- CTA -->
+      <tr><td style="padding:0 32px 32px;text-align:center;">
+        <a href="{consent_form_url}" style="display:inline-block;background:linear-gradient(135deg,#7C3AED 0%,#4F46E5 100%);color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:14px 32px;border-radius:8px;">View Consent Form &rarr;</a>
+      </td></tr>
+
+      <!-- Footer -->
+      <tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:24px 32px;text-align:center;">
+        <div style="font-size:14px;font-weight:600;color:#4F46E5;margin-bottom:6px;">iPlus Olympiads</div>
+        <div style="font-size:12px;color:#6b7280;line-height:1.8;">
+          Ivar Pro Learn for Universal Success Pvt. Ltd.<br/>
+          115, GST Road, Guduvancheri, Chennai 603 202<br/>
+          <a href="mailto:support@iplusedu.in" style="color:#4F46E5;text-decoration:none;">support@iplusedu.in</a>&nbsp;|&nbsp;<a href="tel:+918111066556" style="color:#4F46E5;text-decoration:none;">+91 81110 66556</a>
+        </div>
+        <div style="font-size:11px;color:#9ca3af;margin-top:10px;">&copy; 2026 iPlus Olympiads. All rights reserved.</div>
+      </td></tr>
+
+    </table>
+  </td></tr>
+</table>
+</body>
+</html>`;
+
+type DocType = "ebrochure" | "consent_form";
+
+const DOC_CONFIG: Record<DocType, {
+  urlColumn: "brochure_url" | "consent_form_url";
+  defaultTemplateName: string;
+  templateNameEnvVar: string;
+  filename: (year: unknown) => string;
+  emailHtml: string;
+  emailSubject: (year: unknown, schoolName: string) => string;
+  label: string;
+  missingUrlError: string;
+}> = {
+  ebrochure: {
+    urlColumn: "brochure_url",
+    defaultTemplateName: "iplus_ebrochure_2026",
+    templateNameEnvVar: "EBROCHURE_TEMPLATE_NAME",
+    filename: (year) => `iPlus Olympiads ${year} Brochure.pdf`,
+    emailHtml: EBROCHURE_EMAIL_HTML,
+    emailSubject: (year, schoolName) => `iPlus Olympiads ${year ?? ""} — Brochure for ${schoolName}`,
+    label: "E-Brochure",
+    missingUrlError: "No brochure uploaded for the active project. Please upload one in Project Management.",
+  },
+  consent_form: {
+    urlColumn: "consent_form_url",
+    defaultTemplateName: "parents_consent_form",
+    templateNameEnvVar: "CONSENT_FORM_TEMPLATE_NAME",
+    filename: (year) => `iPlus Olympiads ${year} Parent Consent Form.pdf`,
+    emailHtml: CONSENT_FORM_EMAIL_HTML,
+    emailSubject: (year, schoolName) => `iPlus Olympiads ${year ?? ""} — Parent's Consent Form for ${schoolName}`,
+    label: "Parents Consent Form",
+    missingUrlError: "No consent form uploaded for the active project.",
+  },
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
     const ASKEVA_API_TOKEN = Deno.env.get("ASKEVA_API_TOKEN");
     if (!ASKEVA_API_TOKEN) throw new Error("ASKEVA_API_TOKEN not configured");
-
-    const TEMPLATE_NAME = Deno.env.get("EBROCHURE_TEMPLATE_NAME") ?? "iplus_ebrochure_2026";
 
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -108,7 +190,7 @@ serve(async (req) => {
       });
     }
 
-    const { schoolId, prospectSchoolId, phone, email, schoolName, district, state, saveContact, contactName, contactRole } = await req.json() as {
+    const { schoolId, prospectSchoolId, phone, email, schoolName, district, state, saveContact, contactName, contactRole, docType } = await req.json() as {
       schoolId?: string;
       prospectSchoolId?: string;
       phone?: string;
@@ -119,6 +201,7 @@ serve(async (req) => {
       saveContact?: boolean;
       contactName?: string;
       contactRole?: string;
+      docType?: DocType;
     };
 
     if ((!schoolId && !prospectSchoolId) || (!phone && !email) || !schoolName) {
@@ -127,15 +210,19 @@ serve(async (req) => {
       });
     }
 
-    // Get active project's brochure URL — needed by both channels
+    const doc = DOC_CONFIG[docType ?? "ebrochure"];
+    const TEMPLATE_NAME = Deno.env.get(doc.templateNameEnvVar) ?? doc.defaultTemplateName;
+
+    // Get active project's document URL — needed by both channels
     const { data: project } = await supabaseAdmin
       .from("olympiad_projects")
-      .select("id, brochure_url, project_name, project_year")
+      .select("id, brochure_url, consent_form_url, project_name, project_year")
       .eq("is_active", true)
       .maybeSingle();
 
-    if (!project?.brochure_url) {
-      return new Response(JSON.stringify({ success: false, error: "No brochure uploaded for the active project. Please upload one in Project Management." }), {
+    const docUrl = project?.[doc.urlColumn] as string | undefined;
+    if (!docUrl) {
+      return new Response(JSON.stringify({ success: false, error: doc.missingUrlError }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -149,8 +236,10 @@ serve(async (req) => {
       effectiveSchoolId = linked?.id ?? null;
     }
 
+    // brochure_delivery_status tracks the physical/digital brochure courier
+    // flow specifically — only meaningful for the ebrochure doc type.
     async function markDigitalSent() {
-      if (!effectiveSchoolId) return;
+      if (!effectiveSchoolId || doc !== DOC_CONFIG.ebrochure) return;
       const { data: schoolStatus } = await supabaseAdmin
         .from("schools").select("brochure_delivery_status").eq("id", effectiveSchoolId).single();
       const current = schoolStatus?.brochure_delivery_status;
@@ -180,8 +269,8 @@ serve(async (req) => {
                 {
                   type: "document",
                   document: {
-                    link: project.brochure_url,
-                    filename: `iPlus Olympiads ${project.project_year} Brochure.pdf`,
+                    link: docUrl,
+                    filename: doc.filename(project.project_year),
                   },
                 },
               ],
@@ -217,7 +306,7 @@ serve(async (req) => {
         await supabaseAdmin.from("communications").insert({
           school_id: effectiveSchoolId,
           communication_type: "WhatsApp",
-          message: `E-Brochure sent to ${phone}${contactName ? ` (${contactName})` : ""}`,
+          message: `${doc.label} sent to ${phone}${contactName ? ` (${contactName})` : ""}`,
           contacted_person_name: contactName ?? null,
           contacted_mobile_no: phone,
           user_id: userId,
@@ -254,11 +343,12 @@ serve(async (req) => {
         });
       }
 
-      const html = EBROCHURE_EMAIL_HTML
+      const html = doc.emailHtml
         .replaceAll("{school_name}", schoolName)
-        .replaceAll("{brochure_url}", project.brochure_url)
+        .replaceAll("{brochure_url}", docUrl)
+        .replaceAll("{consent_form_url}", docUrl)
         .replaceAll("{project_year}", String(project.project_year ?? ""));
-      const subject = `iPlus Olympiads ${project.project_year ?? ""} — Brochure for ${schoolName}`;
+      const subject = doc.emailSubject(project.project_year, schoolName);
 
       try {
         await resend.emails.send({
@@ -280,7 +370,7 @@ serve(async (req) => {
         await supabaseAdmin.from("communications").insert({
           school_id: effectiveSchoolId,
           communication_type: "Email",
-          message: `E-Brochure emailed to ${email}`,
+          message: `${doc.label} emailed to ${email}`,
           user_id: userId,
           project_id: project.id ?? null,
           email_status: "sent",
@@ -288,7 +378,7 @@ serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({ success: true, message: "E-Brochure sent successfully" }), {
+    return new Response(JSON.stringify({ success: true, message: `${doc.label} sent successfully` }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
