@@ -209,7 +209,7 @@ export function SendEbrochureDialog({ open, onOpenChange, target, onSaveManualCo
 
   return (
     <Dialog open={open} onOpenChange={o => { if (!sending) { onOpenChange(o); if (!o) reset(); } }}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Send className="h-5 w-5 text-indigo-600" />
