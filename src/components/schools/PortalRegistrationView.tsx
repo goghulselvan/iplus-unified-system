@@ -703,26 +703,37 @@ export function PortalRegistrationView({ schoolId, paymentStatus }: Props) {
 
       <BulkUpload schoolId={schoolId} subjects={subjects} onSuccess={() => qc.invalidateQueries({ queryKey: ['crm-portal-students', schoolId] })} />
 
-      {/* Students table — only visible after school submits */}
-      {!isSubmitted ? (
+      {/* Students table — full read+write once submitted; a red-tinted read-only
+          preview beforehand so staff can see progress without touching a list
+          the school is still actively building on the portal. */}
+      {students.length === 0 ? (
         <div className="rounded-2xl p-8 border border-black/5 bg-white text-center">
           <ClipboardList className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-40" />
           <p className="text-base font-semibold text-foreground mb-1">
-            Student List Not Yet Submitted
+            {isSubmitted ? 'No Students Added' : 'Student List Not Yet Submitted'}
           </p>
           <p className="text-sm text-muted-foreground max-w-sm mx-auto">
-            Students are visible here only after the school submits their list from the portal.
+            {isSubmitted
+              ? 'The school submitted an empty list.'
+              : 'Nothing added by the school on the portal yet.'}
           </p>
         </div>
       ) : (
-      <Card>
+      <Card className={!isSubmitted ? 'border-red-200' : undefined}>
         <CardHeader>
           <div className="flex items-center justify-between flex-wrap gap-3">
-            <CardTitle className="text-base">
-              Student List ({students.length} students · {totalEnrollments} registrations)
-            </CardTitle>
             <div className="flex items-center gap-2 flex-wrap">
-              {canBulkDelete && selectedIds.size > 0 && (
+              <CardTitle className="text-base">
+                Student List ({students.length} students · {totalEnrollments} registrations)
+              </CardTitle>
+              {!isSubmitted && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-red-100 text-red-700 border border-red-300">
+                  Not yet submitted — live preview, read-only
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {isSubmitted && canBulkDelete && selectedIds.size > 0 && (
                 <Button
                   variant="destructive"
                   size="sm"
@@ -737,7 +748,7 @@ export function PortalRegistrationView({ schoolId, paymentStatus }: Props) {
                   Delete {selectedIds.size} selected
                 </Button>
               )}
-              <Button variant="outline" size="sm" disabled={students.length === 0} onClick={exportCSV}>
+              <Button variant="outline" size="sm" onClick={exportCSV}>
                 <Download className="h-3.5 w-3.5 mr-1" />
                 Export CSV
               </Button>
@@ -761,14 +772,12 @@ export function PortalRegistrationView({ schoolId, paymentStatus }: Props) {
         <CardContent className="p-0">
           {isLoading ? (
             <p className="text-sm text-muted-foreground p-6 text-center">Loading…</p>
-          ) : students.length === 0 ? (
-            <p className="text-sm text-muted-foreground p-6 text-center">No students added yet by school.</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-muted/50 border-b">
+                <thead className={`border-b ${!isSubmitted ? 'bg-red-50' : 'bg-muted/50'}`}>
                   <tr>
-                    {canBulkDelete && (
+                    {isSubmitted && canBulkDelete && (
                       <th className="px-4 py-3 w-10">
                         <input
                           type="checkbox"
@@ -782,17 +791,17 @@ export function PortalRegistrationView({ schoolId, paymentStatus }: Props) {
                     <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Name</th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Class</th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Subjects</th>
-                    <th className="px-4 py-3 w-24" />
+                    {isSubmitted && <th className="px-4 py-3 w-24" />}
                   </tr>
                 </thead>
-                <tbody className="divide-y">
+                <tbody className={`divide-y ${!isSubmitted ? 'bg-red-50/60' : ''}`}>
                   {displayedStudents.map((s, i) => {
-                    const isEditing = editingId === s.id;
+                    const isEditing = isSubmitted && editingId === s.id;
                     const clsLabel = CLASS_OPTIONS.find((c) => c.value === s.class_code)?.label ?? s.class_code;
 
                     return (
-                      <tr key={s.id} className="hover:bg-muted/30 group">
-                        {canBulkDelete && (
+                      <tr key={s.id} className={isSubmitted ? 'hover:bg-muted/30 group' : ''}>
+                        {isSubmitted && canBulkDelete && (
                           <td className="px-4 py-3">
                             <input
                               type="checkbox"
@@ -851,6 +860,7 @@ export function PortalRegistrationView({ schoolId, paymentStatus }: Props) {
                             </div>
                           )}
                         </td>
+                        {isSubmitted && (
                         <td className="px-4 py-3">
                           {isEditing ? (
                             <div className="flex flex-col gap-1.5">
@@ -892,6 +902,7 @@ export function PortalRegistrationView({ schoolId, paymentStatus }: Props) {
                             </div>
                           )}
                         </td>
+                        )}
                       </tr>
                     );
                   })}

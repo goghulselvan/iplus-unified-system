@@ -25,6 +25,7 @@ export function PortalRegistrationJourney({ school }: { school: any }) {
   const submittedTotal = progress?.submittedTotal ?? 0;
   const listSubmitted = !!(workflow as any)?.list_submitted_at;
   const paymentReceived = Number(school.payment_received ?? 0);
+  const paymentAckDone = school.payment_status === 'Received' || school.payment_status === 'Overpaid';
 
   const stages: Stage[] = [
     {
@@ -68,11 +69,14 @@ export function PortalRegistrationJourney({ school }: { school: any }) {
     {
       key: 'confirmed',
       label: 'Registration Confirmed',
-      status: school.registration_status === 'Confirmed'
+      // Gated behind Payment Acknowledged (stage 5) — registration_status flips
+      // to 'In Progress' the moment a portal school gets linked in the CRM,
+      // which is unrelated to whether it has actually paid or submitted anything.
+      status: !paymentAckDone
+        ? 'pending'
+        : school.registration_status === 'Confirmed'
         ? 'done'
-        : school.registration_status === 'In Progress'
-        ? 'active'
-        : 'pending',
+        : 'active',
     },
   ];
 
