@@ -11,6 +11,8 @@ interface PortalRegistration {
   email: string;
   school_name: string;
   city: string;
+  address1: string | null;
+  address2: string | null;
   district: string;
   state: string | null;
   pincode: string | null;
@@ -277,18 +279,20 @@ export function RegistrationApproval() {
           { onConflict: "school_id,project_id" },
         );
       } else {
-        // Case 2: only in prospect_schools — create CRM school
+        // Case 2: only in prospect_schools — create CRM school. The school's own
+        // portal submission is authoritative over old prospect-import data.
+        const newRegAddress = [reg.address1, reg.address2].filter(Boolean).join(", ");
         const { data: newSchool, error: schoolErr } = await supabase
           .from("schools")
           .insert({
-            school_name:          prospect.school_name,
+            school_name:          reg.school_name    ?? prospect.school_name,
             ss_no:                prospect.ss_no,
             district:             prospect.district,
             state:                prospect.state,
             board:                reg.board   ?? prospect.board,
             mobile1:              reg.phone   ?? prospect.mobile,
             email:                reg.email   ?? prospect.email,
-            school_address:       prospect.address ?? reg.city ?? null,
+            school_address:       newRegAddress || prospect.address || reg.city || null,
             pincode:              reg.pincode ?? prospect.pincode,
             prospect_school_id:   prospect.id,
             current_project_id:   activeProject.id,
@@ -296,6 +300,8 @@ export function RegistrationApproval() {
             principal_name:       reg.principal_name ?? null,
             principal_mobile:     reg.principal_mobile ?? null,
             coord_mobile:         reg.coord_mobile   ?? null,
+            corr_name:            reg.corr_name      ?? null,
+            corr_mobile:          reg.corr_mobile    ?? null,
             portal_registered:    true,
           })
           .select("id, ss_no")
@@ -315,8 +321,12 @@ export function RegistrationApproval() {
         .update({ stage: "registered", linked_to_crm: true })
         .eq("id", prospect.id);
 
-      // Sync portal contact details to CRM school
+      // Sync portal-submitted details to CRM school — the school's own portal
+      // submission is treated as authoritative over old prospect-import data.
+      const regAddress = [reg.address1, reg.address2].filter(Boolean).join(", ");
       await supabase.from("schools").update({
+        ...(reg.school_name      && { school_name: reg.school_name }),
+        ...(regAddress           && { school_address: regAddress }),
         ...(reg.email            && { email: reg.email }),
         ...(reg.phone            && { mobile1: reg.phone }),
         ...(reg.contact_name     && { contact_person_name: reg.contact_name }),
@@ -325,6 +335,8 @@ export function RegistrationApproval() {
         ...(reg.principal_name   && { principal_name: reg.principal_name }),
         ...(reg.principal_mobile && { principal_mobile: reg.principal_mobile }),
         ...(reg.coord_mobile     && { coord_mobile: reg.coord_mobile }),
+        ...(reg.corr_name        && { corr_name: reg.corr_name }),
+        ...(reg.corr_mobile      && { corr_mobile: reg.corr_mobile }),
         portal_registered: true,
       }).eq("id", crmSchoolId);
 
@@ -382,6 +394,7 @@ export function RegistrationApproval() {
       if (prospectErr) throw prospectErr;
 
       // Create CRM school
+      const newRegAddress = [reg.address1, reg.address2].filter(Boolean).join(", ");
       const { data: newSchool, error: schoolErr } = await supabase
         .from("schools")
         .insert({
@@ -393,11 +406,13 @@ export function RegistrationApproval() {
           pincode:              fields.pincode.trim() || null,
           mobile1:              reg.phone,
           email:                reg.email,
-          school_address:       reg.city ?? null,
+          school_address:       newRegAddress || reg.city || null,
           contact_person_name:  reg.contact_name   ?? null,
           principal_name:       reg.principal_name ?? null,
           principal_mobile:     reg.principal_mobile ?? null,
           coord_mobile:         reg.coord_mobile   ?? null,
+          corr_name:            reg.corr_name      ?? null,
+          corr_mobile:          reg.corr_mobile    ?? null,
           prospect_school_id:   newProspect.id,
           current_project_id:   activeProject.id,
           portal_registered:    true,
