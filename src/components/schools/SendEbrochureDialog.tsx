@@ -10,7 +10,9 @@ import { Send, Loader2 } from 'lucide-react';
 
 export interface EbrochureContact { name: string; mobile: string; role?: string }
 
-export type SendDocType = 'ebrochure' | 'consent_form';
+export type SendDocType = 'ebrochure' | 'consent_form' | 'sample_questions';
+
+const CLASS_OPTIONS = ['LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8'];
 
 type Target =
   | {
@@ -26,6 +28,7 @@ type Target =
 const DOC_LABELS: Record<SendDocType, string> = {
   ebrochure: 'E-Brochure',
   consent_form: 'Parents Consent Form',
+  sample_questions: 'Sample Questions',
 };
 
 interface Props {
@@ -49,6 +52,7 @@ export function SendEbrochureDialog({ open, onOpenChange, target, onSaveManualCo
   const { toast } = useToast();
   const [docType, setDocType] = useState<SendDocType>('ebrochure');
   const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [selectedClasses, setSelectedClasses] = useState<Set<string>>(new Set(CLASS_OPTIONS));
   const [manualPhone, setManualPhone] = useState('');
   const [manualContactName, setManualContactName] = useState('');
   const [manualContactRole, setManualContactRole] = useState('');
@@ -64,6 +68,7 @@ export function SendEbrochureDialog({ open, onOpenChange, target, onSaveManualCo
     if (target.kind === 'prospect' && target.mobile) initial.add('mobile');
     if (target.email) initial.add('email');
     setChecked(initial);
+    setSelectedClasses(new Set(CLASS_OPTIONS));
   }, [open, target]);
 
   const toggle = (key: string) => {
@@ -74,9 +79,17 @@ export function SendEbrochureDialog({ open, onOpenChange, target, onSaveManualCo
     });
   };
 
+  const toggleClass = (cls: string) => {
+    setSelectedClasses(prev => {
+      const next = new Set(prev);
+      next.has(cls) ? next.delete(cls) : next.add(cls);
+      return next;
+    });
+  };
+
   const reset = () => {
     setManualPhone(''); setManualContactName(''); setManualContactRole(''); setSaveContact(false);
-    setManualEmail(''); setDocType('ebrochure');
+    setManualEmail(''); setDocType('ebrochure'); setSelectedClasses(new Set(CLASS_OPTIONS));
   };
 
   const handleSend = async () => {
@@ -135,6 +148,11 @@ export function SendEbrochureDialog({ open, onOpenChange, target, onSaveManualCo
       return;
     }
 
+    if (docType === 'sample_questions' && selectedClasses.size === 0) {
+      toast({ title: 'Error', description: 'Select at least one class', variant: 'destructive' });
+      return;
+    }
+
     setSending(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -143,6 +161,7 @@ export function SendEbrochureDialog({ open, onOpenChange, target, onSaveManualCo
       let sentCount = 0;
       const failed: string[] = [];
       let firstError = '';
+      const warnings: string[] = [];
 
       for (const job of unique) {
         const label = job.channel === 'whatsapp' ? job.phone : job.email;
@@ -161,6 +180,7 @@ export function SendEbrochureDialog({ open, onOpenChange, target, onSaveManualCo
               contactName: job.channel === 'whatsapp' ? job.contactName : undefined,
               contactRole: job.channel === 'whatsapp' ? job.contactRole : undefined,
               docType,
+              classes: docType === 'sample_questions' ? Array.from(selectedClasses) : undefined,
             },
           });
           if (res.error) {
@@ -169,6 +189,7 @@ export function SendEbrochureDialog({ open, onOpenChange, target, onSaveManualCo
           }
           if (!res.data?.success) throw new Error(res.data?.error || 'Send failed');
           sentCount++;
+          if (res.data?.warning) warnings.push(res.data.warning);
         } catch (err: any) {
           failed.push(label);
           if (!firstError) firstError = err.message;
@@ -178,7 +199,8 @@ export function SendEbrochureDialog({ open, onOpenChange, target, onSaveManualCo
       if (failed.length === 0) {
         const first = unique[0];
         const firstLabel = first.channel === 'whatsapp' ? first.phone : first.email;
-        toast({ title: `${DOC_LABELS[docType]} sent!`, description: sentCount === 1 ? `Sent to ${firstLabel}` : `Sent to ${sentCount} recipients` });
+        const base = sentCount === 1 ? `Sent to ${firstLabel}` : `Sent to ${sentCount} recipients`;
+        toast({ title: `${DOC_LABELS[docType]} sent!`, description: warnings.length ? `${base} — ${warnings.join('; ')}` : base });
       } else {
         toast({
           title: sentCount > 0 ? 'Partially sent' : 'Send failed',
@@ -220,18 +242,46 @@ export function SendEbrochureDialog({ open, onOpenChange, target, onSaveManualCo
           {target.kind === 'school' && (
             <div>
               <Label className="text-sm font-medium mb-2 block">Document</Label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 {(Object.keys(DOC_LABELS) as SendDocType[]).map(dt => (
                   <button
                     key={dt}
                     type="button"
                     onClick={() => setDocType(dt)}
-                    className={`px-3 py-2 rounded-md text-sm font-medium border transition-colors ${
+                    className={`px-2 py-2 rounded-md text-xs font-medium border transition-colors ${
                       docType === dt ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-200 hover:border-indigo-400'
                     }`}
                   >
                     {DOC_LABELS[dt]}
                   </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {docType === 'sample_questions' && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <Label className="text-sm font-medium">Classes</Label>
+                <button
+                  type="button"
+                  className="text-xs font-medium text-indigo-600 hover:underline"
+                  onClick={() => setSelectedClasses(prev => prev.size === CLASS_OPTIONS.length ? new Set() : new Set(CLASS_OPTIONS))}
+                >
+                  {selectedClasses.size === CLASS_OPTIONS.length ? 'Clear all' : 'Select all'}
+                </button>
+              </div>
+              <div className="grid grid-cols-5 gap-2">
+                {CLASS_OPTIONS.map(cls => (
+                  <label
+                    key={cls}
+                    className={`flex items-center justify-center gap-1 border rounded-md px-2 py-1.5 text-xs font-medium cursor-pointer transition-colors ${
+                      selectedClasses.has(cls) ? 'bg-indigo-50 border-indigo-400 text-indigo-700' : 'bg-white border-gray-200 text-gray-600'
+                    }`}
+                  >
+                    <Checkbox checked={selectedClasses.has(cls)} onCheckedChange={() => toggleClass(cls)} className="h-3.5 w-3.5" />
+                    {cls}
+                  </label>
                 ))}
               </div>
             </div>

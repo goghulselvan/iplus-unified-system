@@ -121,7 +121,70 @@ const CONSENT_FORM_EMAIL_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
-type DocType = "ebrochure" | "consent_form";
+// Same brand system, for the Sample Questions batch send. {school_name}, {class_list},
+// {project_year} substituted before sending. No single CTA button — the files themselves
+// arrive as attachments, one per selected class.
+const SAMPLE_QUESTIONS_EMAIL_HTML = `<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background-color:#f4f4f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#f4f4f7;">
+  <tr><td align="center" style="padding:20px 10px;">
+    <table width="600" cellpadding="0" cellspacing="0" role="presentation" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+
+      <!-- Header -->
+      <tr><td style="background:linear-gradient(135deg,#7C3AED 0%,#4F46E5 100%);padding:40px 32px 36px;text-align:center;">
+        <div style="font-size:11px;font-weight:600;letter-spacing:3px;color:rgba(255,255,255,0.7);text-transform:uppercase;margin-bottom:16px;">iPlus Olympiads {project_year}</div>
+        <div style="font-size:30px;font-weight:700;color:#ffffff;line-height:1.25;margin-bottom:12px;">Sample Questions</div>
+        <div style="font-size:13px;color:rgba(255,255,255,0.8);font-style:italic;">Ignite Genius. Inspire Excellence.</div>
+      </td></tr>
+
+      <!-- Status banner -->
+      <tr><td style="background:#f5f3ff;border-bottom:1px solid #ede9fe;padding:12px 32px;text-align:center;">
+        <span style="font-size:11px;font-weight:700;letter-spacing:2px;color:#4F46E5;text-transform:uppercase;">&#10003;&nbsp;&nbsp;SAMPLE QUESTIONS</span>
+      </td></tr>
+
+      <!-- Body -->
+      <tr><td style="padding:32px 32px 24px;">
+        <p style="margin:0 0 16px;font-size:16px;font-weight:700;color:#1a1a2e;">Dear {school_name} Team,</p>
+        <p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#374151;">Please find attached the iPlus Olympiads {project_year} Syllabus and Sample Question papers for the following class(es): <strong>{class_list}</strong>.</p>
+      </td></tr>
+
+      <!-- Footer -->
+      <tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:24px 32px;text-align:center;">
+        <div style="font-size:14px;font-weight:600;color:#4F46E5;margin-bottom:6px;">iPlus Olympiads</div>
+        <div style="font-size:12px;color:#6b7280;line-height:1.8;">
+          Ivar Pro Learn for Universal Success Pvt. Ltd.<br/>
+          115, GST Road, Guduvancheri, Chennai 603 202<br/>
+          <a href="mailto:support@iplusedu.in" style="color:#4F46E5;text-decoration:none;">support@iplusedu.in</a>&nbsp;|&nbsp;<a href="tel:+918111066556" style="color:#4F46E5;text-decoration:none;">+91 81110 66556</a>
+        </div>
+        <div style="font-size:11px;color:#9ca3af;margin-top:10px;">&copy; 2026 iPlus Olympiads. All rights reserved.</div>
+      </td></tr>
+
+    </table>
+  </td></tr>
+</table>
+</body>
+</html>`;
+
+// classKey (as picked in the CRM UI: LKG, UKG, "1".."8") -> actual filename in the
+// `downloads` storage bucket. The WA template body param is the raw classKey itself
+// (e.g. "Class {{1}} Syllabus and Model Questions." renders "Class LKG ..." /
+// "Class 3 ...") — that substitution shape was specified directly by the user.
+const CLASS_FILE_MAP: Record<string, string> = {
+  LKG: "LKG Sample Questions.pdf",
+  UKG: "UKG Sample Questions.pdf",
+  "1": "Class 1 Sample Questions.pdf",
+  "2": "Class 2 Sample Questions.pdf",
+  "3": "Class 3 Sample Questions.pdf",
+  "4": "Class 4 Sample Questions.pdf",
+  "5": "Class 5 Sample Questions.pdf",
+  "6": "Class 6 Sample Questions.pdf",
+  "7": "Class 7 Sample Questions.pdf",
+  "8": "Class 8 Sample Questions.pdf",
+};
+
+type DocType = "ebrochure" | "consent_form" | "sample_questions";
 
 const DOC_CONFIG: Record<DocType, {
   urlColumn: "brochure_url" | "consent_form_url";
@@ -168,8 +231,9 @@ serve(async (req) => {
     const ASKEVA_API_TOKEN = Deno.env.get("ASKEVA_API_TOKEN");
     if (!ASKEVA_API_TOKEN) throw new Error("ASKEVA_API_TOKEN not configured");
 
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const supabaseAdmin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
+      SUPABASE_URL,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
@@ -196,7 +260,7 @@ serve(async (req) => {
       });
     }
 
-    const { schoolId, prospectSchoolId, phone, email, schoolName, district, state, saveContact, contactName, contactRole, docType } = await req.json() as {
+    const { schoolId, prospectSchoolId, phone, email, schoolName, district, state, saveContact, contactName, contactRole, docType, classes } = await req.json() as {
       schoolId?: string;
       prospectSchoolId?: string;
       phone?: string;
@@ -208,11 +272,149 @@ serve(async (req) => {
       contactName?: string;
       contactRole?: string;
       docType?: DocType;
+      classes?: string[];
     };
 
     if ((!schoolId && !prospectSchoolId) || (!phone && !email) || !schoolName) {
       return new Response(JSON.stringify({ success: false, error: "schoolId or prospectSchoolId, schoolName, and phone or email are required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (docType === "sample_questions") {
+      const classList = (Array.isArray(classes) ? classes : []).filter(c => CLASS_FILE_MAP[c]);
+      if (classList.length === 0) {
+        return new Response(JSON.stringify({ success: false, error: "Select at least one class" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data: sqProject } = await supabaseAdmin
+        .from("olympiad_projects")
+        .select("id, project_year")
+        .eq("is_active", true)
+        .maybeSingle();
+
+      let sqEffectiveSchoolId = schoolId ?? null;
+      if (!sqEffectiveSchoolId && prospectSchoolId) {
+        const { data: linked } = await supabaseAdmin
+          .from("schools").select("id").eq("prospect_school_id", prospectSchoolId).maybeSingle();
+        sqEffectiveSchoolId = linked?.id ?? null;
+      }
+
+      let warning: string | undefined;
+
+      if (phone) {
+        const mobile = normalizeMobile(phone);
+        if (!mobile) {
+          return new Response(JSON.stringify({ success: false, error: "Invalid phone number" }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const TEMPLATE_NAME = Deno.env.get("SAMPLE_QUESTIONS_TEMPLATE_NAME") ?? "iplus_sample_questions_2026";
+        const sent: string[] = [];
+        const failedClasses: string[] = [];
+
+        for (let i = 0; i < classList.length; i++) {
+          const cls = classList[i];
+          const filename = CLASS_FILE_MAP[cls];
+          const fileUrl = `${SUPABASE_URL}/storage/v1/object/public/downloads/${encodeURIComponent(filename)}`;
+
+          const payload = {
+            messaging_product: "whatsapp",
+            to: mobile,
+            type: "template",
+            template: {
+              name: TEMPLATE_NAME,
+              language: { code: "en" },
+              components: [
+                { type: "header", parameters: [{ type: "document", document: { link: fileUrl, filename } }] },
+                { type: "body", parameters: [{ type: "text", text: cls }] },
+              ],
+            },
+          };
+
+          const res = await fetch(`${ASKEVA_URL}?token=${encodeURIComponent(ASKEVA_API_TOKEN)}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (res.ok) sent.push(cls);
+          else {
+            failedClasses.push(cls);
+            console.error(`Sample Questions WA send failed for class ${cls}:`, JSON.stringify(body));
+          }
+
+          if (i < classList.length - 1) await new Promise(r => setTimeout(r, 800));
+        }
+
+        if (sent.length === 0) {
+          return new Response(JSON.stringify({ success: false, error: `WhatsApp send failed for all classes (${failedClasses.join(", ")})` }), {
+            status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        if (failedClasses.length > 0) warning = `${failedClasses.length} class(es) failed: ${failedClasses.join(", ")}`;
+
+        if (sqEffectiveSchoolId) {
+          await supabaseAdmin.from("communications").insert({
+            school_id: sqEffectiveSchoolId,
+            communication_type: "WhatsApp",
+            message: `Sample Questions (${sent.join(", ")}) sent to ${phone}${contactName ? ` (${contactName})` : ""}`,
+            contacted_person_name: contactName ?? null,
+            contacted_mobile_no: phone,
+            user_id: userId,
+            project_id: sqProject?.id ?? null,
+          }).then(({ error }) => { if (error) console.error("Failed to log communication:", error); });
+        }
+      }
+
+      if (email) {
+        if (!email.includes("@")) {
+          return new Response(JSON.stringify({ success: false, error: "Invalid email address" }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const attachments = classList.map(cls => ({
+          filename: CLASS_FILE_MAP[cls],
+          path: `${SUPABASE_URL}/storage/v1/object/public/downloads/${encodeURIComponent(CLASS_FILE_MAP[cls])}`,
+        }));
+        const html = SAMPLE_QUESTIONS_EMAIL_HTML
+          .replaceAll("{school_name}", schoolName)
+          .replaceAll("{class_list}", classList.join(", "))
+          .replaceAll("{project_year}", String(sqProject?.project_year ?? ""));
+
+        try {
+          await resend.emails.send({
+            from: "iPlus Olympiads <noreply@iplusedu.in>",
+            replyTo: "contact@iplusedu.in",
+            to: [email],
+            subject: `iPlus Olympiads ${sqProject?.project_year ?? ""} — Sample Questions for ${schoolName}`,
+            html,
+            attachments,
+          });
+        } catch (err: any) {
+          return new Response(JSON.stringify({ success: false, error: err.message ?? "Email send failed" }), {
+            status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        if (sqEffectiveSchoolId) {
+          await supabaseAdmin.from("communications").insert({
+            school_id: sqEffectiveSchoolId,
+            communication_type: "Email",
+            message: `Sample Questions (${classList.join(", ")}) emailed to ${email}`,
+            user_id: userId,
+            project_id: sqProject?.id ?? null,
+            email_status: "sent",
+          }).then(({ error }) => { if (error) console.error("Failed to log communication:", error); });
+        }
+      }
+
+      return new Response(JSON.stringify({ success: true, message: "Sample Questions sent successfully", warning }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
