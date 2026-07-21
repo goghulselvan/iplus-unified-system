@@ -103,10 +103,6 @@ export const DashboardMetrics: React.FC = () => {
   useEffect(() => {
     if (activeProject?.id) {
       fetchOverallMetrics();
-      const today = new Date().toISOString().split('T')[0];
-      setSelectedDate(today);
-      setShowDateView(true);
-      fetchDateMetrics(today);
     }
   }, [activeProject?.id]);
 
