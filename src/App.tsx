@@ -34,6 +34,7 @@ import MarketingMessages from "./pages/MarketingMessages";
 import TemplateManagement from "./pages/TemplateManagement";
 import VoiceTemplates from "./pages/VoiceTemplates";
 import CallCenter from "./pages/CallCenter";
+import MessageCentre from "./pages/MessageCentre";
 import DataManagement from "./pages/DataManagement";
 import ModuleSelect from "./pages/ModuleSelect";
 import ProspectDashboard from "./pages/ProspectDashboard";
@@ -332,6 +333,10 @@ const AppContent = () => {
            element={<ProtectedRoute><CallCenter /></ProtectedRoute>}
          />
          <Route path="/incoming-calls" element={<Navigate to="/calls" replace />} />
+         <Route
+           path="/messages"
+           element={<ProtectedRoute><MessageCentre /></ProtectedRoute>}
+         />
          <Route
            path="/data-management"
            element={<ProtectedRoute adminOnly><DataManagement /></ProtectedRoute>}
