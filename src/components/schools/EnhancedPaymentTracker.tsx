@@ -148,11 +148,17 @@ export const EnhancedPaymentTracker: React.FC<EnhancedPaymentTrackerProps> = ({ 
         schoolName: school.school_name,
         paymentDate: new Date(transaction.payment_date),
         amount: transaction.payment_amount,
+        paymentMode: transaction.payment_mode,
+        transactionReference: transaction.transaction_reference,
+        isPartial: dbStatus === 'Partial',
+        totalReceived: school.payment_received || 0,
+        balanceDue: school.outstanding_balance || 0,
       });
       const url = URL.createObjectURL(pdfBlob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Receipt_${transaction.receipt_fy ?? 26}-${transaction.receipt_number}-${school.ss_no}_${school.school_name.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+      const fy = transaction.receipt_fy ?? 26;
+      a.download = `Receipt_${transaction.receipt_number}_${fy}-${fy + 1}_${school.ss_no}_${school.school_name.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
       toast.success('Receipt downloaded');
