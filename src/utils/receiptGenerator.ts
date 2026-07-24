@@ -4,10 +4,7 @@ import { numberToWords } from './numberToWords';
 import iplusLogoUrl from '@/assets/iplus-logo.png';
 import receiptWatermarkUrl from '@/assets/receipt-watermark.png';
 
-// TODO(Goghul): replace with the real company GSTIN before any receipt using
-// this design goes to a real school — deliberately not a plausible-looking
-// fake number so it can't be mistaken for real if it slips through.
-const COMPANY_GSTIN = 'GSTIN PENDING — CONTACT ADMIN';
+const COMPANY_GSTIN = '33AAFCI1730F1Z3';
 
 interface ReceiptData {
   receiptNumber: number;

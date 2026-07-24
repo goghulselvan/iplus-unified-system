@@ -18,10 +18,7 @@ const json = (body: unknown, status = 200) =>
     headers: { "Content-Type": "application/json", ...CORS_HEADERS },
   });
 
-// TODO(Goghul): replace with the real company GSTIN before any receipt using
-// this design goes to a real school — deliberately not a plausible-looking
-// fake number so it can't be mistaken for real if it slips through.
-const COMPANY_GSTIN = "GSTIN PENDING — CONTACT ADMIN";
+const COMPANY_GSTIN = "33AAFCI1730F1Z3";
 
 // ── Amount in words (ported from src/utils/numberToWords.ts) ──────────────────
 const ones = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"];
