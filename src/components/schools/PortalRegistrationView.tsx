@@ -53,6 +53,12 @@ interface BulkUploadProps {
 
 function BulkUpload({ schoolId, subjects, onSuccess }: BulkUploadProps) {
   const validCodes = new Set(subjects.map(s => s.alphabetical_code).filter(Boolean) as string[]);
+  // KidsPO is the one mixed-case code (everything else is naturally all-caps) — a
+  // case-insensitive lookup so "KIDSPO"/"kidspo"/"KidsPO" in a CSV all resolve to
+  // the DB's canonical casing, instead of only ever matching exact-case input.
+  const codeByUpper = new Map(
+    subjects.map(s => [s.alphabetical_code?.toUpperCase(), s.alphabetical_code] as const).filter(([k]) => !!k)
+  ) as Map<string, string>;
   const { data: activeProject } = useActiveProject();
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -106,9 +112,9 @@ function BulkUpload({ schoolId, subjects, onSuccess }: BulkUploadProps) {
         // Validate all codes exist in subjects table
         const rawCodes = rawOlympiads.trim().toUpperCase().split(/[\s,;]+/).filter(Boolean);
         if (rawCodes.length === 0) { rowErrors.push(`Row ${rowNum}: no olympiad codes found`); return; }
-        const invalidCodes = rawCodes.filter(c => !validCodes.has(c));
+        const invalidCodes = rawCodes.filter(c => !codeByUpper.has(c));
         if (invalidCodes.length > 0) { rowErrors.push(`Row ${rowNum}: unknown subject code(s): ${invalidCodes.join(', ')} — use ${[...validCodes].join(', ')}`); return; }
-        const olympiads = rawCodes as OlympiadCode[];
+        const olympiads = rawCodes.map(c => codeByUpper.get(c)!) as OlympiadCode[];
 
         // Validate codes are valid for the student's class (using applicable_classes from DB)
         const allowedForClass = subjectsForClass(subjects, classCode).map(s => s.alphabetical_code!);
