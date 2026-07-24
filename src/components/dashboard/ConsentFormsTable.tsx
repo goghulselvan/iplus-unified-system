@@ -9,6 +9,7 @@ import { useActiveProject } from '@/hooks/useOlympiadProjects';
 
 interface ConsentFormData {
   school_id: string;
+  ss_no: number | null;
   school_name: string;
   district: string;
   board: string;
@@ -58,7 +59,7 @@ export const ConsentFormsTable: React.FC = () => {
 
       const { data: schoolsData, error: schoolsError } = await supabase
         .from('schools')
-        .select('id, school_name, district, board')
+        .select('id, ss_no, school_name, district, board')
         .in('id', schoolIds);
 
       if (schoolsError) {
@@ -75,6 +76,7 @@ export const ConsentFormsTable: React.FC = () => {
           if (!school) return null;
           return {
             school_id: school.id,
+            ss_no: school.ss_no,
             school_name: school.school_name,
             district: school.district,
             board: school.board,
@@ -191,18 +193,22 @@ export const ConsentFormsTable: React.FC = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="font-semibold">S.No</TableHead>
+                    <TableHead className="font-semibold">SS No</TableHead>
                     <TableHead className="font-semibold">School</TableHead>
                     <TableHead className="font-semibold">District</TableHead>
                     <TableHead className="text-center font-semibold">Forms Sent</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {consentData.map((school) => (
+                  {consentData.map((school, index) => (
                     <TableRow
                       key={school.school_id}
                       className="cursor-pointer hover:bg-muted/50"
                       onClick={() => handleSchoolClick(school.school_id)}
                     >
+                      <TableCell>{index + 1}</TableCell>
+                      <TableCell>{school.ss_no ?? '—'}</TableCell>
                       <TableCell className="font-medium">{school.school_name}</TableCell>
                       <TableCell>{school.district}</TableCell>
                       <TableCell className="text-center font-semibold">
@@ -213,7 +219,7 @@ export const ConsentFormsTable: React.FC = () => {
 
                   {/* Totals Row */}
                   <TableRow className="bg-muted/30 font-semibold">
-                    <TableCell colSpan={2} className="text-right font-bold">TOTAL:</TableCell>
+                    <TableCell colSpan={4} className="text-right font-bold">TOTAL:</TableCell>
                     <TableCell className="text-center font-bold">
                       <Badge className="bg-primary text-primary-foreground">{getGrandTotal()}</Badge>
                     </TableCell>
