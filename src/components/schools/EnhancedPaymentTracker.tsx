@@ -60,6 +60,19 @@ export const EnhancedPaymentTracker: React.FC<EnhancedPaymentTrackerProps> = ({ 
 
   const projectId = school.current_project_id;
 
+  const { data: activeProject } = useQuery({
+    queryKey: ['project-name-year', projectId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('olympiad_projects')
+        .select('project_name, project_year')
+        .eq('id', projectId!)
+        .maybeSingle();
+      return data;
+    },
+    enabled: !!projectId,
+  });
+
   const { data: enrollmentCount = 0 } = useQuery({
     queryKey: ['portal-enrollment-count', school.id, projectId],
     queryFn: async () => {
@@ -129,6 +142,26 @@ export const EnhancedPaymentTracker: React.FC<EnhancedPaymentTrackerProps> = ({ 
   const paymentTemplateKey: 'payment_received' | 'payment_partial' =
     dbStatus === 'Partial' ? 'payment_partial' : 'payment_received';
 
+  // Real WA-send capability lives in whatsapp_templates (what sendPaymentReceiptComms
+  // actually checks), not in the older communication_templates registry — checking
+  // the right table here so the confirm dialog stops claiming "no active WhatsApp
+  // template" when payment_receipt/payment_receipt_partial are in fact Meta-approved.
+  const waDocumentTemplateKey = paymentTemplateKey === 'payment_partial' ? 'payment_receipt_partial' : 'payment_receipt';
+  const { data: waTemplateActive = false } = useQuery({
+    queryKey: ['wa-template-active', waDocumentTemplateKey, projectId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('whatsapp_templates')
+        .select('id')
+        .eq('template_key', waDocumentTemplateKey)
+        .eq('project_id', projectId!)
+        .eq('is_active', true)
+        .maybeSingle();
+      return !!data;
+    },
+    enabled: !!projectId,
+  });
+
   const handlePaymentAdded = async () => {
     await supabase.rpc('recalculate_school_payment_totals', { p_school_id: school.id });
     qc.invalidateQueries({ queryKey: ['payment-transactions', school.id] });
@@ -194,6 +227,8 @@ export const EnhancedPaymentTracker: React.FC<EnhancedPaymentTrackerProps> = ({ 
       '{payment_amount}': transaction.payment_amount.toString(),
       '{payment_date}': transaction.payment_date,
       '{student_count}': enrollmentCount.toString(),
+      '{project_name}': activeProject?.project_name ?? 'iPlus Olympiads',
+      '{project_year}': activeProject?.project_year?.toString() ?? '',
     };
     let subject = template.subject;
     let body = template.email_body;
@@ -503,6 +538,7 @@ export const EnhancedPaymentTracker: React.FC<EnhancedPaymentTrackerProps> = ({ 
           templateType={paymentTemplateKey}
           templateName={paymentTemplateKey === 'payment_partial' ? 'Payment Partial' : 'Payment Confirmation'}
           emailPreview={emailPreview}
+          willAlsoSendWhatsApp={waTemplateActive}
           onConfirm={handleConfirmSendEmail}
         />
       )}
