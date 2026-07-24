@@ -1226,7 +1226,10 @@ const SchoolDetail = () => {
           </TabsContent>
 
           <TabsContent value="consent">
-            <ConsentFormManager schoolId={school.id} />
+            <ConsentFormManager
+              schoolId={school.id}
+              isRequestedYes={school.consent_form_requested === 'Yes'}
+            />
           </TabsContent>
 
           <TabsContent value="portal-reg">

@@ -11,9 +11,10 @@ import { useActiveProject } from '@/hooks/useOlympiadProjects';
 
 interface ConsentFormManagerProps {
   schoolId: string;
+  isRequestedYes: boolean;
 }
 
-const ConsentFormManager = ({ schoolId }: ConsentFormManagerProps) => {
+const ConsentFormManager = ({ schoolId, isRequestedYes }: ConsentFormManagerProps) => {
   const { data: activeProject } = useActiveProject();
   const projectId = activeProject?.id;
   const [consentForm, setConsentForm] = useState<ConsentForm | null>(null);
@@ -116,22 +117,36 @@ const ConsentFormManager = ({ schoolId }: ConsentFormManagerProps) => {
         <p className="text-sm text-muted-foreground">
           One consent form applies to all classes — just record how many were sent to this school.
         </p>
-        <div className="flex items-end gap-4 p-4 border rounded-lg bg-muted/30">
-          <div className="flex-1 max-w-[200px]">
-            <Label>Consent Forms Sent</Label>
-            <Input
-              type="number"
-              min="0"
-              value={formsCount}
-              onChange={(e) => setFormsCount(parseInt(e.target.value) || 0)}
-              placeholder="Enter count"
-            />
+        {isRequestedYes ? (
+          <div className="flex items-end gap-4 p-4 border rounded-lg bg-muted/30">
+            <div className="flex-1 max-w-[200px]">
+              <Label>Consent Forms Sent</Label>
+              <Input
+                type="number"
+                min="0"
+                value={formsCount}
+                onChange={(e) => setFormsCount(parseInt(e.target.value) || 0)}
+                placeholder="Enter count"
+              />
+            </div>
+            <Button onClick={saveConsentForm} disabled={saving}>
+              <Save className="h-4 w-4 mr-2" />
+              {saving ? 'Saving...' : consentForm ? 'Update' : 'Save'}
+            </Button>
           </div>
-          <Button onClick={saveConsentForm} disabled={saving}>
-            <Save className="h-4 w-4 mr-2" />
-            {saving ? 'Saving...' : consentForm ? 'Update' : 'Save'}
-          </Button>
-        </div>
+        ) : consentForm ? (
+          <div className="p-4 border rounded-lg bg-muted/30">
+            <Label>Consent Forms Sent</Label>
+            <p className="text-2xl font-semibold">{consentForm.forms_requested}</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              Set "Consent Form Requested" to Yes on School Status to update this count.
+            </p>
+          </div>
+        ) : (
+          <p className="text-muted-foreground">
+            Consent forms will be available to enter when "Consent Form Requested" is set to "Yes".
+          </p>
+        )}
       </CardContent>
     </Card>
   );
