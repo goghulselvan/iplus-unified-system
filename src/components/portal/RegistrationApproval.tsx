@@ -1,12 +1,48 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, XCircle, Search, ChevronDown, ChevronUp, PlusCircle } from "lucide-react";
+import { CheckCircle2, XCircle, Search, ChevronDown, ChevronUp, PlusCircle, Eye, AlertTriangle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveProject } from "@/hooks/useOlympiadProjects";
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 const REGISTRATION_STATES = ['Tamil Nadu', 'Puducherry', 'Karnataka', 'Kerala', 'Andhra Pradesh', 'Telangana'];
+
+function last10Digits(v: string | null | undefined): string | null {
+  if (!v) return null;
+  const digits = v.replace(/\D/g, "");
+  return digits.length >= 10 ? digits.slice(-10) : null;
+}
+
+interface CandidateMatch {
+  id: string; school_name: string; ss_no: number; district: string; state: string;
+  board: string | null; mobile: string | null; email: string | null; address: string | null;
+  pincode: string | null; stage: string; linked_to_crm: boolean; matchedOn: string;
+}
+
+// Finds likely-existing prospect_schools matches for a portal registration by
+// SS No, phone, or email — so staff aren't relying on a blank manual search
+// and don't accidentally create a duplicate school for someone already in CRM.
+async function findCandidateMatches(reg: PortalRegistration): Promise<CandidateMatch[]> {
+  const found = new Map<string, CandidateMatch>();
+  const cols = "id, school_name, ss_no, district, state, board, mobile, email, address, pincode, stage, linked_to_crm";
+
+  if (reg.ss_no) {
+    const { data } = await supabase.from("prospect_schools").select(cols).eq("ss_no", reg.ss_no).eq("is_active", true);
+    (data || []).forEach((s: any) => found.set(s.id, { ...s, matchedOn: "SS No" }));
+  }
+  if (reg.email) {
+    const { data } = await supabase.from("prospect_schools").select(cols).ilike("email", reg.email).eq("is_active", true);
+    (data || []).forEach((s: any) => { if (!found.has(s.id)) found.set(s.id, { ...s, matchedOn: "Email" }); });
+  }
+  const phoneDigits = last10Digits(reg.phone);
+  if (phoneDigits) {
+    const { data } = await supabase.from("prospect_schools").select(cols).ilike("mobile", `%${phoneDigits}%`).eq("is_active", true).limit(5);
+    (data || []).forEach((s: any) => { if (!found.has(s.id)) found.set(s.id, { ...s, matchedOn: "Phone" }); });
+  }
+  return Array.from(found.values());
+}
 
 // Canonical district list for a state, sourced from the same district_codes /
 // state_codes tables the rest of the CRM uses — never free-typed.
@@ -47,6 +83,20 @@ interface PortalRegistration {
   principal_name: string | null;
   principal_mobile: string | null;
   coord_mobile: string | null;
+  teacher_epo: string | null;
+  teacher_epo_mob: string | null;
+  teacher_mpo: string | null;
+  teacher_mpo_mob: string | null;
+  teacher_spo: string | null;
+  teacher_spo_mob: string | null;
+  teacher_gksspo: string | null;
+  teacher_gksspo_mob: string | null;
+  teacher_lrpo: string | null;
+  teacher_lrpo_mob: string | null;
+  teacher_kidspo: string | null;
+  teacher_kidspo_mob: string | null;
+  welcome_email_sent_at: string | null;
+  welcome_whatsapp_sent_at: string | null;
   status: "pending" | "approved" | "rejected";
   matched_school_id: string | null;
   approved_at: string | null;
@@ -280,6 +330,70 @@ function NewSchoolForm({
   );
 }
 
+/* ── Full registration details dialog ───────────────────────────────────────── */
+
+function DetailRow({ label, value }: { label: string; value: string | null | undefined }) {
+  return (
+    <div className="flex justify-between gap-4 py-1.5 border-b border-gray-100 last:border-0">
+      <span className="text-xs text-gray-500">{label}</span>
+      <span className="text-sm text-gray-800 text-right">{value?.trim() ? value : "—"}</span>
+    </div>
+  );
+}
+
+function RegistrationDetailsDialog({ reg, open, onOpenChange }: { reg: PortalRegistration | null; open: boolean; onOpenChange: (o: boolean) => void }) {
+  if (!reg) return null;
+  const fullAddress = [reg.address1, reg.address2].filter(Boolean).join(", ") || reg.city;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{reg.school_name}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div>
+            <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">School</p>
+            <DetailRow label="SS No" value={reg.ss_no ? String(reg.ss_no) : null} />
+            <DetailRow label="Board" value={reg.board} />
+            <DetailRow label="City" value={reg.city} />
+            <DetailRow label="Address" value={fullAddress} />
+            <DetailRow label="District" value={reg.district} />
+            <DetailRow label="State" value={reg.state} />
+            <DetailRow label="Pincode" value={reg.pincode} />
+            <DetailRow label="Login Email" value={reg.email} />
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">Contacts</p>
+            <DetailRow label="Contact Person" value={reg.contact_name} />
+            <DetailRow label="Phone" value={reg.phone} />
+            <DetailRow label="Principal" value={reg.principal_name} />
+            <DetailRow label="Principal Mobile" value={reg.principal_mobile} />
+            <DetailRow label="Correspondent" value={reg.corr_name} />
+            <DetailRow label="Correspondent Mobile" value={reg.corr_mobile} />
+            <DetailRow label="Coordinator Mobile" value={reg.coord_mobile} />
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">Olympiad Subject Coordinators</p>
+            <DetailRow label="English (EPO)" value={[reg.teacher_epo, reg.teacher_epo_mob].filter(Boolean).join(" · ")} />
+            <DetailRow label="Maths (MPO)" value={[reg.teacher_mpo, reg.teacher_mpo_mob].filter(Boolean).join(" · ")} />
+            <DetailRow label="Science (SPO)" value={[reg.teacher_spo, reg.teacher_spo_mob].filter(Boolean).join(" · ")} />
+            <DetailRow label="GK Sports (GKSSPO)" value={[reg.teacher_gksspo, reg.teacher_gksspo_mob].filter(Boolean).join(" · ")} />
+            <DetailRow label="Life Readiness (LRPO)" value={[reg.teacher_lrpo, reg.teacher_lrpo_mob].filter(Boolean).join(" · ")} />
+            <DetailRow label="KidsPO" value={[reg.teacher_kidspo, reg.teacher_kidspo_mob].filter(Boolean).join(" · ")} />
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">Registration</p>
+            <DetailRow label="Submitted" value={new Date(reg.created_at).toLocaleString("en-IN")} />
+            <DetailRow label="Status" value={reg.status} />
+            <DetailRow label="Welcome Email Sent" value={reg.welcome_email_sent_at ? new Date(reg.welcome_email_sent_at).toLocaleString("en-IN") : null} />
+            <DetailRow label="Welcome WhatsApp Sent" value={reg.welcome_whatsapp_sent_at ? new Date(reg.welcome_whatsapp_sent_at).toLocaleString("en-IN") : null} />
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /* ── Main component ─────────────────────────────────────────────────────────── */
 
 export function RegistrationApproval() {
@@ -292,6 +406,9 @@ export function RegistrationApproval() {
   const [showNewForm, setShowNewForm]   = useState<Record<string, boolean>>({});
   const [rejectionReason, setRejectionReason] = useState<Record<string, string>>({});
   const [statusFilter, setStatusFilter] = useState<"pending" | "approved" | "rejected" | "all">("pending");
+  const [viewDetailsReg, setViewDetailsReg] = useState<PortalRegistration | null>(null);
+  const [dismissedSuggestion, setDismissedSuggestion] = useState<Record<string, boolean>>({});
+  const [confirmNewFor, setConfirmNewFor] = useState<string | null>(null);
 
   const { data: registrations, isLoading, error: fetchError } = useQuery({
     queryKey: ["portal-registrations", statusFilter],
@@ -305,6 +422,17 @@ export function RegistrationApproval() {
       if (error) throw error;
       return data as PortalRegistration[];
     },
+  });
+
+  // Auto-suggested match for whichever registration is currently expanded —
+  // checked by SS No / phone / email so staff aren't stuck with a blank
+  // search box and don't accidentally create a duplicate for a school
+  // that's already in CRM.
+  const expandedReg = registrations?.find((r) => r.id === expandedId) ?? null;
+  const { data: candidateMatches } = useQuery({
+    queryKey: ["registration-candidates", expandedId],
+    queryFn: () => findCandidateMatches(expandedReg as PortalRegistration),
+    enabled: !!expandedReg && !selectedProspect[expandedId ?? ""],
   });
 
   /* ── Link to prospect school (cases 1 & 2) ─────────────────────────────── */
@@ -369,14 +497,25 @@ export function RegistrationApproval() {
         });
       }
 
-      // Update prospect stage to registered
-      await supabase.from("prospect_schools")
-        .update({ stage: "registered", linked_to_crm: true })
-        .eq("id", prospect.id);
+      // Update prospect stage to registered, AND sync portal-submitted details
+      // into prospect_schools too — this used to only update the CRM `schools`
+      // copy, leaving prospect_schools permanently stale after a school
+      // self-registered with fresher contact info.
+      const regAddress = [reg.address1, reg.address2].filter(Boolean).join(", ");
+      await supabase.from("prospect_schools").update({
+        stage: "registered",
+        linked_to_crm: true,
+        ...(reg.school_name    && { school_name: reg.school_name }),
+        ...(regAddress         && { address: regAddress }),
+        ...(reg.email          && { email: reg.email }),
+        ...(reg.phone          && { mobile: reg.phone }),
+        ...(reg.pincode        && { pincode: reg.pincode }),
+        ...(reg.board          && { board: reg.board }),
+        ...(reg.principal_name && { principal_name: reg.principal_name }),
+      }).eq("id", prospect.id);
 
       // Sync portal-submitted details to CRM school — the school's own portal
       // submission is treated as authoritative over old prospect-import data.
-      const regAddress = [reg.address1, reg.address2].filter(Boolean).join(", ");
       await supabase.from("schools").update({
         ...(reg.school_name      && { school_name: reg.school_name }),
         ...(regAddress           && { school_address: regAddress }),
@@ -570,9 +709,9 @@ export function RegistrationApproval() {
             return (
               <div key={reg.id} className="border border-gray-200 rounded-xl overflow-hidden">
                 {/* Header */}
-                <button
+                <div
                   onClick={() => setExpandedId(isExpanded ? null : reg.id)}
-                  className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors text-left"
+                  className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors text-left cursor-pointer"
                 >
                   <div className="flex items-center gap-4">
                     <div>
@@ -586,6 +725,14 @@ export function RegistrationApproval() {
                     )}
                   </div>
                   <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setViewDetailsReg(reg); }}
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      View Details
+                    </button>
                     <span className={`text-xs font-medium px-2.5 py-1 rounded-full capitalize ${STATUS_COLORS[reg.status]}`}>
                       {reg.status}
                     </span>
@@ -594,7 +741,7 @@ export function RegistrationApproval() {
                     </span>
                     {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
                   </div>
-                </button>
+                </div>
 
                 {/* Expanded — pending */}
                 {isExpanded && reg.status === "pending" && (
@@ -639,13 +786,46 @@ export function RegistrationApproval() {
                           </button>
                         </div>
                       ) : !newForm ? (
-                        <ProspectSearchField
-                          defaultSsNo={reg.ss_no}
-                          onSelect={(s) => {
-                            setSelectedProspect((p) => ({ ...p, [reg.id]: s }));
-                            setShowNewForm((p) => ({ ...p, [reg.id]: false }));
-                          }}
-                        />
+                        <>
+                          {isExpanded && !dismissedSuggestion[reg.id] && candidateMatches && candidateMatches.length > 0 && (
+                            <div className="mb-3 space-y-2">
+                              {candidateMatches.map((c) => (
+                                <div key={c.id} className="flex items-center justify-between p-3 bg-amber-50 rounded-lg border border-amber-200">
+                                  <div>
+                                    <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-0.5">
+                                      Suggested match · same {c.matchedOn}
+                                    </p>
+                                    <p className="text-sm font-medium text-amber-900">{c.school_name}</p>
+                                    <p className="text-xs text-amber-700">SS #{c.ss_no} · {c.district}, {c.state}</p>
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedProspect((p) => ({ ...p, [reg.id]: c }))}
+                                      className="px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-medium hover:bg-amber-700 transition-colors"
+                                    >
+                                      Use this match
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                              <button
+                                type="button"
+                                onClick={() => setDismissedSuggestion((p) => ({ ...p, [reg.id]: true }))}
+                                className="text-xs text-gray-500 hover:text-gray-700"
+                              >
+                                None of these — search manually instead
+                              </button>
+                            </div>
+                          )}
+                          <ProspectSearchField
+                            defaultSsNo={reg.ss_no}
+                            onSelect={(s) => {
+                              setSelectedProspect((p) => ({ ...p, [reg.id]: s }));
+                              setShowNewForm((p) => ({ ...p, [reg.id]: false }));
+                            }}
+                          />
+                        </>
                       ) : null}
                     </div>
 
@@ -673,15 +853,47 @@ export function RegistrationApproval() {
                         </button>
                       )}
 
-                      {!prospect && !newForm && (
+                      {!prospect && !newForm && confirmNewFor !== reg.id && (
                         <button
                           type="button"
-                          onClick={() => setShowNewForm((p) => ({ ...p, [reg.id]: true }))}
+                          onClick={() => {
+                            if (candidateMatches && candidateMatches.length > 0 && !dismissedSuggestion[reg.id]) {
+                              setConfirmNewFor(reg.id);
+                            } else {
+                              setShowNewForm((p) => ({ ...p, [reg.id]: true }));
+                            }
+                          }}
                           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-50 text-blue-700 text-sm font-medium hover:bg-blue-100 transition-colors border border-blue-200"
                         >
                           <PlusCircle className="w-4 h-4" />
                           Register as New School
                         </button>
+                      )}
+
+                      {confirmNewFor === reg.id && (
+                        <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700 max-w-md">
+                          <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                          <div className="flex-1">
+                            <p className="font-medium mb-1">A school with a matching SS No / phone / email already exists.</p>
+                            <p className="mb-2">Creating a new school here will not carry over that school's existing communication history, consent forms, or status. Are you sure this isn't the same school?</p>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => { setConfirmNewFor(null); setShowNewForm((p) => ({ ...p, [reg.id]: true })); }}
+                                className="px-3 py-1 rounded-lg bg-red-600 text-white font-medium hover:bg-red-700"
+                              >
+                                Yes, register as new
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmNewFor(null)}
+                                className="px-3 py-1 rounded-lg bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        </div>
                       )}
 
                       <div className="flex-1 flex gap-2">
@@ -718,6 +930,12 @@ export function RegistrationApproval() {
           })}
         </div>
       )}
+
+      <RegistrationDetailsDialog
+        reg={viewDetailsReg}
+        open={!!viewDetailsReg}
+        onOpenChange={(o) => { if (!o) setViewDetailsReg(null); }}
+      />
     </div>
   );
 }
