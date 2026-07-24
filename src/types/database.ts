@@ -81,7 +81,7 @@ export type School = {
 export type ConsentForm = {
   id: string;
   school_id: string;
-  class: 'LKG' | 'UKG' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8';
+  project_id: string;
   forms_requested: number;
   created_at: string;
   updated_at: string;

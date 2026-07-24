@@ -12,16 +12,6 @@ interface ConsentFormData {
   school_name: string;
   district: string;
   board: string;
-  class_lkg?: number;
-  class_ukg?: number;
-  class_i?: number;
-  class_ii?: number;
-  class_iii?: number;
-  class_iv?: number;
-  class_v?: number;
-  class_vi?: number;
-  class_vii?: number;
-  class_viii?: number;
   total_forms: number;
 }
 
@@ -45,27 +35,27 @@ export const ConsentFormsTable: React.FC = () => {
     try {
       setLoading(true);
 
-      // 1. Find schools that have physical consent forms sent FOR THIS PROJECT
-      //    (per-project status lives in school_project_workflow)
-      const { data: workflowRows, error: workflowError } = await supabase
-        .from('school_project_workflow')
-        .select('school_id')
+      // Consent forms sent is tracked directly by count, independent of the
+      // "Consent Form Requested" workflow flag — a school can have forms
+      // entered without that flag ever being set (and vice versa).
+      const { data: formsData, error: formsError } = await supabase
+        .from('consent_forms')
+        .select('school_id, forms_requested')
         .eq('project_id', pid)
-        .eq('consent_form_sent', 'Sent');
+        .gt('forms_requested', 0);
 
-      if (workflowError) {
-        console.error('Error fetching project workflow:', workflowError);
+      if (formsError) {
+        console.error('Error fetching consent forms:', formsError);
         setConsentData([]);
         return;
       }
 
-      const schoolIds = (workflowRows || []).map(r => r.school_id);
+      const schoolIds = (formsData || []).map((f: any) => f.school_id);
       if (schoolIds.length === 0) {
         setConsentData([]);
         return;
       }
 
-      // 2. Fetch those schools' basic info
       const { data: schoolsData, error: schoolsError } = await supabase
         .from('schools')
         .select('id, school_name, district, board')
@@ -77,63 +67,22 @@ export const ConsentFormsTable: React.FC = () => {
         return;
       }
 
-      // 3. Fetch consent_forms ONLY for this project + these schools
-      const { data: formsData, error: formsError } = await supabase
-        .from('consent_forms')
-        .select('school_id, class, forms_requested')
-        .eq('project_id', pid)
-        .in('school_id', schoolIds);
+      const schoolsById = new Map((schoolsData || []).map((s: any) => [s.id, s]));
 
-      if (formsError) {
-        console.error('Error fetching consent forms:', formsError);
-        setConsentData([]);
-        return;
-      }
-
-      // 4. Group forms by school
-      const formsBySchool = new Map<string, { class: string; forms_requested: number }[]>();
-      (formsData || []).forEach((f: any) => {
-        if (!formsBySchool.has(f.school_id)) formsBySchool.set(f.school_id, []);
-        formsBySchool.get(f.school_id)!.push({
-          class: String(f.class),
-          forms_requested: f.forms_requested || 0,
-        });
-      });
-
-      // 5. Build display rows
-      const processedData: ConsentFormData[] = (schoolsData || []).map((school: any) => {
-        const consentForms = formsBySchool.get(school.id) || [];
-        const classData: any = {
-          school_id: school.id,
-          school_name: school.school_name,
-          district: school.district,
-          board: school.board,
-          total_forms: 0,
-        };
-
-        consentForms.forEach((form) => {
-          const formClass = form.class.toLowerCase();
-          let className = '';
-          switch (formClass) {
-            case 'lkg': className = 'class_lkg'; break;
-            case 'ukg': className = 'class_ukg'; break;
-            case '1': case 'i': className = 'class_i'; break;
-            case '2': case 'ii': className = 'class_ii'; break;
-            case '3': case 'iii': className = 'class_iii'; break;
-            case '4': case 'iv': className = 'class_iv'; break;
-            case '5': case 'v': className = 'class_v'; break;
-            case '6': case 'vi': className = 'class_vi'; break;
-            case '7': case 'vii': className = 'class_vii'; break;
-            case '8': case 'viii': className = 'class_viii'; break;
-          }
-          if (className) {
-            classData[className] = (classData[className] || 0) + form.forms_requested;
-            classData.total_forms += form.forms_requested;
-          }
-        });
-
-        return classData;
-      }).filter(school => school.total_forms > 0);
+      const processedData: ConsentFormData[] = (formsData || [])
+        .map((f: any) => {
+          const school = schoolsById.get(f.school_id);
+          if (!school) return null;
+          return {
+            school_id: school.id,
+            school_name: school.school_name,
+            district: school.district,
+            board: school.board,
+            total_forms: f.forms_requested || 0,
+          };
+        })
+        .filter((row): row is ConsentFormData => row !== null)
+        .sort((a, b) => b.total_forms - a.total_forms);
 
       setConsentData(processedData);
     } catch (error) {
@@ -146,10 +95,6 @@ export const ConsentFormsTable: React.FC = () => {
 
   const handleSchoolClick = (schoolId: string) => {
     navigate(`/schools/${schoolId}`);
-  };
-
-  const getTotalByClass = (className: string): number => {
-    return consentData.reduce((sum, school) => sum + (school[className as keyof ConsentFormData] as number || 0), 0);
   };
 
   const getGrandTotal = (): number => {
@@ -185,11 +130,10 @@ export const ConsentFormsTable: React.FC = () => {
           Physical Consent Forms Sent Summary
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          Schools with physical consent forms sent for{' '}
+          Schools with a consent forms count entered for{' '}
           <span className="font-medium text-foreground">
             {activeProject?.project_name || 'the active project'}
           </span>
-          , organized by class
         </p>
       </CardHeader>
       <CardContent>
@@ -198,7 +142,7 @@ export const ConsentFormsTable: React.FC = () => {
             <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-lg font-medium mb-2">No Physical Consent Forms Sent</h3>
             <p className="text-muted-foreground">
-              No schools have physical consent forms sent yet for this project.
+              No schools have a consent forms count entered yet for this project.
             </p>
           </div>
         ) : (
@@ -249,17 +193,7 @@ export const ConsentFormsTable: React.FC = () => {
                   <TableRow>
                     <TableHead className="font-semibold">School</TableHead>
                     <TableHead className="font-semibold">District</TableHead>
-                    <TableHead className="text-center font-semibold">LKG</TableHead>
-                    <TableHead className="text-center font-semibold">UKG</TableHead>
-                    <TableHead className="text-center font-semibold">Class I</TableHead>
-                    <TableHead className="text-center font-semibold">Class II</TableHead>
-                    <TableHead className="text-center font-semibold">Class III</TableHead>
-                    <TableHead className="text-center font-semibold">Class IV</TableHead>
-                    <TableHead className="text-center font-semibold">Class V</TableHead>
-                    <TableHead className="text-center font-semibold">Class VI</TableHead>
-                    <TableHead className="text-center font-semibold">Class VII</TableHead>
-                    <TableHead className="text-center font-semibold">Class VIII</TableHead>
-                    <TableHead className="text-center font-semibold">Total</TableHead>
+                    <TableHead className="text-center font-semibold">Forms Sent</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -269,22 +203,8 @@ export const ConsentFormsTable: React.FC = () => {
                       className="cursor-pointer hover:bg-muted/50"
                       onClick={() => handleSchoolClick(school.school_id)}
                     >
-                      <TableCell className="font-medium">
-                        <div>
-                          <p className="font-semibold">{school.school_name}</p>
-                        </div>
-                      </TableCell>
+                      <TableCell className="font-medium">{school.school_name}</TableCell>
                       <TableCell>{school.district}</TableCell>
-                      <TableCell className="text-center">{school.class_lkg || 0}</TableCell>
-                      <TableCell className="text-center">{school.class_ukg || 0}</TableCell>
-                      <TableCell className="text-center">{school.class_i || 0}</TableCell>
-                      <TableCell className="text-center">{school.class_ii || 0}</TableCell>
-                      <TableCell className="text-center">{school.class_iii || 0}</TableCell>
-                      <TableCell className="text-center">{school.class_iv || 0}</TableCell>
-                      <TableCell className="text-center">{school.class_v || 0}</TableCell>
-                      <TableCell className="text-center">{school.class_vi || 0}</TableCell>
-                      <TableCell className="text-center">{school.class_vii || 0}</TableCell>
-                      <TableCell className="text-center">{school.class_viii || 0}</TableCell>
                       <TableCell className="text-center font-semibold">
                         <Badge variant="secondary">{school.total_forms}</Badge>
                       </TableCell>
@@ -293,17 +213,7 @@ export const ConsentFormsTable: React.FC = () => {
 
                   {/* Totals Row */}
                   <TableRow className="bg-muted/30 font-semibold">
-                    <TableCell colSpan={2} className="text-right font-bold">TOTALS:</TableCell>
-                    <TableCell className="text-center font-bold">{getTotalByClass('class_lkg')}</TableCell>
-                    <TableCell className="text-center font-bold">{getTotalByClass('class_ukg')}</TableCell>
-                    <TableCell className="text-center font-bold">{getTotalByClass('class_i')}</TableCell>
-                    <TableCell className="text-center font-bold">{getTotalByClass('class_ii')}</TableCell>
-                    <TableCell className="text-center font-bold">{getTotalByClass('class_iii')}</TableCell>
-                    <TableCell className="text-center font-bold">{getTotalByClass('class_iv')}</TableCell>
-                    <TableCell className="text-center font-bold">{getTotalByClass('class_v')}</TableCell>
-                    <TableCell className="text-center font-bold">{getTotalByClass('class_vi')}</TableCell>
-                    <TableCell className="text-center font-bold">{getTotalByClass('class_vii')}</TableCell>
-                    <TableCell className="text-center font-bold">{getTotalByClass('class_viii')}</TableCell>
+                    <TableCell colSpan={2} className="text-right font-bold">TOTAL:</TableCell>
                     <TableCell className="text-center font-bold">
                       <Badge className="bg-primary text-primary-foreground">{getGrandTotal()}</Badge>
                     </TableCell>

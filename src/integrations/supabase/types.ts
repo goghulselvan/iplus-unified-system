@@ -418,7 +418,6 @@ export type Database = {
       }
       consent_forms: {
         Row: {
-          class: Database["public"]["Enums"]["class_type"]
           created_at: string
           forms_requested: number
           id: string
@@ -427,7 +426,6 @@ export type Database = {
           updated_at: string
         }
         Insert: {
-          class: Database["public"]["Enums"]["class_type"]
           created_at?: string
           forms_requested?: number
           id?: string
@@ -436,7 +434,6 @@ export type Database = {
           updated_at?: string
         }
         Update: {
-          class?: Database["public"]["Enums"]["class_type"]
           created_at?: string
           forms_requested?: number
           id?: string
