@@ -11,7 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { EmailStatusBadge } from "@/components/schools/EmailStatusBadge";
-import { Mail, Phone, AlertTriangle, Loader2, MessageCircle } from "lucide-react";
+import { Mail, Phone, AlertTriangle, Loader2, MessageCircle, FileText } from "lucide-react";
 import { emailSchema } from "@/lib/security";
 
 interface EmailConfirmationDialogProps {
@@ -31,6 +31,7 @@ interface EmailConfirmationDialogProps {
     body: string;
   };
   willAlsoSendWhatsApp?: boolean;
+  willAttachReceipt?: boolean;
   onConfirm: () => Promise<void>;
   onSkipEmail?: () => Promise<void>;
   onAddEmail?: () => void;
@@ -44,6 +45,7 @@ export const EmailConfirmationDialog = ({
   templateName,
   emailPreview,
   willAlsoSendWhatsApp,
+  willAttachReceipt,
   onConfirm,
   onSkipEmail,
   onAddEmail,
@@ -143,6 +145,16 @@ export const EmailConfirmationDialog = ({
               />
             </div>
           </div>
+
+          {/* Receipt PDF attachment — not visible in the HTML preview above */}
+          {willAttachReceipt && (
+            <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-100 rounded-lg">
+              <FileText className="h-4 w-4 text-blue-600 flex-shrink-0" />
+              <span className="text-sm text-blue-800">
+                The payment receipt PDF will be generated and attached automatically (not shown in the preview above)
+              </span>
+            </div>
+          )}
 
           {/* WhatsApp will also be sent automatically */}
           {willAlsoSendWhatsApp && school.mobile1 && (
