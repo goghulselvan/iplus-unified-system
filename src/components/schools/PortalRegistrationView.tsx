@@ -405,9 +405,9 @@ function StaffAddStudentPanel({ schoolId, projectId, subjects, onAdded }: StaffA
   );
 }
 
-interface Props { schoolId: string; paymentStatus?: string | null; }
+interface Props { schoolId: string; paymentStatus?: string | null; portalRegistered?: boolean; }
 
-export function PortalRegistrationView({ schoolId, paymentStatus }: Props) {
+export function PortalRegistrationView({ schoolId, paymentStatus, portalRegistered }: Props) {
   const qc = useQueryClient();
   const { profile } = useAuth();
   const { data: activeProject } = useActiveProject();
@@ -465,6 +465,11 @@ export function PortalRegistrationView({ schoolId, paymentStatus }: Props) {
   });
 
   const isSubmitted = !!workflow?.list_submitted_at;
+  // The red "not yet submitted" treatment only makes sense for schools that
+  // self-registered on the portal — manually/offline-registered schools have
+  // no portal submission step at all, so whatever staff enters here IS the
+  // final list; it should look like a normal, always-editable table for them.
+  const showUnsubmittedState = !!portalRegistered && !isSubmitted;
 
   const totalEnrollments = students.reduce((s, st) => s + st.enrollments.length, 0);
   const rate = workflow?.per_entry_rate ?? 150;
@@ -709,37 +714,40 @@ export function PortalRegistrationView({ schoolId, paymentStatus }: Props) {
 
       <BulkUpload schoolId={schoolId} subjects={subjects} onSuccess={() => qc.invalidateQueries({ queryKey: ['crm-portal-students', schoolId] })} />
 
-      {/* Students table — full read+write once submitted; a red-tinted read-only
-          preview beforehand so staff can see progress without touching a list
-          the school is still actively building on the portal. */}
+      {/* Students table — always editable. Red tint is a status indicator only,
+          shown for portal-registered schools until the school hits Submit —
+          manually/offline-registered schools have no such step, so they just
+          get a normal-looking, always-editable table. */}
       {students.length === 0 ? (
         <div className="rounded-2xl p-8 border border-black/5 bg-white text-center">
           <ClipboardList className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-40" />
           <p className="text-base font-semibold text-foreground mb-1">
-            {isSubmitted ? 'No Students Added' : 'Student List Not Yet Submitted'}
+            {!portalRegistered || isSubmitted ? 'No Students Added' : 'Student List Not Yet Submitted'}
           </p>
           <p className="text-sm text-muted-foreground max-w-sm mx-auto">
-            {isSubmitted
+            {!portalRegistered
+              ? 'Use Bulk Upload or Add Student below to get started.'
+              : isSubmitted
               ? 'The school submitted an empty list.'
               : 'Nothing added by the school on the portal yet.'}
           </p>
         </div>
       ) : (
-      <Card className={!isSubmitted ? 'border-red-200' : undefined}>
+      <Card className={showUnsubmittedState ? 'border-red-200' : undefined}>
         <CardHeader>
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-2 flex-wrap">
               <CardTitle className="text-base">
                 Student List ({students.length} students · {totalEnrollments} registrations)
               </CardTitle>
-              {!isSubmitted && (
+              {showUnsubmittedState && (
                 <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-red-100 text-red-700 border border-red-300">
-                  Not yet submitted — live preview, read-only
+                  Not yet submitted by school
                 </span>
               )}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              {isSubmitted && canBulkDelete && selectedIds.size > 0 && (
+              {canBulkDelete && selectedIds.size > 0 && (
                 <Button
                   variant="destructive"
                   size="sm"
@@ -781,9 +789,9 @@ export function PortalRegistrationView({ schoolId, paymentStatus }: Props) {
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className={`border-b ${!isSubmitted ? 'bg-red-50' : 'bg-muted/50'}`}>
+                <thead className={`border-b ${showUnsubmittedState ? 'bg-red-50' : 'bg-muted/50'}`}>
                   <tr>
-                    {isSubmitted && canBulkDelete && (
+                    {canBulkDelete && (
                       <th className="px-4 py-3 w-10">
                         <input
                           type="checkbox"
@@ -797,17 +805,17 @@ export function PortalRegistrationView({ schoolId, paymentStatus }: Props) {
                     <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Name</th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Class</th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Subjects</th>
-                    {isSubmitted && <th className="px-4 py-3 w-24" />}
+                    <th className="px-4 py-3 w-24" />
                   </tr>
                 </thead>
-                <tbody className={`divide-y ${!isSubmitted ? 'bg-red-50/60' : ''}`}>
+                <tbody className={`divide-y ${showUnsubmittedState ? 'bg-red-50/60' : ''}`}>
                   {displayedStudents.map((s, i) => {
-                    const isEditing = isSubmitted && editingId === s.id;
+                    const isEditing = editingId === s.id;
                     const clsLabel = CLASS_OPTIONS.find((c) => c.value === s.class_code)?.label ?? s.class_code;
 
                     return (
-                      <tr key={s.id} className={isSubmitted ? 'hover:bg-muted/30 group' : ''}>
-                        {isSubmitted && canBulkDelete && (
+                      <tr key={s.id} className="hover:bg-muted/30 group">
+                        {canBulkDelete && (
                           <td className="px-4 py-3">
                             <input
                               type="checkbox"
@@ -866,7 +874,6 @@ export function PortalRegistrationView({ schoolId, paymentStatus }: Props) {
                             </div>
                           )}
                         </td>
-                        {isSubmitted && (
                         <td className="px-4 py-3">
                           {isEditing ? (
                             <div className="flex flex-col gap-1.5">
@@ -908,7 +915,6 @@ export function PortalRegistrationView({ schoolId, paymentStatus }: Props) {
                             </div>
                           )}
                         </td>
-                        )}
                       </tr>
                     );
                   })}
@@ -920,14 +926,12 @@ export function PortalRegistrationView({ schoolId, paymentStatus }: Props) {
       </Card>
       )}
 
-      {isSubmitted && (
-        <StaffAddStudentPanel
-          schoolId={schoolId}
-          projectId="dd5de83d-64f8-4113-a231-27024058396b"
-          subjects={subjects}
-          onAdded={() => qc.invalidateQueries({ queryKey: ['crm-portal-students', schoolId, activeProject?.id] })}
-        />
-      )}
+      <StaffAddStudentPanel
+        schoolId={schoolId}
+        projectId="dd5de83d-64f8-4113-a231-27024058396b"
+        subjects={subjects}
+        onAdded={() => qc.invalidateQueries({ queryKey: ['crm-portal-students', schoolId, activeProject?.id] })}
+      />
     </div>
   );
 }

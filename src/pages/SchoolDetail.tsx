@@ -1233,7 +1233,7 @@ const SchoolDetail = () => {
           </TabsContent>
 
           <TabsContent value="portal-reg">
-            <PortalRegistrationView schoolId={school.id} paymentStatus={school.payment_status} />
+            <PortalRegistrationView schoolId={school.id} paymentStatus={school.payment_status} portalRegistered={!!school.portal_registered} />
           </TabsContent>
 
           <TabsContent value="students">
