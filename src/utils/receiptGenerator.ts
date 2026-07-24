@@ -15,7 +15,6 @@ interface ReceiptData {
   amount: number;
   paymentMode: string;
   transactionReference?: string | null;
-  isPartial?: boolean;
   totalReceived?: number;
   balanceDue?: number;
 }
@@ -26,10 +25,7 @@ const VIOLET = { r: 124 / 255, g: 58 / 255, b: 237 / 255 };
 const TEXT_DARK = rgb(0.10, 0.10, 0.18);
 const MUTED = rgb(0.42, 0.45, 0.51);
 const CARD_BORDER = rgb(0.87, 0.85, 0.95);
-const GREEN = rgb(0.06, 0.55, 0.35);
-const GREEN_BG = rgb(0.86, 0.96, 0.90);
 const AMBER = rgb(0.72, 0.45, 0.03);
-const AMBER_BG = rgb(1, 0.95, 0.82);
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
 function splitTextIntoLines(text: string, font: PDFFont, fontSize: number, maxWidth: number): string[] {
@@ -147,32 +143,21 @@ export async function generateReceipt(data: ReceiptData): Promise<Blob> {
   ly -= 4;
   page.drawText(`SS No: ${data.ssNo}`, { x: MARGIN + 14, y: ly, size: 9.5, font, color: MUTED });
 
-  // Right column — Amount received + status
+  // Right column — this payment + running totals. No full/partial label here —
+  // that status can change later as more students are added before the exam
+  // date, so the receipt only ever acknowledges amounts, never declares finality.
   let ry = bodyTop - 2;
-  page.drawText('AMOUNT RECEIVED', { x: rightX, y: ry, size: 7.5, font: fontBold, color: MUTED });
+  page.drawText('THIS PAYMENT', { x: rightX, y: ry, size: 7.5, font: fontBold, color: MUTED });
   ry -= 26;
   page.drawText(fmtINR(data.amount), { x: rightX, y: ry, size: 21, font: fontBold, color: TEXT_DARK });
 
-  const isPartial = !!data.isPartial;
-  const chipText = isPartial ? 'PARTIALLY PAID' : 'PAID IN FULL';
-  const chipColor = isPartial ? AMBER : GREEN;
-  const chipBg = isPartial ? AMBER_BG : GREEN_BG;
-  const chipTextW = fontBold.widthOfTextAtSize(chipText, 8);
-  const chipPadX = 8, chipH = 15, chipY = ry - 24;
-  page.drawRectangle({ x: rightX, y: chipY, width: chipTextW + chipPadX * 2, height: chipH, color: chipBg });
-  page.drawText(chipText, { x: rightX + chipPadX, y: chipY + 4.2, size: 8, font: fontBold, color: chipColor });
-
-  let ry2 = chipY - 20;
-  if (isPartial) {
-    page.drawText('Total Received', { x: rightX, y: ry2, size: 8, font, color: MUTED });
-    page.drawText(fmtINR(data.totalReceived ?? 0), { x: rightX + 110, y: ry2, size: 9.5, font: fontBold, color: TEXT_DARK });
-    ry2 -= 15;
-    page.drawText('Balance Due', { x: rightX, y: ry2, size: 8, font, color: MUTED });
-    page.drawText(fmtINR(data.balanceDue ?? 0), { x: rightX + 110, y: ry2, size: 9.5, font: fontBold, color: AMBER });
-    ry2 -= 20;
-  } else {
-    ry2 -= 4;
-  }
+  let ry2 = ry - 26;
+  page.drawText('Total Received', { x: rightX, y: ry2, size: 8, font, color: MUTED });
+  page.drawText(fmtINR(data.totalReceived ?? data.amount), { x: rightX + 110, y: ry2, size: 9.5, font: fontBold, color: TEXT_DARK });
+  ry2 -= 15;
+  page.drawText('Balance Due', { x: rightX, y: ry2, size: 8, font, color: MUTED });
+  page.drawText(fmtINR(data.balanceDue ?? 0), { x: rightX + 110, y: ry2, size: 9.5, font: fontBold, color: (data.balanceDue ?? 0) > 0 ? AMBER : TEXT_DARK });
+  ry2 -= 24;
 
   for (const line of splitTextIntoLines(numberToWords(data.amount), fontItalic, 8.5, rightW)) {
     page.drawText(line, { x: rightX, y: ry2, size: 8.5, font: fontItalic, color: MUTED });

@@ -89,10 +89,7 @@ const VIOLET = { r: 124 / 255, g: 58 / 255, b: 237 / 255 };
 const TEXT_DARK = rgb(0.10, 0.10, 0.18);
 const MUTED = rgb(0.42, 0.45, 0.51);
 const CARD_BORDER = rgb(0.87, 0.85, 0.95);
-const GREEN = rgb(0.06, 0.55, 0.35);
-const GREEN_BG = rgb(0.86, 0.96, 0.90);
 const AMBER = rgb(0.72, 0.45, 0.03);
-const AMBER_BG = rgb(1, 0.95, 0.82);
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
 Deno.serve(async (req: Request) => {
@@ -124,7 +121,7 @@ async function handle(req: Request): Promise<Response> {
 
   const { data: tx, error: txErr } = await admin
     .from("payment_transactions")
-    .select("id, payment_amount, payment_date, payment_mode, transaction_reference, school_id, schools(ss_no, school_name, payment_status, payment_received, outstanding_balance)")
+    .select("id, payment_amount, payment_date, payment_mode, transaction_reference, school_id, schools(ss_no, school_name, payment_received, outstanding_balance)")
     .eq("id", transactionId)
     .maybeSingle();
   if (txErr || !tx) return json({ error: "Transaction not found" }, 404);
@@ -138,7 +135,6 @@ async function handle(req: Request): Promise<Response> {
 
   const school = (tx as any).schools;
   const receiptNo = `${rn.receipt_number}/${rn.fy}-${rn.fy + 1}`;
-  const isPartial = school.payment_status === "Partial";
 
   // Load logo + watermark from storage
   const { data: logoFile, error: logoErr } = await admin.storage.from("receipts").download("assets/iplus-logo.png");
@@ -241,31 +237,23 @@ async function handle(req: Request): Promise<Response> {
   ly -= 4;
   page.drawText(`SS No: ${school.ss_no}`, { x: MARGIN + 14, y: ly, size: 9.5, font, color: MUTED });
 
-  // Right column — Amount received + status
+  // Right column — this payment + running totals. No full/partial label here —
+  // that status can change later as more students are added before the exam
+  // date, so the receipt only ever acknowledges amounts, never declares finality.
   let ry = bodyTop - 2;
-  page.drawText("AMOUNT RECEIVED", { x: rightX, y: ry, size: 7.5, font: fontBold, color: MUTED });
+  page.drawText("THIS PAYMENT", { x: rightX, y: ry, size: 7.5, font: fontBold, color: MUTED });
   ry -= 26;
   page.drawText(fmtINR(amount), { x: rightX, y: ry, size: 21, font: fontBold, color: TEXT_DARK });
 
-  const chipText = isPartial ? "PARTIALLY PAID" : "PAID IN FULL";
-  const chipColor = isPartial ? AMBER : GREEN;
-  const chipBg = isPartial ? AMBER_BG : GREEN_BG;
-  const chipTextW = fontBold.widthOfTextAtSize(chipText, 8);
-  const chipPadX = 8, chipH = 15, chipY = ry - 24;
-  page.drawRectangle({ x: rightX, y: chipY, width: chipTextW + chipPadX * 2, height: chipH, color: chipBg });
-  page.drawText(chipText, { x: rightX + chipPadX, y: chipY + 4.2, size: 8, font: fontBold, color: chipColor });
-
-  let ry2 = chipY - 20;
-  if (isPartial) {
-    page.drawText("Total Received", { x: rightX, y: ry2, size: 8, font, color: MUTED });
-    page.drawText(fmtINR(Number(school.payment_received ?? 0)), { x: rightX + 110, y: ry2, size: 9.5, font: fontBold, color: TEXT_DARK });
-    ry2 -= 15;
-    page.drawText("Balance Due", { x: rightX, y: ry2, size: 8, font, color: MUTED });
-    page.drawText(fmtINR(Number(school.outstanding_balance ?? 0)), { x: rightX + 110, y: ry2, size: 9.5, font: fontBold, color: AMBER });
-    ry2 -= 20;
-  } else {
-    ry2 -= 4;
-  }
+  const totalReceived = Number(school.payment_received ?? amount);
+  const balanceDue = Number(school.outstanding_balance ?? 0);
+  let ry2 = ry - 26;
+  page.drawText("Total Received", { x: rightX, y: ry2, size: 8, font, color: MUTED });
+  page.drawText(fmtINR(totalReceived), { x: rightX + 110, y: ry2, size: 9.5, font: fontBold, color: TEXT_DARK });
+  ry2 -= 15;
+  page.drawText("Balance Due", { x: rightX, y: ry2, size: 8, font, color: MUTED });
+  page.drawText(fmtINR(balanceDue), { x: rightX + 110, y: ry2, size: 9.5, font: fontBold, color: balanceDue > 0 ? AMBER : TEXT_DARK });
+  ry2 -= 24;
 
   for (const line of splitLines(numberToWords(amount), fontItalic, 8.5, rightW)) {
     page.drawText(line, { x: rightX, y: ry2, size: 8.5, font: fontItalic, color: MUTED });

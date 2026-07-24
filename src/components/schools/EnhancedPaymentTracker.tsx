@@ -150,7 +150,6 @@ export const EnhancedPaymentTracker: React.FC<EnhancedPaymentTrackerProps> = ({ 
         amount: transaction.payment_amount,
         paymentMode: transaction.payment_mode,
         transactionReference: transaction.transaction_reference,
-        isPartial: dbStatus === 'Partial',
         totalReceived: school.payment_received || 0,
         balanceDue: school.outstanding_balance || 0,
       });

@@ -38,6 +38,11 @@ export const AddPaymentDialog: React.FC<AddPaymentDialogProps> = ({
       return;
     }
 
+    if (!formData.transaction_reference.trim()) {
+      toast.error('Please enter a payment reference number — it prints on the school\'s receipt');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -54,7 +59,7 @@ export const AddPaymentDialog: React.FC<AddPaymentDialogProps> = ({
           payment_date: formData.payment_date,
           payment_amount: parseFloat(formData.payment_amount),
           payment_mode: formData.payment_mode,
-          transaction_reference: formData.transaction_reference || null,
+          transaction_reference: formData.transaction_reference.trim(),
           notes: formData.notes || null,
           created_by: user.id
         });
@@ -139,13 +144,15 @@ export const AddPaymentDialog: React.FC<AddPaymentDialogProps> = ({
           </div>
           
           <div className="space-y-2">
-            <Label htmlFor="transaction_reference">Transaction Reference (Optional)</Label>
+            <Label htmlFor="transaction_reference">Payment Reference Number</Label>
             <Input
               id="transaction_reference"
-              placeholder="Cheque number, UPI ID, etc."
+              placeholder="Cheque number, UPI ID, UTR, etc."
               value={formData.transaction_reference}
               onChange={(e) => setFormData(prev => ({ ...prev, transaction_reference: e.target.value }))}
+              required
             />
+            <p className="text-xs text-muted-foreground">Prints on the school's payment receipt.</p>
           </div>
           
           <div className="space-y-2">
