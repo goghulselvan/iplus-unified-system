@@ -403,13 +403,8 @@ export function AddSchoolDialog({ open, onOpenChange, onCreated, mode = 'registe
                   <SelectTrigger><SelectValue placeholder="Select district" /></SelectTrigger>
                   <SelectContent>
                     {manualDistricts.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
-                    <SelectItem value="__other">Other / Type below</SelectItem>
                   </SelectContent>
                 </Select>
-                {manual.district === '__other' && (
-                  <Input className="mt-1" placeholder="Type district name"
-                    onChange={e => setManual(m => ({ ...m, district: e.target.value }))} />
-                )}
               </div>
             </div>
             <div className="space-y-1.5">

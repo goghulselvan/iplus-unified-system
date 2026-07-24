@@ -4,6 +4,28 @@ import { CheckCircle2, XCircle, Search, ChevronDown, ChevronUp, PlusCircle } fro
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveProject } from "@/hooks/useOlympiadProjects";
 import { useToast } from "@/hooks/use-toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+const REGISTRATION_STATES = ['Tamil Nadu', 'Puducherry', 'Karnataka', 'Kerala', 'Andhra Pradesh', 'Telangana'];
+
+// Canonical district list for a state, sourced from the same district_codes /
+// state_codes tables the rest of the CRM uses — never free-typed.
+async function fetchDistrictsForState(state: string): Promise<string[]> {
+  const { data: stateRow } = await supabase
+    .from('state_codes')
+    .select('state_code')
+    .ilike('state_name', state)
+    .eq('is_active', true)
+    .single();
+  if (!stateRow) return [];
+  const { data } = await supabase
+    .from('district_codes')
+    .select('district_name')
+    .eq('state_code', stateRow.state_code)
+    .eq('is_active', true)
+    .order('district_name');
+  return (data || []).map((d) => d.district_name).filter(Boolean) as string[];
+}
 
 interface PortalRegistration {
   id: string;
@@ -169,11 +191,23 @@ function NewSchoolForm({
   const [fields, setFields] = useState<NewSchoolFields>({
     school_name: reg.school_name,
     ss_no:       reg.ss_no ? String(reg.ss_no) : "",
-    district:    reg.district,
-    state:       reg.state ?? "",
+    district:    "",
+    state:       REGISTRATION_STATES.includes(reg.state ?? "") ? (reg.state as string) : "",
     board:       reg.board ?? "",
     pincode:     reg.pincode ?? "",
   });
+  const [districts, setDistricts] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!fields.state) { setDistricts([]); return; }
+    fetchDistrictsForState(fields.state).then((list) => {
+      setDistricts(list);
+      // Only keep the registration's own district guess if it's actually on
+      // the canonical list for this state — otherwise force a real pick.
+      setFields((p) => (list.includes(reg.district) && !p.district ? { ...p, district: reg.district } : p));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fields.state]);
 
   const set = (k: keyof NewSchoolFields) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setFields((p) => ({ ...p, [k]: e.target.value }));
@@ -197,12 +231,31 @@ function NewSchoolForm({
           <input value={fields.pincode} onChange={set("pincode")} className={inp} />
         </div>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">District</label>
-          <input value={fields.district} onChange={set("district")} className={inp} />
+          <label className="block text-xs text-gray-500 mb-1">State</label>
+          <Select
+            value={fields.state}
+            onValueChange={(v) => setFields((p) => ({ ...p, state: v, district: "" }))}
+          >
+            <SelectTrigger className={inp}><SelectValue placeholder="Select state" /></SelectTrigger>
+            <SelectContent>
+              {REGISTRATION_STATES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">State</label>
-          <input value={fields.state} onChange={set("state")} className={inp} />
+          <label className="block text-xs text-gray-500 mb-1">District</label>
+          <Select
+            value={fields.district}
+            onValueChange={(v) => setFields((p) => ({ ...p, district: v }))}
+            disabled={!fields.state}
+          >
+            <SelectTrigger className={inp}>
+              <SelectValue placeholder={fields.state ? "Select district" : "Select state first"} />
+            </SelectTrigger>
+            <SelectContent>
+              {districts.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
         <div>
           <label className="block text-xs text-gray-500 mb-1">Board</label>
