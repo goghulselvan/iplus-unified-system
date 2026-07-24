@@ -241,11 +241,14 @@ const BulkImportExport = () => {
             continue;
           }
 
-          // Update the workflow status
+          // Update the workflow status — routed through update_school_with_manual_edit
+          // so school_project_workflow stays in sync (a plain schools.update() here
+          // used to bypass it entirely, leaving the project's workflow row stale).
           const { error: updateError } = await supabase
-            .from('schools')
-            .update({ [selectedWorkflow]: selectedStatus })
-            .eq('id', schools.id);
+            .rpc('update_school_with_manual_edit', {
+              p_school_id: schools.id,
+              p_updates: { [selectedWorkflow]: selectedStatus },
+            });
 
           if (updateError) {
             console.error(`Error updating school ${row.ssNo}:`, updateError);
