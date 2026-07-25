@@ -725,6 +725,10 @@ const SchoolDetail = () => {
                           <p className="text-sm font-medium mt-1">{school.board}</p>
                         </div>
                         <div>
+                          <Label className="text-sm font-medium text-muted-foreground">Contact Person</Label>
+                          <p className="text-sm font-medium mt-1">{school.contact_person_name || 'N/A'}</p>
+                        </div>
+                        <div>
                           <Label className="text-sm font-medium text-muted-foreground">Pincode</Label>
                           <p className="text-sm font-medium mt-1">{school.pincode}</p>
                         </div>
@@ -779,7 +783,7 @@ const SchoolDetail = () => {
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         <div>
                           <Label className="text-sm font-medium text-muted-foreground">Correspondent Name</Label>
-                          <p className="text-sm font-medium mt-1">{school.corr_name || school.contact_person_name || 'N/A'}</p>
+                          <p className="text-sm font-medium mt-1">{school.corr_name || 'N/A'}</p>
                         </div>
                         <div>
                           <Label className="text-sm font-medium text-muted-foreground">Correspondent Mobile</Label>
