@@ -307,10 +307,6 @@ export const useSchoolsPaginated = (scopeProjectId?: string) => {
       // Import normalization functions
       const { normalizeSchoolData, validateSchoolData } = await import('@/utils/dataHelpers');
       
-      // Protected fields that require manual edit mode
-      const protectedFields = ['ss_no', 'school_name', 'school_address', 'district', 'state', 'board', 'mobile1', 'mobile2', 'email', 'contact_person_name', 'pincode'];
-      const hasProtectedFields = Object.keys(updates).some(key => protectedFields.includes(key));
-      
       // Validate the data if it contains required fields (but use partial validation for manual edits)
       const hasRequiredFields = Object.keys(updates).some(key => 
         ['school_name', 'state', 'district', 'board'].includes(key)
@@ -333,8 +329,12 @@ export const useSchoolsPaginated = (scopeProjectId?: string) => {
 
       let data, error;
 
-      // Use manual edit function for protected fields
-      if (hasProtectedFields && isManualEdit) {
+      // Use manual edit function whenever this is a manual edit — not just for
+      // "protected" fields. The RPC keeps school_project_workflow in sync too;
+      // the plain schools-only path below silently drifted workflow-relevant
+      // fields (e.g. consent_form_requested) whenever a save touched only
+      // non-protected fields. See [[feedback_schools_workflow_dual_table]].
+      if (isManualEdit) {
         const result = await supabase.rpc('update_school_with_manual_edit', {
           p_school_id: id,
           p_updates: normalizedUpdates
