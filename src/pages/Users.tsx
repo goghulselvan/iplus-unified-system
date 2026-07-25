@@ -28,7 +28,7 @@ const ALL_MODULES: { key: string; label: string; description: string }[] = [
 ];
 
 const DEFAULT_MODULE_ACCESS: Record<string, Record<string, boolean>> = {
-  manager: { schools: true },
+  manager: { schools: true, students: true },
   accountant: { schools: true },
   superadmin: Object.fromEntries(ALL_MODULES.map(m => [m.key, true])),
 };
