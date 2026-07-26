@@ -59,6 +59,9 @@ type QueueRow = {
 
 type StaffProfile = { user_id: string; full_name: string | null; username: string };
 type CallerHit = { source: "crm" | "prospect"; id: string; school_name: string; district: string | null; state: string | null };
+type OtherContact = { id: string; phone_last10: string; name: string; category: string; notes: string | null };
+
+const OTHER_CONTACT_CATEGORIES = ["Courier", "Delivery", "Vendor", "Personal", "Spam", "Other"];
 
 type TimelineEvent = {
   kind: "call" | "comm";
@@ -127,10 +130,16 @@ export default function CallCenter() {
   const [busy, setBusy] = useState(false);
 
   // ── Link dialog state (ported from IncomingCalls) ──────────────────────────
-  const [linkingRow, setLinkingRow] = useState<CallRow | null>(null);
+  const [linkingRow, setLinkingRow] = useState<{ school_phone: string | null } | null>(null);
   const [linkSearch, setLinkSearch] = useState("");
   const [hits, setHits] = useState<CallerHit[]>([]);
   const [searching, setSearching] = useState(false);
+
+  // ── Other Contacts (couriers, delivery, vendors — not schools/leads) ───────
+  const [otherContacts, setOtherContacts] = useState<OtherContact[]>([]);
+  const [tagName, setTagName] = useState("");
+  const [tagCategory, setTagCategory] = useState("Courier");
+  const [editingContact, setEditingContact] = useState<OtherContact | null>(null);
 
   // ── Comment dialog ──────────────────────────────────────────────────────────
   const [commentTarget, setCommentTarget] = useState<{ callId: string; schoolId: string | null; direction: string | null; callRefId: string | null } | null>(null);
@@ -194,10 +203,64 @@ export default function CallCenter() {
     setProfiles((data as StaffProfile[]) ?? []);
   }, []);
 
-  useEffect(() => { fetchCalls(); }, [fetchCalls]);
-  useEffect(() => { fetchQueue(); fetchProfiles(); }, [fetchQueue, fetchProfiles]);
+  const fetchOtherContacts = useCallback(async () => {
+    const { data } = await supabase.from("other_contacts").select("id, phone_last10, name, category, notes").order("name");
+    setOtherContacts((data as OtherContact[]) ?? []);
+  }, []);
 
-  const refreshAll = () => { fetchCalls(); fetchQueue(); };
+  useEffect(() => { fetchCalls(); }, [fetchCalls]);
+  useEffect(() => { fetchQueue(); fetchProfiles(); fetchOtherContacts(); }, [fetchQueue, fetchProfiles, fetchOtherContacts]);
+
+  const otherContactByPhone = Object.fromEntries(otherContacts.map(c => [c.phone_last10, c]));
+
+  const refreshAll = () => { fetchCalls(); fetchQueue(); fetchOtherContacts(); };
+
+  const tagCurrentAsOtherContact = async () => {
+    if (!linkingRow?.school_phone || !tagName.trim()) return;
+    setBusy(true);
+    try {
+      const { data, error } = await supabase.rpc("tag_as_other_contact", {
+        p_last10: last10(linkingRow.school_phone), p_name: tagName.trim(), p_category: tagCategory,
+      });
+      if (error) throw error;
+      if ((data as any)?.error) throw new Error((data as any).error);
+      toast({ title: "Tagged", description: `${tagName.trim()} won't show up as a lead again.` });
+      setLinkingRow(null); setLinkSearch(""); setHits([]); setTagName(""); setTagCategory("Courier");
+      refreshAll();
+    } catch (e: any) {
+      toast({ title: "Failed to tag contact", description: e.message, variant: "destructive" });
+    } finally { setBusy(false); }
+  };
+
+  const saveContactEdit = async () => {
+    if (!editingContact || !editingContact.name.trim()) return;
+    setBusy(true);
+    try {
+      const { data, error } = await supabase.rpc("tag_as_other_contact", {
+        p_last10: editingContact.phone_last10, p_name: editingContact.name.trim(),
+        p_category: editingContact.category, p_notes: editingContact.notes,
+      });
+      if (error) throw error;
+      if ((data as any)?.error) throw new Error((data as any).error);
+      toast({ title: "Saved" });
+      setEditingContact(null);
+      fetchOtherContacts();
+    } catch (e: any) {
+      toast({ title: "Failed to save", description: e.message, variant: "destructive" });
+    } finally { setBusy(false); }
+  };
+
+  const untagContact = async (phone: string) => {
+    setBusy(true);
+    try {
+      const { error } = await supabase.rpc("untag_other_contact", { p_last10: phone });
+      if (error) throw error;
+      toast({ title: "Removed", description: "This number can create follow-ups again." });
+      fetchOtherContacts();
+    } catch (e: any) {
+      toast({ title: "Failed to remove", description: e.message, variant: "destructive" });
+    } finally { setBusy(false); }
+  };
 
   // ── Link / create lead (ported from IncomingCalls) ─────────────────────────
 
@@ -222,14 +285,14 @@ export default function CallCenter() {
       if (error) throw error;
       if ((data as any)?.error) throw new Error((data as any).error);
       toast({ title: "Number linked", description: "Saved on the record — future calls will match automatically." });
-      setLinkingRow(null); setLinkSearch(""); setHits([]);
+      setLinkingRow(null); setLinkSearch(""); setHits([]); setTagName(""); setTagCategory("Courier");
       refreshAll();
     } catch (e: any) {
       toast({ title: "Link failed", description: e.message, variant: "destructive" });
     } finally { setBusy(false); }
   };
 
-  const createNewLead = async (row: CallRow, name: string) => {
+  const createNewLead = async (row: { school_phone: string | null }, name: string) => {
     const num = last10(row.school_phone);
     if (!name.trim()) return;
     setBusy(true);
@@ -241,7 +304,7 @@ export default function CallCenter() {
       if (error) throw error;
       await supabase.rpc("link_incoming_number", { p_last10: num, p_prospect_id: created.id });
       toast({ title: "Lead created", description: `${name} saved to prospect schools.` });
-      setLinkingRow(null); setLinkSearch(""); setHits([]);
+      setLinkingRow(null); setLinkSearch(""); setHits([]); setTagName(""); setTagCategory("Courier");
       refreshAll();
     } catch (e: any) {
       toast({ title: "Failed to create lead", description: e.message, variant: "destructive" });
@@ -419,7 +482,12 @@ export default function CallCenter() {
         const { data: p } = await supabase.from("prospect_schools").select("school_name").eq("id", prospectId).maybeSingle();
         partyName = p?.school_name ?? null;
       }
-      setTlParty({ name: partyName, source: schoolId ? "CRM" : prospectId ? "Prospect" : null, prospectId });
+      const contact = !schoolId && !prospectId ? otherContactByPhone[num] : undefined;
+      setTlParty({
+        name: partyName ?? (contact ? contact.name : null),
+        source: schoolId ? "CRM" : prospectId ? "Prospect" : contact ? contact.category : null,
+        prospectId,
+      });
 
       const { data: callData } = await supabase
         .from("bonvoice_call_logs")
@@ -501,8 +569,11 @@ export default function CallCenter() {
 
   // ── Derived ─────────────────────────────────────────────────────────────────
 
+  const isTaggedOther = (phone: string | null) => !!otherContactByPhone[last10(phone)];
+  const isUnresolvedLead = (r: CallRow) => !r.school_id && !r.prospect_school_id && !isTaggedOther(r.school_phone);
+
   const visible = rows.filter(r => {
-    if (onlyLeads && (r.school_id || r.prospect_school_id)) return false;
+    if (onlyLeads && !isUnresolvedLead(r)) return false;
     if (search.trim()) {
       const s = search.trim().toLowerCase();
       const name = (r.school?.school_name ?? r.prospect?.school_name ?? "").toLowerCase();
@@ -510,7 +581,7 @@ export default function CallCenter() {
     }
     return true;
   });
-  const leadCount = rows.filter(r => !r.school_id && !r.prospect_school_id).length;
+  const leadCount = rows.filter(isUnresolvedLead).length;
 
   const criticalCount = queue.filter(q => q.priority === "Critical").length;
   const highCount = queue.filter(q => q.priority === "High").length;
@@ -549,6 +620,9 @@ export default function CallCenter() {
             </TabsTrigger>
             <TabsTrigger value="timeline">Timeline</TabsTrigger>
             <TabsTrigger value="reports">Reports</TabsTrigger>
+            <TabsTrigger value="contacts">
+              Other Contacts{otherContacts.length > 0 ? ` (${otherContacts.length})` : ""}
+            </TabsTrigger>
           </TabsList>
 
           {/* ══ TAB: ALL CALLS ══════════════════════════════════════════════════ */}
@@ -602,7 +676,8 @@ export default function CallCenter() {
               <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-50">
                 {visible.map(r => {
                   const matchedName = r.school?.school_name ?? r.prospect?.school_name;
-                  const isLead = !r.school_id && !r.prospect_school_id;
+                  const otherContact = otherContactByPhone[last10(r.school_phone)];
+                  const isLead = isUnresolvedLead(r);
                   const when = r.start_time ?? r.created_at;
                   const isOut = r.direction === "outbound";
                   const staffName = profiles.find(p => p.user_id === r.created_by)?.full_name;
@@ -617,9 +692,15 @@ export default function CallCenter() {
                             onClick={() => openTimeline(r.school_phone)} title="View timeline">
                             {r.school_phone}
                           </button>
-                          {isLead
-                            ? <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-rose-100 text-rose-700">New lead</span>
-                            : <span className="text-xs text-gray-600 truncate">{matchedName}{r.school_id ? " (CRM)" : " (Prospect)"}</span>}
+                          {isLead ? (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-rose-100 text-rose-700">New lead</span>
+                          ) : otherContact ? (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
+                              {otherContact.name} ({otherContact.category})
+                            </span>
+                          ) : (
+                            <span className="text-xs text-gray-600 truncate">{matchedName}{r.school_id ? " (CRM)" : " (Prospect)"}</span>
+                          )}
                           {r.status && (
                             <span className={`px-2 py-0.5 rounded-full text-xs ${STATUS_COLOR[r.status] ?? "bg-gray-100 text-gray-500"}`}>
                               {r.status.replace("_", " ")}
@@ -707,6 +788,10 @@ export default function CallCenter() {
                         </button>
                         {q.school_name
                           ? <span className="text-xs text-gray-600 truncate">{q.school_name}{q.school_id ? " (CRM)" : " (Prospect)"}</span>
+                          : otherContactByPhone[q.phone_last10]
+                          ? <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
+                              {otherContactByPhone[q.phone_last10].name} ({otherContactByPhone[q.phone_last10].category})
+                            </span>
                           : <span className="px-2 py-0.5 rounded-full text-[10px] border border-dashed border-gray-300 text-gray-500">Unidentified</span>}
                         <span className={`px-2 py-0.5 rounded-full text-xs ${q.followup_status === "never_tried" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-800"}`}>
                           {q.followup_status === "never_tried" ? "Never called back" : "Attempted, not connected"}
@@ -735,6 +820,12 @@ export default function CallCenter() {
                           ))}
                         </SelectContent>
                       </Select>
+                      {!q.school_name && !otherContactByPhone[q.phone_last10] && (
+                        <Button variant="outline" size="sm" className="h-7 text-xs" disabled={busy}
+                          onClick={() => { setLinkingRow({ school_phone: q.phone_last10 }); setLinkSearch(""); setHits([]); }}>
+                          <Link2 className="h-3 w-3 mr-1" />Who is this?
+                        </Button>
+                      )}
                       <Button variant="outline" size="sm" className="h-7 text-xs" disabled={busy} onClick={() => openCommentForNumber(q)} title="Add comment">
                         <MessageSquare className="h-3 w-3" />
                       </Button>
@@ -928,18 +1019,93 @@ export default function CallCenter() {
               </>
             )}
           </TabsContent>
+
+          {/* ══ TAB: OTHER CONTACTS ═══════════════════════════════════════════════ */}
+          <TabsContent value="contacts" className="space-y-3">
+            <p className="text-sm text-gray-500">
+              Numbers that call in but aren't schools — couriers, delivery, vendors,
+              personal, spam. Tagged numbers never show up as a lead or a follow-up.
+            </p>
+            {otherContacts.length === 0 ? (
+              <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
+                <UserRound className="h-9 w-9 text-gray-300 mx-auto mb-2" />
+                <p className="text-gray-500 font-medium text-sm">No other contacts tagged yet</p>
+                <p className="text-xs text-gray-400 mt-1">Tag one from the "Who is X?" dialog on any unmatched call.</p>
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-50">
+                {otherContacts.map(c => (
+                  <div key={c.id} className="px-4 py-3 flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-sm font-semibold text-gray-800">{c.phone_last10}</span>
+                        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">{c.category}</span>
+                      </div>
+                      <p className="text-sm text-gray-700 mt-0.5">{c.name}</p>
+                      {c.notes && <p className="text-xs text-gray-400 mt-0.5">{c.notes}</p>}
+                    </div>
+                    <button onClick={() => setEditingContact(c)}
+                      className="text-xs px-2.5 py-1 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">
+                      Edit
+                    </button>
+                    <button onClick={() => untagContact(c.phone_last10)} disabled={busy}
+                      className="text-xs px-2.5 py-1 rounded-lg border border-red-200 text-red-600 hover:bg-red-50">
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </TabsContent>
         </Tabs>
+
+        {/* ── Edit Other Contact dialog ───────────────────────────────────────── */}
+        <Dialog open={!!editingContact} onOpenChange={open => { if (!open) setEditingContact(null); }}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="text-sm">Edit contact — {editingContact?.phone_last10}</DialogTitle>
+            </DialogHeader>
+            {editingContact && (
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs">Name</Label>
+                  <Input value={editingContact.name}
+                    onChange={e => setEditingContact({ ...editingContact, name: e.target.value })} />
+                </div>
+                <div>
+                  <Label className="text-xs">Category</Label>
+                  <Select value={editingContact.category}
+                    onValueChange={v => setEditingContact({ ...editingContact, category: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {OTHER_CONTACT_CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">Notes</Label>
+                  <Textarea value={editingContact.notes ?? ""}
+                    onChange={e => setEditingContact({ ...editingContact, notes: e.target.value })} rows={2} />
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditingContact(null)}>Cancel</Button>
+              <Button onClick={saveContactEdit} disabled={busy || !editingContact?.name.trim()}>Save</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* ── Link / create lead dialog (ported from IncomingCalls) ───────────── */}
         {linkingRow && (
           <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4"
-            onClick={() => setLinkingRow(null)}>
+            onClick={() => { setLinkingRow(null); setTagName(""); setTagCategory("Courier"); }}>
             <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-5 space-y-3" onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold text-sm text-gray-800">
                   Who is {linkingRow.school_phone}?
                 </h3>
-                <button onClick={() => setLinkingRow(null)}><X className="h-4 w-4 text-gray-400" /></button>
+                <button onClick={() => { setLinkingRow(null); setTagName(""); setTagCategory("Courier"); }}><X className="h-4 w-4 text-gray-400" /></button>
               </div>
               <Input autoFocus placeholder="Search school name (CRM + Prospect)…" value={linkSearch}
                 onChange={e => searchCallers(e.target.value)} />
@@ -972,6 +1138,25 @@ export default function CallCenter() {
               <p className="text-[11px] text-gray-400">
                 The number is saved on the record — every future call from it will attach automatically.
               </p>
+
+              <div className="border-t border-gray-100 pt-3 space-y-2">
+                <p className="text-xs font-medium text-gray-600">Not a school? Tag it so it stops showing up as a lead:</p>
+                <div className="flex gap-2">
+                  <Input placeholder="Name (e.g. Blue Dart Courier)" value={tagName}
+                    onChange={e => setTagName(e.target.value)} className="flex-1" />
+                  <Select value={tagCategory} onValueChange={setTagCategory}>
+                    <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {OTHER_CONTACT_CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <button disabled={busy || !tagName.trim()} onClick={tagCurrentAsOtherContact}
+                  className="w-full text-left px-3 py-2.5 rounded-lg border border-dashed border-gray-200 hover:border-amber-300 hover:bg-amber-50 flex items-center gap-2 text-sm text-amber-700 disabled:opacity-40">
+                  <X className="h-3.5 w-3.5 flex-shrink-0" />
+                  Tag as Other Contact — never show as a lead again
+                </button>
+              </div>
             </div>
           </div>
         )}
