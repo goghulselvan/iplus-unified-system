@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Printer, FileDown, Search, X } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
@@ -21,6 +22,8 @@ const PRESETS = [
 ];
 
 const PX_PER_INCH = 96;
+
+const URBAN_BODY_TYPES = ['Municipal Corporation', 'Municipality', 'Town Panchayat', 'Cantonment Board', 'Other'];
 
 type LabelSchool = {
   id: string;
@@ -813,17 +816,22 @@ function CrmLabelMode({ activeProject }: { activeProject: any }) {
 // ─── PROSPECT MODE ────────────────────────────────────────────────────────────
 // Manual trigger: filter → Load Schools → prints all matched. Unchanged UX.
 
-function ProspectLabelMode() {
+function ProspectLabelMode({ activeProjectId }: { activeProjectId: string | null }) {
   const { toast } = useToast();
   const [schools, setSchools] = useState<LabelSchool[]>([]);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
 
   const [stateFilter, setStateFilter] = useState('all');
-  const [districtFilter, setDistrictFilter] = useState('all');
+  const [districtFilters, setDistrictFilters] = useState<string[]>([]);
+  const [locationFilter, setLocationFilter] = useState('all');       // all | Urban | Rural
+  const [urbanBodyFilters, setUrbanBodyFilters] = useState<string[]>([]); // empty = all; else subset of URBAN_BODY_TYPES
+  const [urbanBodyPickerOpen, setUrbanBodyPickerOpen] = useState(false);
+  const [phoneFilter, setPhoneFilter] = useState('all');             // all | has_phone
   const [search, setSearch] = useState('');
   const [stateOptions, setStateOptions] = useState<string[]>([]);
   const [districtOptions, setDistrictOptions] = useState<string[]>([]);
+  const [districtPickerOpen, setDistrictPickerOpen] = useState(false);
 
   const [wIn, setWIn] = useState(3);   // default to the common 3" × 2" sticker
   const [hIn, setHIn] = useState(2);
@@ -844,26 +852,31 @@ function ProspectLabelMode() {
   }, []);
 
   useEffect(() => {
-    setDistrictFilter('all');
+    setDistrictFilters([]);
     if (stateFilter === 'all') { setDistrictOptions([]); return; }
     supabase.rpc('get_prospect_districts', { p_state: stateFilter }).then(({ data }: any) => {
       setDistrictOptions((data as string[]) || []);
     });
   }, [stateFilter]);
 
+  // Reset the urban-body sub-filter whenever Location leaves Urban — it's meaningless outside Urban
+  useEffect(() => {
+    if (locationFilter !== 'Urban') setUrbanBodyFilters([]);
+  }, [locationFilter]);
+
   const fetchSchools = async () => {
     setLoading(true);
     try {
-      let q = supabase
-        .from('prospect_schools' as any)
-        .select('id, ss_no, school_name, address, district, state, pincode, mobile')
-        .order('ss_no');
-
-      if (stateFilter !== 'all') q = (q as any).eq('state', stateFilter);
-      if (districtFilter !== 'all') q = (q as any).eq('district', districtFilter);
-      if (search.trim()) q = (q as any).ilike('school_name', `%${search.trim()}%`);
-
-      const { data, error } = await (q as any).limit(1000);
+      const { data, error } = await supabase.rpc('get_prospect_labels', {
+        p_state: stateFilter === 'all' ? null : stateFilter,
+        p_districts: districtFilters.length ? districtFilters : null,
+        p_school_location: locationFilter === 'all' ? null : locationFilter,
+        p_urban_body_types: urbanBodyFilters.length ? urbanBodyFilters : null,
+        p_phone_only: phoneFilter === 'has_phone',
+        p_search: search.trim() || null,
+        p_limit: 5000,
+        p_project_id: activeProjectId,
+      } as any);
       if (error) throw error;
 
       const normalised: LabelSchool[] = (data || []).map((r: any) => ({
@@ -884,30 +897,41 @@ function ProspectLabelMode() {
     }
   };
 
-  // Progress (printed vs total) for the selected state
+  // Same filters as fetchSchools/printNextBatch, minus pagination/unprinted flags
+  const labelFilterParams = (state: string) => ({
+    p_state: state,
+    p_districts: districtFilters.length ? districtFilters : null,
+    p_school_location: locationFilter === 'all' ? null : locationFilter,
+    p_urban_body_types: urbanBodyFilters.length ? urbanBodyFilters : null,
+    p_phone_only: phoneFilter === 'has_phone',
+    p_search: search.trim() || null,
+    p_project_id: activeProjectId,
+  });
+
+  // Progress (printed vs total) for the selected state, under the current filters
   const loadProgress = async (state: string) => {
     if (state === 'all') { setProgress(null); return; }
-    const [totalRes, printedRes] = await Promise.all([
-      supabase.from('prospect_schools' as any).select('id', { count: 'exact', head: true }).eq('state', state),
-      supabase.from('prospect_schools' as any).select('id', { count: 'exact', head: true }).eq('state', state).not('label_printed_at', 'is', null),
+    const base = labelFilterParams(state);
+    const [totalRes, remainingRes] = await Promise.all([
+      supabase.rpc('get_prospect_labels', { ...base, p_only_unprinted: false, p_limit: 200000 } as any, { count: 'exact', head: true } as any),
+      supabase.rpc('get_prospect_labels', { ...base, p_only_unprinted: true, p_limit: 200000 } as any, { count: 'exact', head: true } as any),
     ]);
-    setProgress({ total: (totalRes as any).count ?? 0, printed: (printedRes as any).count ?? 0 });
+    const total = (totalRes as any).count ?? 0;
+    const remaining = (remainingRes as any).count ?? 0;
+    setProgress({ total, printed: total - remaining });
   };
-  useEffect(() => { loadProgress(stateFilter); }, [stateFilter]);
+  useEffect(() => { loadProgress(stateFilter); }, [stateFilter, districtFilters, locationFilter, urbanBodyFilters, phoneFilter, search, activeProjectId]);
 
   // Fetch the next unprinted batch for the state, build the PDF, then mark printed.
   const printNextBatch = async () => {
     if (stateFilter === 'all') { toast({ title: 'Pick a state first', variant: 'destructive' }); return; }
     setGenerating(true);
     try {
-      let q = supabase.from('prospect_schools' as any)
-        .select('id, ss_no, school_name, address, district, state, pincode, mobile')
-        .eq('state', stateFilter)
-        .is('label_printed_at', null)
-        .order('ss_no')
-        .limit(batchSize);
-      if (districtFilter !== 'all') q = (q as any).eq('district', districtFilter);
-      const { data, error } = await (q as any);
+      const { data, error } = await supabase.rpc('get_prospect_labels', {
+        ...labelFilterParams(stateFilter),
+        p_only_unprinted: true,
+        p_limit: batchSize,
+      } as any);
       if (error) throw error;
       const batch: LabelSchool[] = ((data || []) as any[]).map(r => ({
         ...r, phones: collectPhones(r.mobile),
@@ -956,12 +980,99 @@ function ProspectLabelMode() {
             </Select>
           </div>
           <div>
-            <label className="text-xs text-muted-foreground mb-1 block">District</label>
-            <Select value={districtFilter} onValueChange={setDistrictFilter}>
-              <SelectTrigger><SelectValue placeholder="All districts" /></SelectTrigger>
+            <label className="text-xs text-muted-foreground mb-1 block">
+              District {districtFilters.length > 0 && `(${districtFilters.length} selected)`}
+            </label>
+            <Popover open={districtPickerOpen} onOpenChange={setDistrictPickerOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="w-full justify-start font-normal" disabled={!districtOptions.length}>
+                  {districtFilters.length === 0
+                    ? 'All Districts'
+                    : districtFilters.length <= 2
+                      ? districtFilters.join(', ')
+                      : `${districtFilters.length} districts selected`}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-64 p-2" align="start">
+                <div className="flex items-center justify-between px-1 pb-2">
+                  <button className="text-xs text-indigo-600 hover:underline" onClick={() => setDistrictFilters(districtOptions)}>Select all</button>
+                  <button className="text-xs text-muted-foreground hover:underline" onClick={() => setDistrictFilters([])}>Clear</button>
+                </div>
+                <div className="max-h-64 overflow-y-auto space-y-1">
+                  {districtOptions.map(d => {
+                    const checked = districtFilters.includes(d);
+                    return (
+                      <label key={d} className="flex items-center gap-2 px-1 py-1 rounded hover:bg-gray-50 cursor-pointer text-sm">
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={(v) => setDistrictFilters(prev =>
+                            v ? [...prev, d] : prev.filter(x => x !== d))}
+                        />
+                        {d}
+                      </label>
+                    );
+                  })}
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">School Location</label>
+            <Select value={locationFilter} onValueChange={setLocationFilter}>
+              <SelectTrigger><SelectValue placeholder="All" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Districts</SelectItem>
-                {districtOptions.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="Urban">Urban</SelectItem>
+                <SelectItem value="Rural">Rural</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {locationFilter === 'Urban' && (
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">
+                Urban Body Type {urbanBodyFilters.length > 0 && `(${urbanBodyFilters.length} selected)`}
+              </label>
+              <Popover open={urbanBodyPickerOpen} onOpenChange={setUrbanBodyPickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-start font-normal">
+                    {urbanBodyFilters.length === 0
+                      ? 'All'
+                      : urbanBodyFilters.length <= 2
+                        ? urbanBodyFilters.join(', ')
+                        : `${urbanBodyFilters.length} types selected`}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-64 p-2" align="start">
+                  <div className="flex items-center justify-between px-1 pb-2">
+                    <button className="text-xs text-indigo-600 hover:underline" onClick={() => setUrbanBodyFilters(URBAN_BODY_TYPES)}>Select all</button>
+                    <button className="text-xs text-muted-foreground hover:underline" onClick={() => setUrbanBodyFilters([])}>Clear</button>
+                  </div>
+                  <div className="space-y-1">
+                    {URBAN_BODY_TYPES.map(t => {
+                      const checked = urbanBodyFilters.includes(t);
+                      return (
+                        <label key={t} className="flex items-center gap-2 px-1 py-1 rounded hover:bg-gray-50 cursor-pointer text-sm">
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={(v) => setUrbanBodyFilters(prev =>
+                              v ? [...prev, t] : prev.filter(x => x !== t))}
+                          />
+                          {t === 'Municipal Corporation' ? 'Municipal Corporation (main city)' : t}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+          )}
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Phone Number</label>
+            <Select value={phoneFilter} onValueChange={setPhoneFilter}>
+              <SelectTrigger><SelectValue placeholder="All" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="has_phone">Has valid mobile only</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -1136,7 +1247,7 @@ export function AddressLabelPrintPage({ source }: Props) {
           ? <CrmLabelMode activeProject={activeProject} />
           : <p className="text-amber-600 text-sm">No active project selected — switch project to load schools.</p>
       ) : (
-        <ProspectLabelMode />
+        <ProspectLabelMode activeProjectId={activeProject?.id ?? null} />
       )}
     </div>
   );

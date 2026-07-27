@@ -58,7 +58,7 @@ type QueueRow = {
 };
 
 type StaffProfile = { user_id: string; full_name: string | null; username: string };
-type CallerHit = { source: "crm" | "prospect"; id: string; school_name: string; district: string | null; state: string | null };
+type CallerHit = { source: "crm" | "prospect"; id: string; school_name: string; ss_no: number | null; district: string | null; state: string | null };
 type OtherContact = { id: string; phone_last10: string; name: string; category: string; notes: string | null };
 
 const OTHER_CONTACT_CATEGORIES = ["Courier", "Delivery", "Vendor", "Personal", "Spam", "Other"];
@@ -1107,7 +1107,7 @@ export default function CallCenter() {
                 </h3>
                 <button onClick={() => { setLinkingRow(null); setTagName(""); setTagCategory("Courier"); }}><X className="h-4 w-4 text-gray-400" /></button>
               </div>
-              <Input autoFocus placeholder="Search school name (CRM + Prospect)…" value={linkSearch}
+              <Input autoFocus placeholder="Search school name or SS No (CRM + Prospect)…" value={linkSearch}
                 onChange={e => searchCallers(e.target.value)} />
               <div className="max-h-72 overflow-y-auto divide-y divide-gray-50">
                 {searching && <p className="text-xs text-gray-400 py-3 text-center">Searching…</p>}
@@ -1116,7 +1116,10 @@ export default function CallCenter() {
                     className="w-full text-left px-3 py-2.5 hover:bg-indigo-50 rounded-lg flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-gray-800 truncate">{h.school_name}</p>
-                      <p className="text-xs text-gray-400 truncate">{[h.district, h.state].filter(Boolean).join(", ")}</p>
+                      <p className="text-xs text-gray-400 truncate">
+                        {h.ss_no != null && <span className="font-medium text-gray-500">SS #{h.ss_no} · </span>}
+                        {[h.district, h.state].filter(Boolean).join(", ")}
+                      </p>
                     </div>
                     <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-[10px] font-medium ${
                       h.source === "crm" ? "bg-indigo-100 text-indigo-700" : "bg-gray-100 text-gray-600"}`}>
