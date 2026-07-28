@@ -1,4 +1,4 @@
-# Book Sales Module (Products + Invoicing) — Design
+# Sales Module (Products + Invoicing) — Design
 
 **Date:** 2026-07-28
 **Status:** Approved by Goghul (chat, 5 decisions answered; revised same day with role-based
@@ -15,8 +15,8 @@ of something already proven in this CRM.
 
 ## Decisions (final — do not re-ask)
 
-1. **Third `ModuleSelect.tsx` tile — "Book Sales"** → `/booksales`. Own layout
-   (`BookSalesLayout.tsx`, mirrors `ProspectLayout.tsx`), two nav items: **Products**,
+1. **Third `ModuleSelect.tsx` tile — "Sales"** → `/sales`. Own layout
+   (`SalesLayout.tsx`, mirrors `ProspectLayout.tsx`), two nav items: **Products**,
    **Invoices**. No dedicated Stock page — stock is a column on the Products page, edited via
    the same "Edit Product" dialog as everything else (Goghul confirmed: Products page is enough).
 2. **GST type auto-detected by buyer's state**, not a fixed choice: buyer state = Tamil Nadu →
@@ -28,7 +28,7 @@ of something already proven in this CRM.
    per-product configurable — YAGNI unless it proves necessary).
 4. **Invoices are a persistent ledger**, not a one-off generate-and-download tool: every
    invoice gets a permanent auto-number (same per-FY pattern as receipts), is saved to the DB,
-   and shows up in a searchable history per school. This is the actual book-sales sales record,
+   and shows up in a searchable history per school. This is the actual sales record,
    not just a PDF utility. Superadmin/Accountant can also **edit** an existing invoice's buyer
    details and line items after creation (see decision #9) — this is not the immutable-ledger
    model an earlier draft of this spec assumed; revised per Goghul's explicit ask.
@@ -47,7 +47,7 @@ of something already proven in this CRM.
 7. **Payment Method is a required field on every invoice**: a dropdown with exactly three
    options — **Cash Deposit**, **UPI**, **Online Transfer**. Deliberately narrower than (and
    separate from) registration payments' 6-option `payment_mode` list (Cash/Cheque/Online
-   Transfer/UPI/Credit Card/Debit Card) — book-sales payments only come in these three forms.
+   Transfer/UPI/Credit Card/Debit Card) — sales payments only come in these three forms.
 8. **Void ≠ Delete — different actions for GST-audit reasons.** *Void* sets `status='void'`
    with a required `void_reason`, keeps the row and its invoice number visible in the list
    (excluded from any future sales-total reporting) — the invoice number sequence stays
@@ -163,13 +163,13 @@ of something already proven in this CRM.
 
 ## UI
 
-### `src/pages/BookSales/ProductsPage.tsx` — route `/booksales/products`
+### `src/pages/Sales/ProductsPage.tsx` — route `/sales/products`
 - Table: Name / HSN-SAC / GST Rate / Unit Price / Stock / Active — low-stock badge (red) when
   `stock_quantity < 5`.
 - "Add Product" dialog: Name, HSN/SAC, GST rate (dropdown: 0/5/12/18/28%), Unit Price, Initial
   Stock Qty. Same dialog reused for editing (prefilled).
 
-### `src/pages/BookSales/InvoicesPage.tsx` — route `/booksales/invoices`
+### `src/pages/Sales/InvoicesPage.tsx` — route `/sales/invoices`
 - List: Invoice No. (`INV/{fy}-{fy+1}/{seq}`) / Date / School (name + CRM-or-Prospect badge,
   same badge style as Call Center's Link dialog) / Grand Total / Payment Method / Status
   (Paid/Unpaid/Void badge) / Download PDF button.
@@ -189,7 +189,7 @@ of something already proven in this CRM.
     warning it's permanent and will leave a number-sequence gap, then direct
     `.from('invoices').delete()`).
 - "+ New Invoice" (all roles) and "Edit" (superadmin/accountant) both open
-  `src/pages/BookSales/InvoiceDialog.tsx` — one shared dialog, prefilled when editing:
+  `src/pages/Sales/InvoiceDialog.tsx` — one shared dialog, prefilled when editing:
   1. School search box (name or SS No) hitting `search_schools_for_invoice` — CRM and Prospect
      results badge-differentiated, same pattern as Call Center's Link dialog. Disabled/locked
      when editing (the buyer isn't reassignable after creation — only their snapshotted
@@ -224,9 +224,9 @@ of something already proven in this CRM.
 
 ### Module registration
 - New tile in `src/pages/ModuleSelect.tsx` (third grid item, own gradient color).
-- New routes in `src/App.tsx`: `/booksales/products`, `/booksales/invoices`, each wrapped in
+- New routes in `src/App.tsx`: `/sales/products`, `/sales/invoices`, each wrapped in
   `<ProtectedRoute>` same as every other module route.
-- `BookSalesLayout.tsx` — top nav with Products/Invoices links, mirrors `ProspectLayout.tsx`.
+- `SalesLayout.tsx` — top nav with Products/Invoices links, mirrors `ProspectLayout.tsx`.
 
 ## Out of scope (explicitly, per YAGNI)
 
