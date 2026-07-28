@@ -48,6 +48,8 @@ import ProspectCampaignNew from "./pages/ProspectCampaignNew";
 import ProspectCampaignDetail from "./pages/ProspectCampaignDetail";
 import ProspectBulkWhatsApp from "./pages/ProspectBulkWhatsApp";
 import ProspectVoiceCampaigns from "./pages/ProspectVoiceCampaigns";
+import ProductsPage from "./pages/Sales/ProductsPage";
+import InvoicesPage from "./pages/Sales/InvoicesPage";
 import NotFound from "./pages/NotFound";
 import { RegistrationFormatProvider } from "@/contexts/RegistrationFormatContext";
 import { useActiveProject } from "@/hooks/useOlympiadProjects";
@@ -357,6 +359,9 @@ const AppContent = () => {
          } />
          <Route path="/prospect/campaigns/new" element={<ProtectedRoute><ProspectCampaignNew /></ProtectedRoute>} />
          <Route path="/prospect/campaigns/:id" element={<ProtectedRoute><ProspectCampaignDetail /></ProtectedRoute>} />
+         <Route path="/sales" element={<ProtectedRoute><Navigate to="/sales/invoices" replace /></ProtectedRoute>} />
+         <Route path="/sales/products" element={<ProtectedRoute><ProductsPage /></ProtectedRoute>} />
+         <Route path="/sales/invoices" element={<ProtectedRoute><InvoicesPage /></ProtectedRoute>} />
          <Route path="*" element={<NotFound />} />
         </Routes>
       </RegistrationFormatProvider>
