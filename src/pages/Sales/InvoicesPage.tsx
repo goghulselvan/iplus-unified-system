@@ -106,8 +106,8 @@ export default function InvoicesPage() {
 
   const handleDownload = async (id: string) => {
     const { data: inv } = await supabase.from('invoices' as any).select('*').eq('id', id).single();
-    const { data: items } = await supabase.from('invoice_line_items' as any).select('*').eq('invoice_id', id).order('row_order');
-    if (!inv) { toast({ title: 'Error loading invoice', variant: 'destructive' }); return; }
+    const { data: items, error: itemsError } = await supabase.from('invoice_line_items' as any).select('*').eq('invoice_id', id).order('row_order');
+    if (!inv || itemsError) { toast({ title: 'Error loading invoice', variant: 'destructive' }); return; }
     const invAny = inv as any;
     const blob = await generateInvoice({
       invoiceNumber: invAny.invoice_number,
