@@ -109,30 +109,34 @@ export default function InvoicesPage() {
     const { data: items, error: itemsError } = await supabase.from('invoice_line_items' as any).select('*').eq('invoice_id', id).order('row_order');
     if (!inv || itemsError) { toast({ title: 'Error loading invoice', variant: 'destructive' }); return; }
     const invAny = inv as any;
-    const blob = await generateInvoice({
-      invoiceNumber: invAny.invoice_number,
-      fy: invAny.fy,
-      invoiceDate: new Date(invAny.created_at),
-      buyerName: invAny.buyer_name,
-      buyerSsNo: null,
-      buyerAddress: invAny.buyer_address,
-      buyerState: invAny.buyer_state,
-      buyerGstin: invAny.buyer_gstin,
-      paymentMethod: invAny.payment_method,
-      status: invAny.status,
-      lineItems: ((items || []) as any[]).map(li => ({
-        itemName: li.item_name, hsnCode: li.hsn_code, gstRate: li.gst_rate,
-        quantity: li.quantity, unitPrice: li.unit_price, lineTotal: li.line_total,
-      })),
-      subtotal: invAny.subtotal, cgstAmount: invAny.cgst_amount, sgstAmount: invAny.sgst_amount,
-      igstAmount: invAny.igst_amount, grandTotal: invAny.grand_total,
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Invoice_INV-${invAny.fy}-${invAny.fy + 1}-${invAny.invoice_number}.pdf`;
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      const blob = await generateInvoice({
+        invoiceNumber: invAny.invoice_number,
+        fy: invAny.fy,
+        invoiceDate: new Date(invAny.created_at),
+        buyerName: invAny.buyer_name,
+        buyerSsNo: null,
+        buyerAddress: invAny.buyer_address,
+        buyerState: invAny.buyer_state,
+        buyerGstin: invAny.buyer_gstin,
+        paymentMethod: invAny.payment_method,
+        status: invAny.status,
+        lineItems: ((items || []) as any[]).map(li => ({
+          itemName: li.item_name, hsnCode: li.hsn_code, gstRate: li.gst_rate,
+          quantity: li.quantity, unitPrice: li.unit_price, lineTotal: li.line_total,
+        })),
+        subtotal: invAny.subtotal, cgstAmount: invAny.cgst_amount, sgstAmount: invAny.sgst_amount,
+        igstAmount: invAny.igst_amount, grandTotal: invAny.grand_total,
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Invoice_INV-${invAny.fy}-${invAny.fy + 1}-${invAny.invoice_number}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      toast({ title: 'Failed to generate PDF', description: e?.message || 'Unknown error', variant: 'destructive' });
+    }
   };
 
   const handleSaved = async (result: { id: string; low_stock_warnings?: any[] }) => {
