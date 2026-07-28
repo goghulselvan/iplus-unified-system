@@ -33,9 +33,9 @@ of something already proven in this CRM.
    details and line items after creation (see decision #9) — this is not the immutable-ledger
    model an earlier draft of this spec assumed; revised per Goghul's explicit ask.
 5. **Role-based access on Invoices — the first enforced-in-code role restriction in this CRM.**
-   Superadmin and Accountant: create, edit, delete, void. Manager: **create only** — cannot
-   edit, delete, void, or even mark an existing invoice paid once it exists. Enforced via RLS +
-   an explicit role check inside the write RPCs (RPCs are SECURITY DEFINER and bypass table RLS
+   Superadmin and Accountant: create, edit, delete, void. Manager: **create and mark-as-paid
+   only** — cannot edit line items/buyer details, delete, or void. Enforced via RLS + an
+   explicit role check inside the write RPCs (RPCs are SECURITY DEFINER and bypass table RLS
    entirely, so the check has to live in the function body too, not just the policy).
    **Working assumption: this restriction applies to Invoices only.** Products (the catalog)
    stays open to all CRM roles for full CRUD, same as decision #3 always intended — it's
@@ -84,16 +84,19 @@ of something already proven in this CRM.
 - `status text NOT NULL DEFAULT 'unpaid'` (`unpaid` | `paid` | `void`), `paid_at timestamptz NULL`
 - `void_reason text NULL`, `voided_by uuid NULL`, `voided_at timestamptz NULL`
 - `created_by uuid`, `created_at timestamptz DEFAULT now()`
-- RLS: SELECT/INSERT via `is_crm_user()` (any of the 3 roles can view and create). UPDATE and
-  DELETE additionally require `EXISTS (SELECT 1 FROM profiles WHERE user_id = auth.uid() AND
-  role IN ('superadmin','accountant'))` — a manager's direct table write attempt is rejected by
-  Postgres itself, not just hidden in the UI.
-- Editing/voiding go through RPCs (`update_invoice`, `void_invoice` — SECURITY DEFINER, so they
-  **bypass table RLS entirely**); each RPC repeats the same role check explicitly in its own
-  body before writing anything, so the restriction holds regardless of which path is used.
-  Delete does not need an RPC (no computed fields, no multi-table transaction beyond the
-  existing `ON DELETE CASCADE` to `invoice_line_items`) — the client calls
-  `.from('invoices').delete()` directly and table RLS is sufficient.
+- RLS: SELECT/INSERT via `is_crm_user()` (any of the 3 roles can view and create). Raw table
+  UPDATE and DELETE require `EXISTS (SELECT 1 FROM profiles WHERE user_id = auth.uid() AND role
+  IN ('superadmin','accountant'))` — this is a defense-in-depth backstop, since **every actual
+  mutation path goes through an RPC, never a raw client `.update()`/`.delete()` call**, and each
+  RPC enforces its own, more granular role check (see below) rather than relying on this policy
+  alone. A manager's direct table write attempt would be rejected by Postgres itself either way.
+- Editing/voiding/mark-paid go through RPCs (`update_invoice`, `void_invoice`,
+  `mark_invoice_paid` — all SECURITY DEFINER, so they **bypass table RLS entirely**); each RPC
+  checks the role it actually requires in its own body — `update_invoice`/`void_invoice` require
+  superadmin/accountant, `mark_invoice_paid` allows any of the 3 roles (decision #5). Delete
+  doesn't need an RPC (no computed fields, no multi-table transaction beyond the existing
+  `ON DELETE CASCADE` to `invoice_line_items`) — the client calls `.from('invoices').delete()`
+  directly and the table's own RLS (superadmin/accountant only) is what actually enforces it.
 
 ### `invoice_line_items`
 - `id uuid PK`, `invoice_id uuid NOT NULL REFERENCES invoices(id) ON DELETE CASCADE`
@@ -144,6 +147,13 @@ of something already proven in this CRM.
   `voided_at=now()`. Does not touch line items, amounts, or the invoice number — the row stays
   fully visible in history, just excluded from sales totals (decision #8).
 
+### RPC `mark_invoice_paid(p_invoice_id uuid, p_paid boolean)`
+- SECURITY DEFINER, checks only `is_crm_user()` — **any of the 3 roles** may call this,
+  including Manager (decision #5's one carve-out). Sets `status='paid'`, `paid_at=now()` when
+  `p_paid=true`, or `status='unpaid'`, `paid_at=null` when `p_paid=false`.
+- Refuses to run if the invoice's current `status='void'` — a voided invoice can't be marked
+  paid by anyone, regardless of role.
+
 ### RPC `search_schools_for_invoice(p_query text, p_limit int DEFAULT 6)`
 - Same shape as today's `search_callers_by_name` (union of `schools` + `prospect_schools`,
   SECURITY DEFINER, matches name OR exact SS No) but additionally returns `address`, `state`,
@@ -173,11 +183,11 @@ of something already proven in this CRM.
   ordering for a numbered ledger).
 - **Row actions, gated by role** (buttons simply don't render for a manager — matched by the
   same RLS/RPC-level checks server-side, so this isn't just a UI nicety):
-  - All roles: Download PDF.
+  - All roles: Download PDF, Mark as Paid/Unpaid toggle (calls `mark_invoice_paid`).
   - Superadmin/Accountant only: Edit (reopens the invoice dialog prefilled), Void (small
     dialog prompting for a required reason, then calls `void_invoice`), Delete (confirm dialog
     warning it's permanent and will leave a number-sequence gap, then direct
-    `.from('invoices').delete()`), Mark as Paid/Unpaid toggle.
+    `.from('invoices').delete()`).
 - "+ New Invoice" (all roles) and "Edit" (superadmin/accountant) both open
   `src/pages/BookSales/InvoiceDialog.tsx` — one shared dialog, prefilled when editing:
   1. School search box (name or SS No) hitting `search_schools_for_invoice` — CRM and Prospect
