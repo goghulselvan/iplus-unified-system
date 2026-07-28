@@ -9,7 +9,7 @@ const json = (b: unknown, status = 200) =>
   new Response(JSON.stringify(b), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
 const DEFAULT_FROM = "iPlus Olympiads <olympiads@news.iplusedu.in>";
-const REPLY_TO = "info@iplusedu.in";
+const REPLY_TO = "contact@iplusedu.in";
 const PROJECT = { name: "iPlus Olympiads", year: "2026" };
 const SEED_SAMPLE = { id: "seed", school_name: "Sample School", principal_name: "the Principal", district: "Your District", state: "Your State", board: "State Board", ss_no: 0 };
 const DEFAULT_RAMP: { days?: number; cap: number }[] = [

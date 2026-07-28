@@ -8,7 +8,7 @@ const json = (b: unknown, status = 200) =>
   new Response(JSON.stringify(b), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
 const DEFAULT_FROM = "iPlus Olympiads <olympiads@news.iplusedu.in>";
-const REPLY_TO = "info@iplusedu.in";
+const REPLY_TO = "contact@iplusedu.in";
 const PROJECT = { name: "iPlus Olympiads", year: "2026" };
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_TEST = 25;
