@@ -15,18 +15,18 @@ const SalesLayout = ({ children }: { children: React.ReactNode }) => {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      <nav className="bg-emerald-700 text-white shadow-lg">
+      <nav className="bg-violet-700 text-white shadow-lg">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-14">
             <div className="flex items-center gap-6">
               <button
                 onClick={() => navigate('/module-select')}
-                className="flex items-center gap-1.5 text-emerald-200 hover:text-white text-sm transition-colors"
+                className="flex items-center gap-1.5 text-violet-200 hover:text-white text-sm transition-colors"
               >
                 <ArrowLeft className="h-4 w-4" />
                 Back
               </button>
-              <div className="h-5 w-px bg-emerald-500" />
+              <div className="h-5 w-px bg-violet-500" />
               <span className="font-semibold text-sm tracking-wide">Sales</span>
               <div className="flex items-center gap-1">
                 {nav.map(({ label, href, icon: Icon }) => (
@@ -35,8 +35,8 @@ const SalesLayout = ({ children }: { children: React.ReactNode }) => {
                     to={href}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                       location.pathname === href
-                        ? 'bg-white text-emerald-700'
-                        : 'text-emerald-100 hover:bg-emerald-600'
+                        ? 'bg-white text-violet-700'
+                        : 'text-violet-100 hover:bg-violet-600'
                     }`}
                   >
                     <Icon className="h-3.5 w-3.5" />
@@ -46,12 +46,12 @@ const SalesLayout = ({ children }: { children: React.ReactNode }) => {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <span className="text-emerald-200 text-sm">{profile?.username}</span>
+              <span className="text-violet-200 text-sm">{profile?.username}</span>
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={signOut}
-                className="text-emerald-200 hover:text-white hover:bg-emerald-600 h-8 w-8 p-0"
+                className="text-violet-200 hover:text-white hover:bg-violet-600 h-8 w-8 p-0"
               >
                 <LogOut className="h-4 w-4" />
               </Button>

@@ -64,7 +64,7 @@ const ModuleSelect = () => {
           {/* Sales tile */}
           <button
             onClick={() => navigate('/sales')}
-            className="group rounded-2xl p-8 text-left text-white shadow-md hover:shadow-2xl hover:scale-[1.02] transition-all duration-200 bg-gradient-to-br from-emerald-600 via-teal-500 to-cyan-400"
+            className="group rounded-2xl p-8 text-left text-white shadow-md hover:shadow-2xl hover:scale-[1.02] transition-all duration-200 bg-gradient-to-br from-violet-600 via-purple-500 to-indigo-400"
           >
             <div className="flex items-center justify-between mb-6">
               <div className="p-3 bg-white/15 backdrop-blur-sm rounded-xl ring-1 ring-white/20">
