@@ -416,7 +416,7 @@ AS $$
     SELECT 'crm', s.id, s.school_name, s.ss_no, s.school_address, s.district, s.state
     FROM schools s
     WHERE s.school_name ILIKE '%' || p_query || '%'
-       OR (p_query ~ '^\d+$' AND s.ss_no = p_query::integer)
+       OR s.ss_no::text = p_query
     ORDER BY (s.ss_no::text = p_query) DESC, s.school_name
     LIMIT p_limit
   )
@@ -425,7 +425,7 @@ AS $$
     SELECT 'prospect', p.id, p.school_name, p.ss_no, p.address, p.district, p.state
     FROM prospect_schools p
     WHERE p.school_name ILIKE '%' || p_query || '%'
-       OR (p_query ~ '^\d+$' AND p.ss_no = p_query::integer)
+       OR p.ss_no::text = p_query
     ORDER BY (p.ss_no::text = p_query) DESC, p.school_name
     LIMIT p_limit
   )
