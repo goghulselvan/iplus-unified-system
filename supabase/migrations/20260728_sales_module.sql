@@ -77,13 +77,15 @@ CREATE TABLE IF NOT EXISTS public.invoice_line_items (
   product_id uuid REFERENCES public.products(id),
   item_name text NOT NULL,
   hsn_code text,
-  gst_rate numeric NOT NULL,
+  gst_rate numeric NOT NULL CHECK (gst_rate IN (0, 5, 12, 18, 28)),
   quantity integer NOT NULL CHECK (quantity > 0),
   unit_price numeric NOT NULL CHECK (unit_price >= 0),
   line_total numeric NOT NULL,
   row_order integer NOT NULL
 );
 ALTER TABLE public.invoice_line_items ENABLE ROW LEVEL SECURITY;
+
+CREATE INDEX IF NOT EXISTS idx_invoice_line_items_invoice_id ON public.invoice_line_items(invoice_id);
 
 DROP POLICY IF EXISTS "invoice_line_items_select" ON public.invoice_line_items;
 CREATE POLICY "invoice_line_items_select" ON public.invoice_line_items FOR SELECT USING (is_crm_user());
@@ -346,6 +348,7 @@ SET search_path = public
 AS $$
 DECLARE
   v_role text;
+  v_status text;
 BEGIN
   SELECT role INTO v_role FROM profiles WHERE user_id = auth.uid();
   IF v_role IS NULL OR v_role NOT IN ('superadmin', 'accountant') THEN
@@ -356,13 +359,17 @@ BEGIN
     RAISE EXCEPTION 'A reason is required to void an invoice';
   END IF;
 
+  SELECT status INTO v_status FROM invoices WHERE id = p_invoice_id;
+  IF v_status IS NULL THEN
+    RAISE EXCEPTION 'Invoice not found';
+  END IF;
+  IF v_status = 'void' THEN
+    RAISE EXCEPTION 'Invoice is already void';
+  END IF;
+
   UPDATE invoices
   SET status = 'void', void_reason = p_reason, voided_by = auth.uid(), voided_at = now()
   WHERE id = p_invoice_id;
-
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'Invoice not found';
-  END IF;
 END;
 $$;
 
