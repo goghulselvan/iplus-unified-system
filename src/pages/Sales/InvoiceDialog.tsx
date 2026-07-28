@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -50,6 +50,7 @@ export type EditingInvoice = {
 };
 
 const PAYMENT_METHODS = ['Cash Deposit', 'UPI', 'Online Transfer'];
+const GST_RATES = [0, 5, 12, 18, 28];
 
 function emptyLine(): LineItemForm {
   return { product_id: null, item_name: '', hsn_code: '', gst_rate: 18, quantity: 1, unit_price: 0 };
@@ -80,6 +81,7 @@ export default function InvoiceDialog({ open, onOpenChange, editingInvoice, onSa
   const [products, setProducts] = useState<Product[]>([]);
   const [lineItems, setLineItems] = useState<LineItemForm[]>([emptyLine()]);
   const [saving, setSaving] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
     if (!open) return;
@@ -114,10 +116,13 @@ export default function InvoiceDialog({ open, onOpenChange, editingInvoice, onSa
   const searchSchools = async (q: string) => {
     setSchoolQuery(q);
     if (q.trim().length < 2) { setSchoolHits([]); return; }
-    setSearching(true);
-    const { data } = await supabase.rpc('search_schools_for_invoice' as any, { p_query: q.trim(), p_limit: 6 });
-    setSchoolHits((data as SchoolHit[]) ?? []);
-    setSearching(false);
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      setSearching(true);
+      const { data } = await supabase.rpc('search_schools_for_invoice' as any, { p_query: q.trim(), p_limit: 6 });
+      setSchoolHits((data as SchoolHit[]) ?? []);
+      setSearching(false);
+    }, 300);
   };
 
   const pickSchool = (hit: SchoolHit) => {
@@ -281,16 +286,19 @@ export default function InvoiceDialog({ open, onOpenChange, editingInvoice, onSa
                           {products.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
                         </SelectContent>
                       </Select>
-                      <Input className="h-8" placeholder="Item name" value={l.item_name} onChange={e => updateRow(idx, { item_name: e.target.value })} />
+                      <Input className="h-8" placeholder="Item name" value={l.item_name} onChange={e => updateRow(idx, { item_name: e.target.value })} disabled={!!l.product_id} />
                     </td>
                     <td className="px-2 py-1.5">
-                      <Input className="h-8" type="number" value={l.gst_rate} onChange={e => updateRow(idx, { gst_rate: Number(e.target.value) })} />
+                      <Select value={String(l.gst_rate)} onValueChange={v => updateRow(idx, { gst_rate: Number(v) })}>
+                        <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                        <SelectContent>{GST_RATES.map(r => <SelectItem key={r} value={String(r)}>{r}%</SelectItem>)}</SelectContent>
+                      </Select>
                     </td>
                     <td className="px-2 py-1.5">
                       <Input className="h-8" type="number" min="0" step="0.01" value={l.unit_price} onChange={e => updateRow(idx, { unit_price: Number(e.target.value) })} />
                     </td>
                     <td className="px-2 py-1.5">
-                      <Input className="h-8" type="number" min="1" value={l.quantity} onChange={e => updateRow(idx, { quantity: Number(e.target.value) })} />
+                      <Input className="h-8" type="number" min="1" step="1" value={l.quantity} onChange={e => updateRow(idx, { quantity: Math.max(1, Math.round(Number(e.target.value) || 1)) })} />
                     </td>
                     <td className="px-2 py-1.5 text-right font-medium">₹{(l.quantity * l.unit_price).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                     <td className="px-2 py-1.5">
