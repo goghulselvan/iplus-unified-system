@@ -58,6 +58,16 @@ function splitTextIntoLines(text: string, font: PDFFont, fontSize: number, maxWi
 
 const fmtINR = (n: number) => `Rs. ${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+function sanitizeForPdf(text: string): string {
+  return (text || '')
+    .replace(/['']/g, "'")
+    .replace(/[""]/g, '"')
+    .replace(/[–—]/g, '-')
+    .replace(/\s+/g, ' ')
+    .replace(/[^\x20-\x7E¡-ÿ]/g, '?')
+    .trim();
+}
+
 export async function generateInvoice(data: InvoiceData): Promise<Blob> {
   const pdfDoc = await PDFDocument.create();
   const W = 595.28, H = 841.89; // A4 portrait
@@ -136,7 +146,7 @@ export async function generateInvoice(data: InvoiceData): Promise<Blob> {
   let by = divider2Y - 18;
   page.drawText('BILL TO', { x: MARGIN, y: by, size: 7.5, font: fontBold, color: MUTED });
   by -= 16;
-  const nameLines = splitTextIntoLines(data.buyerName, fontBold, 13, W - 2 * MARGIN);
+  const nameLines = splitTextIntoLines(sanitizeForPdf(data.buyerName), fontBold, 13, W - 2 * MARGIN);
   for (const line of nameLines) {
     page.drawText(line, { x: MARGIN, y: by, size: 13, font: fontBold, color: TEXT_DARK });
     by -= 16;
@@ -146,15 +156,15 @@ export async function generateInvoice(data: InvoiceData): Promise<Blob> {
     by -= 13;
   }
   if (data.buyerAddress) {
-    for (const line of splitTextIntoLines(data.buyerAddress, font, 9, W - 2 * MARGIN)) {
+    for (const line of splitTextIntoLines(sanitizeForPdf(data.buyerAddress), font, 9, W - 2 * MARGIN)) {
       page.drawText(line, { x: MARGIN, y: by, size: 9, font, color: MUTED });
       by -= 12;
     }
   }
-  page.drawText(data.buyerState, { x: MARGIN, y: by, size: 9, font, color: MUTED });
+  page.drawText(sanitizeForPdf(data.buyerState), { x: MARGIN, y: by, size: 9, font, color: MUTED });
   by -= 12;
   if (data.buyerGstin) {
-    page.drawText(`GSTIN: ${data.buyerGstin}`, { x: MARGIN, y: by, size: 9, font, color: MUTED });
+    page.drawText(`GSTIN: ${sanitizeForPdf(data.buyerGstin)}`, { x: MARGIN, y: by, size: 9, font, color: MUTED });
     by -= 12;
   }
 
@@ -192,9 +202,12 @@ export async function generateInvoice(data: InvoiceData): Promise<Blob> {
     }
     const textY = rowY + actualRowH / 2 - rowFontSize / 2.6;
     page.drawText(String(idx + 1), { x: colX[0] + 4, y: textY, size: rowFontSize, font, color: TEXT_DARK });
-    const itemLines = splitTextIntoLines(item.itemName, font, rowFontSize, cols[1].w - 8);
-    page.drawText(itemLines[0], { x: colX[1] + 4, y: textY, size: rowFontSize, font, color: TEXT_DARK });
-    page.drawText(item.hsnCode || '—', { x: colX[2] + 4, y: textY, size: rowFontSize, font, color: MUTED });
+    const itemLines = splitTextIntoLines(sanitizeForPdf(item.itemName), font, rowFontSize, cols[1].w - 8);
+    const displayName = itemLines.length > 1
+      ? itemLines[0].replace(/\s*\S*$/, '') + '…'
+      : itemLines[0];
+    page.drawText(displayName, { x: colX[1] + 4, y: textY, size: rowFontSize, font, color: TEXT_DARK });
+    page.drawText(sanitizeForPdf(item.hsnCode || '—'), { x: colX[2] + 4, y: textY, size: rowFontSize, font, color: MUTED });
     page.drawText(String(item.quantity), { x: colX[3] + 4, y: textY, size: rowFontSize, font, color: TEXT_DARK });
     page.drawText(fmtINR(item.unitPrice), { x: colX[4] + 4, y: textY, size: rowFontSize, font, color: TEXT_DARK });
     page.drawText(fmtINR(item.lineTotal), { x: colX[5] + 4, y: textY, size: rowFontSize, font: fontBold, color: TEXT_DARK });
