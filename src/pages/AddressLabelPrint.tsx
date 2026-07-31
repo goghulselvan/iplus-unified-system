@@ -24,6 +24,7 @@ const PRESETS = [
 const PX_PER_INCH = 96;
 
 const URBAN_BODY_TYPES = ['Municipal Corporation', 'Municipality', 'Town Panchayat', 'Cantonment Board', 'Other'];
+const BOARD_OPTIONS = ['State Board', 'Matriculation', 'CBSE', 'ICSE', 'International Board'];
 
 type LabelSchool = {
   id: string;
@@ -824,6 +825,7 @@ function ProspectLabelMode({ activeProjectId }: { activeProjectId: string | null
 
   const [stateFilter, setStateFilter] = useState('all');
   const [districtFilters, setDistrictFilters] = useState<string[]>([]);
+  const [boardFilter, setBoardFilter] = useState('all');
   const [locationFilter, setLocationFilter] = useState('all');       // all | Urban | Rural
   const [urbanBodyFilters, setUrbanBodyFilters] = useState<string[]>([]); // empty = all; else subset of URBAN_BODY_TYPES
   const [urbanBodyPickerOpen, setUrbanBodyPickerOpen] = useState(false);
@@ -876,6 +878,7 @@ function ProspectLabelMode({ activeProjectId }: { activeProjectId: string | null
         p_search: search.trim() || null,
         p_limit: 5000,
         p_project_id: activeProjectId,
+        p_board: boardFilter === 'all' ? null : boardFilter,
       } as any);
       if (error) throw error;
 
@@ -906,6 +909,7 @@ function ProspectLabelMode({ activeProjectId }: { activeProjectId: string | null
     p_phone_only: phoneFilter === 'has_phone',
     p_search: search.trim() || null,
     p_project_id: activeProjectId,
+    p_board: boardFilter === 'all' ? null : boardFilter,
   });
 
   // Progress (printed vs total) for the selected state, under the current filters.
@@ -934,7 +938,7 @@ function ProspectLabelMode({ activeProjectId }: { activeProjectId: string | null
     const remaining = (remainingRes.data as number) ?? 0;
     setProgress({ total, printed: total - remaining });
   };
-  useEffect(() => { loadProgress(stateFilter); }, [stateFilter, districtFilters, locationFilter, urbanBodyFilters, phoneFilter, search, activeProjectId]);
+  useEffect(() => { loadProgress(stateFilter); }, [stateFilter, districtFilters, boardFilter, locationFilter, urbanBodyFilters, phoneFilter, search, activeProjectId]);
 
   // Fetch the next unprinted batch for the state, build the PDF, then mark printed.
   const printNextBatch = async () => {
@@ -1029,6 +1033,16 @@ function ProspectLabelMode({ activeProjectId }: { activeProjectId: string | null
                 </div>
               </PopoverContent>
             </Popover>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Board</label>
+            <Select value={boardFilter} onValueChange={setBoardFilter}>
+              <SelectTrigger><SelectValue placeholder="All Boards" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Boards</SelectItem>
+                {BOARD_OPTIONS.map(b => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
           <div>
             <label className="text-xs text-muted-foreground mb-1 block">School Location</label>
