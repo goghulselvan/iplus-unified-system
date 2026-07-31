@@ -908,16 +908,30 @@ function ProspectLabelMode({ activeProjectId }: { activeProjectId: string | null
     p_project_id: activeProjectId,
   });
 
-  // Progress (printed vs total) for the selected state, under the current filters
+  // Progress (printed vs total) for the selected state, under the current filters.
+  // Uses a dedicated count RPC (normal POST call) rather than
+  // { count: 'exact', head: true } on get_prospect_labels -- that combination
+  // was silently failing (likely the p_districts text[] arg not surviving
+  // GET/HEAD query-string encoding) with no error check on the result, so any
+  // filtered state showed a false "0 printed · 0 remaining · 0 total".
   const loadProgress = async (state: string) => {
     if (state === 'all') { setProgress(null); return; }
     const base = labelFilterParams(state);
     const [totalRes, remainingRes] = await Promise.all([
-      supabase.rpc('get_prospect_labels', { ...base, p_only_unprinted: false, p_limit: 200000 } as any, { count: 'exact', head: true } as any),
-      supabase.rpc('get_prospect_labels', { ...base, p_only_unprinted: true, p_limit: 200000 } as any, { count: 'exact', head: true } as any),
+      supabase.rpc('get_prospect_labels_count', { ...base, p_only_unprinted: false } as any),
+      supabase.rpc('get_prospect_labels_count', { ...base, p_only_unprinted: true } as any),
     ]);
-    const total = (totalRes as any).count ?? 0;
-    const remaining = (remainingRes as any).count ?? 0;
+    if (totalRes.error || remainingRes.error) {
+      toast({
+        title: 'Error',
+        description: (totalRes.error || remainingRes.error)?.message || 'Failed to load print progress',
+        variant: 'destructive',
+      });
+      setProgress(null);
+      return;
+    }
+    const total = (totalRes.data as number) ?? 0;
+    const remaining = (remainingRes.data as number) ?? 0;
     setProgress({ total, printed: total - remaining });
   };
   useEffect(() => { loadProgress(stateFilter); }, [stateFilter, districtFilters, locationFilter, urbanBodyFilters, phoneFilter, search, activeProjectId]);
@@ -1190,7 +1204,9 @@ function ProspectLabelMode({ activeProjectId }: { activeProjectId: string | null
             <div className="px-4 py-3 border-b flex items-center justify-between">
               <p className="font-semibold text-sm">Schools matched</p>
               <Badge variant="secondary">
-                {schools.length}{schools.length === 1000 ? ' (max 1000 per load)' : ''}
+                {progress && progress.total !== schools.length
+                  ? `${progress.total.toLocaleString()} match filters — showing ${schools.length.toLocaleString()}${schools.length === 1000 ? ' (max 1000 per load)' : ''}`
+                  : `${schools.length}${schools.length === 1000 ? ' (max 1000 per load)' : ''}`}
               </Badge>
             </div>
             <div className="max-h-96 overflow-y-auto divide-y">
