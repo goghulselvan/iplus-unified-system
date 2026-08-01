@@ -844,6 +844,32 @@ function ProspectLabelMode({ activeProjectId }: { activeProjectId: string | null
   // Batch printing with printed-tracking (whole-state runs across multiple rolls)
   const [batchSize, setBatchSize] = useState(1000);
   const [progress, setProgress] = useState<{ total: number; printed: number } | null>(null);
+  // A batch that's been sent to the printer but not yet confirmed as physically
+  // printed -- nothing gets marked printed in the DB until this is resolved.
+  const [pendingConfirm, setPendingConfirm] = useState<{ ids: string[]; count: number } | null>(null);
+  const [confirmCount, setConfirmCount] = useState('');
+  const [undoCount, setUndoCount] = useState('');
+
+  // get_prospect_labels is capped per-call by the platform's PostgREST row
+  // limit regardless of p_limit -- loop with p_offset to assemble any custom
+  // total (e.g. 1954 in one go) past that cap.
+  const fetchAllProspectLabels = async (params: Record<string, unknown>, targetCount: number) => {
+    const rows: any[] = [];
+    const PAGE = 1000;
+    while (rows.length < targetCount) {
+      const wanted = Math.min(PAGE, targetCount - rows.length);
+      const { data, error } = await supabase.rpc('get_prospect_labels', {
+        ...params,
+        p_limit: wanted,
+        p_offset: rows.length,
+      } as any);
+      if (error) throw error;
+      const page = (data || []) as any[];
+      rows.push(...page);
+      if (page.length < wanted) break; // fewer than requested = no more matches
+    }
+    return rows;
+  };
 
   // Use distinct-value RPCs (raw selects are capped at 1000 rows, which only
   // returned the first state / a few districts).
@@ -869,18 +895,19 @@ function ProspectLabelMode({ activeProjectId }: { activeProjectId: string | null
   const fetchSchools = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.rpc('get_prospect_labels', {
+      // No more 1000-row cap: paginate past PostgREST's per-request limit,
+      // up to the real total match count when known (via progress, computed
+      // from the same filters), otherwise a generous safety ceiling.
+      const data = await fetchAllProspectLabels({
         p_state: stateFilter === 'all' ? null : stateFilter,
         p_districts: districtFilters.length ? districtFilters : null,
         p_school_location: locationFilter === 'all' ? null : locationFilter,
         p_urban_body_types: urbanBodyFilters.length ? urbanBodyFilters : null,
         p_phone_only: phoneFilter === 'has_phone',
         p_search: search.trim() || null,
-        p_limit: 5000,
         p_project_id: activeProjectId,
         p_board: boardFilter === 'all' ? null : boardFilter,
-      } as any);
-      if (error) throw error;
+      }, progress?.total || 20000);
 
       const normalised: LabelSchool[] = (data || []).map((r: any) => ({
         id: r.id,
@@ -940,33 +967,81 @@ function ProspectLabelMode({ activeProjectId }: { activeProjectId: string | null
   };
   useEffect(() => { loadProgress(stateFilter); }, [stateFilter, districtFilters, boardFilter, locationFilter, urbanBodyFilters, phoneFilter, search, activeProjectId]);
 
-  // Fetch the next unprinted batch for the state, build the PDF, then mark printed.
+  // Fetch the next unprinted batch (any custom size, no 1000 cap) and build
+  // the PDF -- but do NOT mark anything printed yet. A browser print dialog
+  // can't tell us whether the printer actually finished (paper ran out,
+  // jammed, etc.), so marking has to wait for an explicit confirmation of
+  // how many labels actually came out. See confirmPrinted() below.
   const printNextBatch = async () => {
     if (stateFilter === 'all') { toast({ title: 'Pick a state first', variant: 'destructive' }); return; }
+    if (pendingConfirm) { toast({ title: 'Confirm the current batch first', variant: 'destructive' }); return; }
     setGenerating(true);
     try {
-      const { data, error } = await supabase.rpc('get_prospect_labels', {
+      const data = await fetchAllProspectLabels({
         ...labelFilterParams(stateFilter),
         p_only_unprinted: true,
-        p_limit: batchSize,
-      } as any);
-      if (error) throw error;
-      const batch: LabelSchool[] = ((data || []) as any[]).map(r => ({
+      }, batchSize);
+      const batch: LabelSchool[] = (data || []).map((r: any) => ({
         ...r, phones: collectPhones(r.mobile),
       }));
       if (!batch.length) { toast({ title: 'All done', description: `No unprinted labels left for ${stateFilter}.` }); return; }
 
       generatePdf(batch, wIn, hIn, namePt, addrPt, pinPt, `prospect-${stateFilter}`, toast, true);
 
-      const { error: markErr } = await supabase.rpc('mark_prospect_labels_printed', { p_ids: batch.map(s => s.id) });
-      if (markErr) throw markErr;
-
       setSchools(batch);
-      await loadProgress(stateFilter);
+      setPendingConfirm({ ids: batch.map(s => s.id), count: batch.length });
+      setConfirmCount(String(batch.length));
     } catch (e: any) {
       toast({ title: 'Error', description: e.message, variant: 'destructive' });
     } finally {
       setGenerating(false);
+    }
+  };
+
+  // Mark only the first N ids (ss_no ascending = PDF page order = physical
+  // print order) as printed -- N defaults to the full batch but is editable,
+  // so a job interrupted partway (e.g. ran out of paper) can be recorded
+  // accurately instead of the whole batch silently being marked done.
+  const confirmPrinted = async (actualCount: number) => {
+    if (!pendingConfirm) return;
+    const n = Math.max(0, Math.min(actualCount, pendingConfirm.count));
+    try {
+      if (n > 0) {
+        const { error } = await supabase.rpc('mark_prospect_labels_printed', {
+          p_ids: pendingConfirm.ids.slice(0, n),
+        });
+        if (error) throw error;
+      }
+      toast({
+        title: 'Recorded',
+        description: n === pendingConfirm.count
+          ? `All ${n.toLocaleString()} labels marked printed.`
+          : `${n.toLocaleString()} of ${pendingConfirm.count.toLocaleString()} marked printed — the remaining ${(pendingConfirm.count - n).toLocaleString()} stay in the unprinted queue.`,
+      });
+      setPendingConfirm(null);
+      setConfirmCount('');
+      await loadProgress(stateFilter);
+    } catch (e: any) {
+      toast({ title: 'Error', description: e.message, variant: 'destructive' });
+    }
+  };
+
+  // Undo the tail of the most recently printed batch for this state (highest
+  // ss_no = last pages in the PDF = most likely to be what never physically
+  // printed) -- for fixing a batch that was already confirmed/marked wrong.
+  const undoLastPrinted = async (count: number) => {
+    if (stateFilter === 'all' || count <= 0) return;
+    try {
+      const { data, error } = await supabase.rpc('unmark_last_prospect_labels_printed', {
+        p_state: stateFilter,
+        p_count: count,
+      } as any);
+      if (error) throw error;
+      toast({ title: 'Undone', description: `${(data as number).toLocaleString()} labels put back in the unprinted queue.` });
+      setUndoCount('');
+      await loadProgress(stateFilter);
+    } catch (e: any) {
+      toast({ title: 'Error', description: e.message, variant: 'destructive' });
     }
   };
 
@@ -1138,18 +1213,68 @@ function ProspectLabelMode({ activeProjectId }: { activeProjectId: string | null
               </>
             )}
             <div className="flex items-center gap-2">
-              <label className="text-xs text-muted-foreground whitespace-nowrap">Labels per roll</label>
-              <Input type="number" min={1} max={2000} value={batchSize}
-                onChange={e => setBatchSize(Math.max(1, Math.min(2000, parseInt(e.target.value) || 1000)))}
-                className="h-8 w-24" />
+              <label className="text-xs text-muted-foreground whitespace-nowrap">Batch size</label>
+              <Input type="number" min={1} value={batchSize}
+                onChange={e => setBatchSize(Math.max(1, parseInt(e.target.value) || 1))}
+                className="h-8 w-28" disabled={!!pendingConfirm} />
+              {progress && remaining > 0 && (
+                <button
+                  className="text-[11px] text-indigo-600 hover:underline whitespace-nowrap"
+                  onClick={() => setBatchSize(remaining)}
+                  disabled={!!pendingConfirm}
+                >
+                  All {remaining.toLocaleString()}
+                </button>
+              )}
             </div>
-            <Button className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={printNextBatch}
-              disabled={generating || remaining === 0}>
-              <Printer className="h-4 w-4 mr-2" />
-              {generating ? 'Preparing…' : remaining === 0
-                ? 'All labels printed ✓'
-                : `Print next ${Math.min(batchSize, remaining).toLocaleString()} unprinted`}
-            </Button>
+
+            {pendingConfirm ? (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-2">
+                <p className="text-xs text-amber-900">
+                  Sent <strong>{pendingConfirm.count.toLocaleString()}</strong> labels to the printer.
+                  Did they all actually come out? (paper/jam issues won't be marked printed unless you say so)
+                </p>
+                <div className="flex items-center gap-2">
+                  <Input type="number" min={0} max={pendingConfirm.count} value={confirmCount}
+                    onChange={e => setConfirmCount(e.target.value)}
+                    className="h-8 w-24 bg-white" />
+                  <span className="text-xs text-muted-foreground">of {pendingConfirm.count.toLocaleString()} printed</span>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" className="flex-1 bg-emerald-600 hover:bg-emerald-700"
+                    onClick={() => confirmPrinted(parseInt(confirmCount) || 0)}>
+                    Confirm
+                  </Button>
+                  <Button size="sm" variant="outline" className="flex-1"
+                    onClick={() => confirmPrinted(pendingConfirm.count)}>
+                    All {pendingConfirm.count.toLocaleString()} printed
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Button className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={printNextBatch}
+                disabled={generating || remaining === 0}>
+                <Printer className="h-4 w-4 mr-2" />
+                {generating ? 'Preparing…' : remaining === 0
+                  ? 'All labels printed ✓'
+                  : `Print next ${Math.min(batchSize, remaining).toLocaleString()} unprinted`}
+              </Button>
+            )}
+
+            <div className="flex items-center gap-2 pt-1 border-t">
+              <label className="text-[11px] text-muted-foreground whitespace-nowrap">Undo last</label>
+              <Input type="number" min={1} value={undoCount}
+                onChange={e => setUndoCount(e.target.value)}
+                placeholder="e.g. 1000" className="h-7 w-24 text-xs" />
+              <button
+                className="text-[11px] text-amber-700 hover:underline whitespace-nowrap disabled:opacity-40 disabled:pointer-events-none"
+                disabled={!parseInt(undoCount)}
+                onClick={() => undoLastPrinted(parseInt(undoCount) || 0)}
+              >
+                printed (didn't actually print)
+              </button>
+            </div>
+
             <button onClick={resetPrinted}
               className="text-[11px] text-muted-foreground hover:text-red-600 w-full text-center">
               Reset printed status for {stateFilter}
@@ -1219,8 +1344,8 @@ function ProspectLabelMode({ activeProjectId }: { activeProjectId: string | null
               <p className="font-semibold text-sm">Schools matched</p>
               <Badge variant="secondary">
                 {progress && progress.total !== schools.length
-                  ? `${progress.total.toLocaleString()} match filters — showing ${schools.length.toLocaleString()}${schools.length === 1000 ? ' (max 1000 per load)' : ''}`
-                  : `${schools.length}${schools.length === 1000 ? ' (max 1000 per load)' : ''}`}
+                  ? `${progress.total.toLocaleString()} match filters — showing ${schools.length.toLocaleString()}`
+                  : schools.length.toLocaleString()}
               </Badge>
             </div>
             <div className="max-h-96 overflow-y-auto divide-y">
