@@ -1026,18 +1026,23 @@ function ProspectLabelMode({ activeProjectId }: { activeProjectId: string | null
     }
   };
 
-  // Undo the tail of the most recently printed batch for this state (highest
-  // ss_no = last pages in the PDF = most likely to be what never physically
-  // printed) -- for fixing a batch that was already confirmed/marked wrong.
-  const undoLastPrinted = async (count: number) => {
+  // Undo one end of the most recently printed batch for this state -- for
+  // fixing a batch that was already confirmed/marked wrong (e.g. discovered
+  // after the fact that a print job was interrupted). Which end depends on
+  // print order: 'last' assumes the printer went in ascending ss_no (PDF
+  // page) order, so the highest ss_no are what's missing; some label/roll
+  // printers print in REVERSE order (output stacks face-up correctly), in
+  // which case use 'first' -- the lowest ss_no are what's missing instead.
+  const undoPrinted = async (direction: 'first' | 'last', count: number) => {
     if (stateFilter === 'all' || count <= 0) return;
     try {
-      const { data, error } = await supabase.rpc('unmark_last_prospect_labels_printed', {
+      const fn = direction === 'first' ? 'unmark_first_prospect_labels_printed' : 'unmark_last_prospect_labels_printed';
+      const { data, error } = await supabase.rpc(fn, {
         p_state: stateFilter,
         p_count: count,
       } as any);
       if (error) throw error;
-      toast({ title: 'Undone', description: `${(data as number).toLocaleString()} labels put back in the unprinted queue.` });
+      toast({ title: 'Undone', description: `${(data as number).toLocaleString()} labels (${direction === 'first' ? 'lowest' : 'highest'} SS No) put back in the unprinted queue.` });
       setUndoCount('');
       await loadProgress(stateFilter);
     } catch (e: any) {
@@ -1261,18 +1266,29 @@ function ProspectLabelMode({ activeProjectId }: { activeProjectId: string | null
               </Button>
             )}
 
-            <div className="flex items-center gap-2 pt-1 border-t">
-              <label className="text-[11px] text-muted-foreground whitespace-nowrap">Undo last</label>
-              <Input type="number" min={1} value={undoCount}
-                onChange={e => setUndoCount(e.target.value)}
-                placeholder="e.g. 1000" className="h-7 w-24 text-xs" />
-              <button
-                className="text-[11px] text-amber-700 hover:underline whitespace-nowrap disabled:opacity-40 disabled:pointer-events-none"
-                disabled={!parseInt(undoCount)}
-                onClick={() => undoLastPrinted(parseInt(undoCount) || 0)}
-              >
-                printed (didn't actually print)
-              </button>
+            <div className="pt-1 border-t space-y-1.5">
+              <p className="text-[11px] text-muted-foreground">
+                Didn't actually print (paper ran out etc.) — undo the lowest or highest SS No of the last batch:
+              </p>
+              <div className="flex items-center gap-2">
+                <Input type="number" min={1} value={undoCount}
+                  onChange={e => setUndoCount(e.target.value)}
+                  placeholder="e.g. 1000" className="h-7 w-24 text-xs" />
+                <button
+                  className="text-[11px] text-amber-700 hover:underline whitespace-nowrap disabled:opacity-40 disabled:pointer-events-none"
+                  disabled={!parseInt(undoCount)}
+                  onClick={() => undoPrinted('first', parseInt(undoCount) || 0)}
+                >
+                  lowest SS No
+                </button>
+                <button
+                  className="text-[11px] text-amber-700 hover:underline whitespace-nowrap disabled:opacity-40 disabled:pointer-events-none"
+                  disabled={!parseInt(undoCount)}
+                  onClick={() => undoPrinted('last', parseInt(undoCount) || 0)}
+                >
+                  highest SS No
+                </button>
+              </div>
             </div>
 
             <button onClick={resetPrinted}
