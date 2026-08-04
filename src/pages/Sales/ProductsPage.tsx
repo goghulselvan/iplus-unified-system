@@ -5,14 +5,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Plus, Pencil, Trash2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import ProductDialog from './ProductDialog';
 
-type Product = {
+export type Product = {
   id: string;
   name: string;
   hsn_code: string | null;
@@ -20,11 +19,21 @@ type Product = {
   unit_price: number;
   stock_quantity: number;
   is_active: boolean;
+  category_id: string | null;
+  sku: string | null;
+  item_type: 'consumable' | 'saleable';
+  unit: string;
+  minimum_stock_level: number;
+  expiry_date: string | null;
+  location: string | null;
+  barcode: string | null;
+  image_url: string | null;
+  series: string | null;
+  subject: string | null;
+  class_number: number | null;
 };
 
-const GST_RATES = [0, 5, 12, 18, 28];
 const LOW_STOCK_THRESHOLD = 5;
-const emptyForm = { name: '', hsn_code: '', gst_rate: '18', unit_price: '', stock_quantity: '' };
 
 export default function ProductsPage() {
   const { toast } = useToast();
@@ -32,15 +41,13 @@ export default function ProductsPage() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
-  const [form, setForm] = useState(emptyForm);
-  const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
 
   const loadProducts = async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from('products' as any)
-      .select('id, name, hsn_code, gst_rate, unit_price, stock_quantity, is_active')
+      .select('*')
       .order('name');
     if (error) {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
@@ -52,39 +59,8 @@ export default function ProductsPage() {
 
   useEffect(() => { loadProducts(); }, []);
 
-  const openAdd = () => { setEditing(null); setForm(emptyForm); setDialogOpen(true); };
-
-  const openEdit = (p: Product) => {
-    setEditing(p);
-    setForm({
-      name: p.name,
-      hsn_code: p.hsn_code ?? '',
-      gst_rate: String(p.gst_rate),
-      unit_price: String(p.unit_price),
-      stock_quantity: String(p.stock_quantity),
-    });
-    setDialogOpen(true);
-  };
-
-  const handleSave = async () => {
-    if (!form.name.trim()) { toast({ title: 'Name is required', variant: 'destructive' }); return; }
-    setSaving(true);
-    const payload = {
-      name: form.name.trim(),
-      hsn_code: form.hsn_code.trim() || null,
-      gst_rate: Number(form.gst_rate),
-      unit_price: Number(form.unit_price) || 0,
-      stock_quantity: Number(form.stock_quantity) || 0,
-    };
-    const { error } = editing
-      ? await supabase.from('products' as any).update(payload).eq('id', editing.id)
-      : await supabase.from('products' as any).insert(payload);
-    setSaving(false);
-    if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
-    toast({ title: editing ? 'Product updated' : 'Product added' });
-    setDialogOpen(false);
-    loadProducts();
-  };
+  const openAdd = () => { setEditing(null); setDialogOpen(true); };
+  const openEdit = (p: Product) => { setEditing(p); setDialogOpen(true); };
 
   const toggleActive = async (p: Product) => {
     const { error } = await supabase.from('products' as any).update({ is_active: !p.is_active }).eq('id', p.id);
@@ -157,42 +133,7 @@ export default function ProductsPage() {
         </div>
       </div>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>{editing ? 'Edit Product' : 'Add Product'}</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <Label htmlFor="p-name">Name</Label>
-              <Input id="p-name" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
-            </div>
-            <div>
-              <Label htmlFor="p-hsn">HSN/SAC Code</Label>
-              <Input id="p-hsn" value={form.hsn_code} onChange={e => setForm(f => ({ ...f, hsn_code: e.target.value }))} />
-            </div>
-            <div>
-              <Label>GST Rate</Label>
-              <Select value={form.gst_rate} onValueChange={v => setForm(f => ({ ...f, gst_rate: v }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {GST_RATES.map(r => <SelectItem key={r} value={String(r)}>{r}%</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="p-price">Unit Price (₹)</Label>
-              <Input id="p-price" type="number" min="0" step="0.01" value={form.unit_price} onChange={e => setForm(f => ({ ...f, unit_price: e.target.value }))} />
-            </div>
-            <div>
-              <Label htmlFor="p-stock">{editing ? 'Stock Quantity' : 'Initial Stock Quantity'}</Label>
-              <Input id="p-stock" type="number" min="0" value={form.stock_quantity} onChange={e => setForm(f => ({ ...f, stock_quantity: e.target.value }))} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ProductDialog open={dialogOpen} onOpenChange={setDialogOpen} editing={editing} onSaved={loadProducts} />
 
       <AlertDialog open={!!deleteTarget} onOpenChange={open => !open && setDeleteTarget(null)}>
         <AlertDialogContent>
