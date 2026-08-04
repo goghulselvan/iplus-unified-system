@@ -65,7 +65,7 @@ const DEFAULT_TEMPLATES = {
         </table>
       </td></tr>
       <tr><td style="padding:8px 32px 24px;">
-        <p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#374151;">Our team will be in touch shortly to guide you through the registration process. The registration deadline is <strong>20 August 2026</strong>. In the meantime, please ensure your student data is ready for submission.</p>
+        <p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#374151;">Our team will be in touch shortly to guide you through the registration process. The registration deadline is <strong>30 August 2026</strong>. In the meantime, please ensure your student data is ready for submission.</p>
       </td></tr>
       <tr><td style="padding:0 32px 32px;text-align:center;">
         <a href="https://iplusedu.in/school/register" style="display:inline-block;background:linear-gradient(135deg,#7C3AED 0%,#4F46E5 100%);color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:14px 32px;border-radius:8px;">Register Your School &rarr;</a>

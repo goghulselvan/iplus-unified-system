@@ -97,7 +97,7 @@ const EMAIL_DEFAULTS: Record<string, { subject: string; body: string }> = {
 
       <!-- Body continued -->
       <tr><td style="padding:8px 32px 24px;">
-        <p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#374151;">Our team will be in touch shortly to guide you through the registration process. The registration deadline is <strong>20 August 2026</strong>. In the meantime, please ensure your student data is ready for submission.</p>
+        <p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#374151;">Our team will be in touch shortly to guide you through the registration process. The registration deadline is <strong>30 August 2026</strong>. In the meantime, please ensure your student data is ready for submission.</p>
       </td></tr>
 
       <!-- CTA -->
