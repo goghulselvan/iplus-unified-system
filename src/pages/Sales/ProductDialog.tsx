@@ -89,9 +89,11 @@ export default function ProductDialog({
   useEffect(() => {
     if (!open) return;
     (async () => {
-      const { data: cats } = await supabase.from('product_categories' as any).select('id, name').order('name');
+      const { data: cats, error: catsError } = await supabase.from('product_categories' as any).select('id, name').order('name');
+      if (catsError) { toast({ title: 'Error', description: catsError.message, variant: 'destructive' }); return; }
       setCategories((cats || []) as unknown as ProductCategory[]);
-      const { data: prods } = await supabase.from('products' as any).select('series, subject, class_number');
+      const { data: prods, error: prodsError } = await supabase.from('products' as any).select('series, subject, class_number');
+      if (prodsError) { toast({ title: 'Error', description: prodsError.message, variant: 'destructive' }); return; }
       const rows = (prods || []) as unknown as { series: string | null; subject: string | null; class_number: number | null }[];
       setSeriesOptions([...new Set(rows.map(r => r.series).filter(Boolean))] as string[]);
       setSubjectOptions([...new Set(rows.map(r => r.subject).filter(Boolean))] as string[]);
