@@ -25,8 +25,11 @@ const emptyForm = {
 type ProductCategory = { id: string; name: string };
 
 // Reusable "pick existing value or type a custom one" select — used for
-// Series, Subject, and Class, which are free-text columns on `products`
-// (not their own lookup table) so a custom entry just becomes the new value.
+// Series, Subject, and Class. Series and Subject are genuinely free-text
+// columns on `products` (not their own lookup table), so a custom entry
+// just becomes the new value. Class is stored as an integer column
+// (`class_number`); a custom entry here is validated as a required
+// integer-if-present before save (see handleSave).
 function ComboField({
   label, value, options, onChange, placeholder,
 }: {
@@ -69,12 +72,13 @@ function ComboField({
 }
 
 export default function ProductDialog({
-  open, onOpenChange, editing, onSaved,
+  open, onOpenChange, editing, onSaved, onCategoryAdded,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   editing: Product | null;
   onSaved: () => void;
+  onCategoryAdded?: () => void;
 }) {
   const { toast } = useToast();
   const [form, setForm] = useState(emptyForm);
@@ -135,10 +139,15 @@ export default function ProductDialog({
     setCategories(c => [...c, cat].sort((a, b) => a.name.localeCompare(b.name)));
     setForm(f => ({ ...f, category_id: cat.id }));
     setNewCategoryName('');
+    onCategoryAdded?.();
   };
 
   const handleSave = async () => {
     if (!form.name.trim()) { toast({ title: 'Name is required', variant: 'destructive' }); return; }
+    if (form.class_number.trim() && Number.isNaN(Number(form.class_number))) {
+      toast({ title: 'Class must be a number', description: 'Enter a number like 1-8, or leave blank.', variant: 'destructive' });
+      return;
+    }
     setSaving(true);
     const payload = {
       name: form.name.trim(),

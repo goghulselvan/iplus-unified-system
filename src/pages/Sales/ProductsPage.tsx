@@ -34,6 +34,10 @@ export type Product = {
   class_number: number | null;
 };
 
+const isOutOfStock = (p: Pick<Product, 'stock_quantity'>) => p.stock_quantity <= 0;
+const isLowStock = (p: Pick<Product, 'stock_quantity' | 'minimum_stock_level'>) =>
+  !isOutOfStock(p) && p.stock_quantity < p.minimum_stock_level;
+
 export default function ProductsPage() {
   const { toast } = useToast();
   const [products, setProducts] = useState<Product[]>([]);
@@ -44,10 +48,12 @@ export default function ProductsPage() {
   const [filters, setFilters] = useState<ProductFilters>(DEFAULT_FILTERS);
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
 
-  useEffect(() => {
-    supabase.from('product_categories' as any).select('id, name').order('name')
-      .then(({ data }) => setCategories((data || []) as unknown as { id: string; name: string }[]));
-  }, []);
+  const loadCategories = async () => {
+    const { data } = await supabase.from('product_categories' as any).select('id, name').order('name');
+    setCategories((data || []) as unknown as { id: string; name: string }[]);
+  };
+
+  useEffect(() => { loadCategories(); }, []);
 
   const seriesOptions = useMemo(() => [...new Set(products.map(p => p.series).filter(Boolean))] as string[], [products]);
   const subjectOptions = useMemo(() => [...new Set(products.map(p => p.subject).filter(Boolean))] as string[], [products]);
@@ -62,8 +68,8 @@ export default function ProductsPage() {
     if (filters.series !== 'all' && p.series !== filters.series) return false;
     if (filters.subject !== 'all' && p.subject !== filters.subject) return false;
     if (filters.classNumber !== 'all' && String(p.class_number) !== filters.classNumber) return false;
-    if (filters.stockStatus === 'low' && !(p.stock_quantity > 0 && p.stock_quantity < p.minimum_stock_level)) return false;
-    if (filters.stockStatus === 'out' && p.stock_quantity !== 0) return false;
+    if (filters.stockStatus === 'low' && !isLowStock(p)) return false;
+    if (filters.stockStatus === 'out' && !isOutOfStock(p)) return false;
     if (filters.activeStatus === 'active' && !p.is_active) return false;
     if (filters.activeStatus === 'inactive' && p.is_active) return false;
     return true;
@@ -121,6 +127,8 @@ export default function ProductsPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>
+                <TableHead>Category</TableHead>
+                <TableHead>Series / Subject / Class</TableHead>
                 <TableHead>HSN/SAC</TableHead>
                 <TableHead>GST Rate</TableHead>
                 <TableHead>Unit Price</TableHead>
@@ -131,19 +139,31 @@ export default function ProductsPage() {
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Loading…</TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Loading…</TableCell></TableRow>
               ) : filteredProducts.length === 0 ? (
-                <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">{products.length === 0 ? 'No products yet.' : 'No products match these filters.'}</TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">{products.length === 0 ? 'No products yet.' : 'No products match these filters.'}</TableCell></TableRow>
               ) : (
                 filteredProducts.map(p => (
                   <TableRow key={p.id}>
                     <TableCell className="font-medium">{p.name}</TableCell>
+                    <TableCell>{categories.find(c => c.id === p.category_id)?.name ?? '—'}</TableCell>
+                    <TableCell>
+                      <div>{p.series ?? '—'}</div>
+                      {(p.subject || p.class_number != null) && (
+                        <div className="text-xs text-muted-foreground">
+                          {p.subject ?? ''}{p.subject && p.class_number != null ? ' · ' : ''}{p.class_number != null ? `Class ${p.class_number}` : ''}
+                        </div>
+                      )}
+                    </TableCell>
                     <TableCell>{p.hsn_code || '—'}</TableCell>
                     <TableCell>{p.gst_rate}%</TableCell>
                     <TableCell>₹{p.unit_price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</TableCell>
                     <TableCell>
                       {p.stock_quantity}
-                      {p.stock_quantity < p.minimum_stock_level && (
+                      {isOutOfStock(p) && (
+                        <Badge variant="destructive" className="ml-2 text-[10px]">Out of stock</Badge>
+                      )}
+                      {isLowStock(p) && (
                         <Badge variant="destructive" className="ml-2 text-[10px]">Low stock</Badge>
                       )}
                     </TableCell>
@@ -164,7 +184,7 @@ export default function ProductsPage() {
         </div>
       </div>
 
-      <ProductDialog open={dialogOpen} onOpenChange={setDialogOpen} editing={editing} onSaved={loadProducts} />
+      <ProductDialog open={dialogOpen} onOpenChange={setDialogOpen} editing={editing} onSaved={loadProducts} onCategoryAdded={loadCategories} />
 
       <AlertDialog open={!!deleteTarget} onOpenChange={open => !open && setDeleteTarget(null)}>
         <AlertDialogContent>

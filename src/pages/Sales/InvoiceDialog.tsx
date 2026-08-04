@@ -85,7 +85,7 @@ export default function InvoiceDialog({ open, onOpenChange, editingInvoice, onSa
 
   useEffect(() => {
     if (!open) return;
-    supabase.from('products' as any).select('id, name, hsn_code, gst_rate, unit_price').eq('is_active', true).order('name')
+    supabase.from('products' as any).select('id, name, hsn_code, gst_rate, unit_price').eq('is_active', true).eq('item_type', 'saleable').order('name')
       .then(({ data }) => setProducts((data || []) as unknown as Product[]));
 
     if (editingInvoice) {
