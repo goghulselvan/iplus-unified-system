@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import SalesLayout from '@/components/sales/SalesLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,6 +10,7 @@ import { Plus, Pencil, Trash2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import ProductDialog from './ProductDialog';
+import ProductsFilterBar, { DEFAULT_FILTERS, type ProductFilters } from './ProductsFilterBar';
 
 export type Product = {
   id: string;
@@ -33,8 +34,6 @@ export type Product = {
   class_number: number | null;
 };
 
-const LOW_STOCK_THRESHOLD = 5;
-
 export default function ProductsPage() {
   const { toast } = useToast();
   const [products, setProducts] = useState<Product[]>([]);
@@ -42,6 +41,33 @@ export default function ProductsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
+  const [filters, setFilters] = useState<ProductFilters>(DEFAULT_FILTERS);
+  const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    supabase.from('product_categories' as any).select('id, name').order('name')
+      .then(({ data }) => setCategories((data || []) as unknown as { id: string; name: string }[]));
+  }, []);
+
+  const seriesOptions = useMemo(() => [...new Set(products.map(p => p.series).filter(Boolean))] as string[], [products]);
+  const subjectOptions = useMemo(() => [...new Set(products.map(p => p.subject).filter(Boolean))] as string[], [products]);
+  const classOptions = useMemo(() =>
+    [...new Set(products.map(p => p.class_number).filter((n): n is number => n != null))].sort((a, b) => a - b).map(String),
+    [products]);
+
+  const filteredProducts = useMemo(() => products.filter(p => {
+    if (filters.search && !p.name.toLowerCase().includes(filters.search.toLowerCase()) && !(p.sku ?? '').toLowerCase().includes(filters.search.toLowerCase())) return false;
+    if (filters.categoryId !== 'all' && p.category_id !== filters.categoryId) return false;
+    if (filters.itemType !== 'all' && p.item_type !== filters.itemType) return false;
+    if (filters.series !== 'all' && p.series !== filters.series) return false;
+    if (filters.subject !== 'all' && p.subject !== filters.subject) return false;
+    if (filters.classNumber !== 'all' && String(p.class_number) !== filters.classNumber) return false;
+    if (filters.stockStatus === 'low' && !(p.stock_quantity > 0 && p.stock_quantity < p.minimum_stock_level)) return false;
+    if (filters.stockStatus === 'out' && p.stock_quantity !== 0) return false;
+    if (filters.activeStatus === 'active' && !p.is_active) return false;
+    if (filters.activeStatus === 'inactive' && p.is_active) return false;
+    return true;
+  }), [products, filters]);
 
   const loadProducts = async () => {
     setLoading(true);
@@ -85,6 +111,11 @@ export default function ProductsPage() {
           <Button onClick={openAdd}><Plus className="h-4 w-4 mr-2" />Add Product</Button>
         </div>
 
+        <ProductsFilterBar
+          filters={filters} onChange={setFilters} categories={categories}
+          seriesOptions={seriesOptions} subjectOptions={subjectOptions} classOptions={classOptions}
+        />
+
         <div className="bg-white rounded-xl border overflow-hidden">
           <Table>
             <TableHeader>
@@ -101,10 +132,10 @@ export default function ProductsPage() {
             <TableBody>
               {loading ? (
                 <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Loading…</TableCell></TableRow>
-              ) : products.length === 0 ? (
-                <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No products yet.</TableCell></TableRow>
+              ) : filteredProducts.length === 0 ? (
+                <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">{products.length === 0 ? 'No products yet.' : 'No products match these filters.'}</TableCell></TableRow>
               ) : (
-                products.map(p => (
+                filteredProducts.map(p => (
                   <TableRow key={p.id}>
                     <TableCell className="font-medium">{p.name}</TableCell>
                     <TableCell>{p.hsn_code || '—'}</TableCell>
@@ -112,7 +143,7 @@ export default function ProductsPage() {
                     <TableCell>₹{p.unit_price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</TableCell>
                     <TableCell>
                       {p.stock_quantity}
-                      {p.stock_quantity < LOW_STOCK_THRESHOLD && (
+                      {p.stock_quantity < p.minimum_stock_level && (
                         <Badge variant="destructive" className="ml-2 text-[10px]">Low stock</Badge>
                       )}
                     </TableCell>
