@@ -16,6 +16,7 @@ type StockAdd = {
   quantity: number;
   reason: string;
   added_date: string;
+  added_by: string | null;
   products: { name: string } | null;
 };
 
@@ -24,13 +25,19 @@ type StockAdjustment = {
   quantity_delta: number;
   reason: string;
   adjusted_date: string;
+  adjusted_by: string | null;
   products: { name: string } | null;
 };
+
+type ProfileLite = { user_id: string; full_name: string | null; username: string | null };
+
+const PAGE_SIZE = 200;
 
 export default function StockMovementsPage() {
   const { toast } = useToast();
   const [adds, setAdds] = useState<StockAdd[]>([]);
   const [adjustments, setAdjustments] = useState<StockAdjustment[]>([]);
+  const [profiles, setProfiles] = useState<Record<string, ProfileLite>>({});
   const [loading, setLoading] = useState(true);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [adjustDialogOpen, setAdjustDialogOpen] = useState(false);
@@ -38,15 +45,27 @@ export default function StockMovementsPage() {
 
   const loadData = async () => {
     setLoading(true);
-    const [addsRes, adjRes] = await Promise.all([
-      supabase.from('inventory_stock_adds' as any).select('id, quantity, reason, added_date, products(name)').order('added_date', { ascending: false }),
-      supabase.from('inventory_stock_adjustments' as any).select('id, quantity_delta, reason, adjusted_date, products(name)').order('adjusted_date', { ascending: false }),
+    const [addsRes, adjRes, profilesRes] = await Promise.all([
+      supabase.from('inventory_stock_adds' as any).select('id, quantity, reason, added_date, added_by, products(name)').order('added_date', { ascending: false }).order('created_at', { ascending: false }).limit(PAGE_SIZE),
+      supabase.from('inventory_stock_adjustments' as any).select('id, quantity_delta, reason, adjusted_date, adjusted_by, products(name)').order('adjusted_date', { ascending: false }).order('created_at', { ascending: false }).limit(PAGE_SIZE),
+      supabase.from('profiles').select('user_id, full_name, username'),
     ]);
     if (addsRes.error) toast({ title: 'Error loading stock adds', description: addsRes.error.message, variant: 'destructive' });
     if (adjRes.error) toast({ title: 'Error loading adjustments', description: adjRes.error.message, variant: 'destructive' });
+    if (profilesRes.error) toast({ title: 'Error loading users', description: profilesRes.error.message, variant: 'destructive' });
     setAdds((addsRes.data || []) as unknown as StockAdd[]);
     setAdjustments((adjRes.data || []) as unknown as StockAdjustment[]);
+    const profileMap: Record<string, ProfileLite> = {};
+    ((profilesRes.data || []) as unknown as ProfileLite[]).forEach(p => { profileMap[p.user_id] = p; });
+    setProfiles(profileMap);
     setLoading(false);
+  };
+
+  const resolveUser = (userId: string | null) => {
+    if (!userId) return '—';
+    const p = profiles[userId];
+    if (!p) return '—';
+    return p.full_name || p.username || '—';
   };
 
   useEffect(() => { loadData(); }, []);
@@ -90,20 +109,22 @@ export default function StockMovementsPage() {
                     <TableHead>Product</TableHead>
                     <TableHead>Quantity</TableHead>
                     <TableHead>Reason</TableHead>
+                    <TableHead>Added By</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {loading ? (
-                    <TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">Loading…</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">Loading…</TableCell></TableRow>
                   ) : adds.length === 0 ? (
-                    <TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">No stock additions yet.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No stock additions yet.</TableCell></TableRow>
                   ) : (
                     adds.map(a => (
                       <TableRow key={a.id}>
-                        <TableCell>{a.added_date}</TableCell>
+                        <TableCell>{new Date(a.added_date).toLocaleDateString('en-IN')}</TableCell>
                         <TableCell className="font-medium">{a.products?.name ?? '—'}</TableCell>
                         <TableCell className="text-green-600 font-medium">+{a.quantity}</TableCell>
                         <TableCell>{a.reason}</TableCell>
+                        <TableCell>{resolveUser(a.added_by)}</TableCell>
                       </TableRow>
                     ))
                   )}
@@ -121,18 +142,19 @@ export default function StockMovementsPage() {
                     <TableHead>Product</TableHead>
                     <TableHead>Change</TableHead>
                     <TableHead>Reason</TableHead>
+                    <TableHead>Adjusted By</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {loading ? (
-                    <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">Loading…</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Loading…</TableCell></TableRow>
                   ) : adjustments.length === 0 ? (
-                    <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No adjustments yet.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No adjustments yet.</TableCell></TableRow>
                   ) : (
                     adjustments.map(a => (
                       <TableRow key={a.id}>
-                        <TableCell>{a.adjusted_date}</TableCell>
+                        <TableCell>{new Date(a.adjusted_date).toLocaleDateString('en-IN')}</TableCell>
                         <TableCell className="font-medium">{a.products?.name ?? '—'}</TableCell>
                         <TableCell>
                           <Badge variant={a.quantity_delta > 0 ? 'default' : 'destructive'}>
@@ -140,6 +162,7 @@ export default function StockMovementsPage() {
                           </Badge>
                         </TableCell>
                         <TableCell>{a.reason}</TableCell>
+                        <TableCell>{resolveUser(a.adjusted_by)}</TableCell>
                         <TableCell className="text-right">
                           <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(a)}><Trash2 className="h-3.5 w-3.5 text-red-600" /></Button>
                         </TableCell>
