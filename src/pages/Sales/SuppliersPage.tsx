@@ -9,6 +9,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import SupplierDialog from './SupplierDialog';
 import SupplierPaymentDialog from './SupplierPaymentDialog';
+import SupplierPaymentsListDialog from './SupplierPaymentsListDialog';
 
 export type Supplier = {
   id: string;
@@ -30,6 +31,7 @@ export default function SuppliersPage() {
   const [editing, setEditing] = useState<Supplier | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Supplier | null>(null);
   const [paymentTarget, setPaymentTarget] = useState<Supplier | null>(null);
+  const [paymentsListTarget, setPaymentsListTarget] = useState<Supplier | null>(null);
 
   const loadSuppliers = async () => {
     setLoading(true);
@@ -47,13 +49,13 @@ export default function SuppliersPage() {
 
   const loadTotalsPaid = async () => {
     const { data, error } = await supabase
-      .from('inventory_supplier_payments' as any)
-      .select('supplier_id, amount');
+      .from('inventory_supplier_payment_totals' as any)
+      .select('supplier_id, total_paid');
     if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
-    const rows = (data || []) as unknown as { supplier_id: string; amount: number }[];
+    const rows = (data || []) as unknown as { supplier_id: string; total_paid: number }[];
     const totals: Record<string, number> = {};
     for (const r of rows) {
-      totals[r.supplier_id] = (totals[r.supplier_id] || 0) + Number(r.amount);
+      totals[r.supplier_id] = Number(r.total_paid);
     }
     setTotalsPaid(totals);
   };
@@ -116,7 +118,14 @@ export default function SuppliersPage() {
                     <TableCell>{s.contact_person || '—'}</TableCell>
                     <TableCell>{s.phone || '—'}</TableCell>
                     <TableCell>{s.gstin || '—'}</TableCell>
-                    <TableCell>₹{(totalsPaid[s.id] || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</TableCell>
+                    <TableCell>
+                      <button
+                        className="text-indigo-600 hover:underline"
+                        onClick={() => setPaymentsListTarget(s)}
+                      >
+                        ₹{(totalsPaid[s.id] || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </button>
+                    </TableCell>
                     <TableCell>
                       <button onClick={() => toggleActive(s)}>
                         <Badge variant={s.is_active ? 'default' : 'outline'}>{s.is_active ? 'Active' : 'Inactive'}</Badge>
@@ -144,6 +153,16 @@ export default function SuppliersPage() {
           supplierId={paymentTarget.id}
           supplierName={paymentTarget.name}
           onSaved={handlePaymentSaved}
+        />
+      )}
+
+      {paymentsListTarget && (
+        <SupplierPaymentsListDialog
+          open={!!paymentsListTarget}
+          onOpenChange={open => { if (!open) setPaymentsListTarget(null); }}
+          supplierId={paymentsListTarget.id}
+          supplierName={paymentsListTarget.name}
+          onChanged={loadTotalsPaid}
         />
       )}
 

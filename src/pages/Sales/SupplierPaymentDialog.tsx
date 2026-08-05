@@ -40,6 +40,10 @@ export default function SupplierPaymentDialog({
       toast({ title: 'Amount must be greater than 0', variant: 'destructive' });
       return;
     }
+    if (!form.payment_date) {
+      toast({ title: 'Payment date is required', variant: 'destructive' });
+      return;
+    }
     setSaving(true);
     const { error } = await supabase.from('inventory_supplier_payments' as any).insert({
       supplier_id: supplierId,

@@ -4,7 +4,8 @@ import SalesLayout from '@/components/sales/SalesLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ArrowLeft, PackageCheck } from 'lucide-react';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { ArrowLeft, PackageCheck, Ban } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import ReceiveGrnDialog, { PoItemForReceiving } from './ReceiveGrnDialog';
@@ -65,10 +66,13 @@ export default function PurchaseOrderDetail() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [receiveOpen, setReceiveOpen] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   const loadPo = useCallback(async () => {
     if (!id) return;
     setLoading(true);
+    setNotFound(false);
 
     const { data: poData, error: poError } = await supabase
       .from('inventory_purchase_orders' as any)
@@ -150,6 +154,20 @@ export default function PurchaseOrderDetail() {
 
   useEffect(() => { loadPo(); }, [loadPo]);
 
+  const handleCancelPo = async () => {
+    if (!po) return;
+    setCancelling(true);
+    const { error } = await supabase
+      .from('inventory_purchase_orders' as any)
+      .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+      .eq('id', po.id);
+    setCancelling(false);
+    if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
+    toast({ title: 'Purchase order cancelled' });
+    setCancelOpen(false);
+    loadPo();
+  };
+
   const statusBadge = (s: PoStatus) => {
     if (s === 'cancelled') return <Badge variant="destructive">{STATUS_LABELS[s]}</Badge>;
     if (s === 'received') return <Badge variant="default">{STATUS_LABELS[s]}</Badge>;
@@ -159,6 +177,7 @@ export default function PurchaseOrderDetail() {
   const grandTotal = items.reduce((s, i) => s + i.quantity_ordered * i.unit_cost, 0);
 
   const canReceive = !!po && po.status !== 'received' && po.status !== 'cancelled';
+  const canCancel = !!po && (po.status === 'ordered' || po.status === 'partially_received');
 
   const poItemsForReceiving: PoItemForReceiving[] = items.map(i => ({
     id: i.id,
@@ -201,6 +220,11 @@ export default function PurchaseOrderDetail() {
           </div>
           <div className="flex items-center gap-3">
             {statusBadge(po.status)}
+            {canCancel && (
+              <Button variant="outline" className="text-red-600 hover:text-red-700" onClick={() => setCancelOpen(true)}>
+                <Ban className="h-4 w-4 mr-2" /> Cancel Purchase Order
+              </Button>
+            )}
             {canReceive && (
               <Button onClick={() => setReceiveOpen(true)}>
                 <PackageCheck className="h-4 w-4 mr-2" /> Receive Goods
@@ -294,6 +318,21 @@ export default function PurchaseOrderDetail() {
         poItems={poItemsForReceiving}
         onSaved={loadPo}
       />
+
+      <AlertDialog open={cancelOpen} onOpenChange={open => !open && setCancelOpen(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel PO-{po.po_number}?</AlertDialogTitle>
+            <AlertDialogDescription>This cannot be undone. The purchase order will be marked cancelled and goods can no longer be received against it.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={cancelling}>Back</AlertDialogCancel>
+            <AlertDialogAction onClick={handleCancelPo} disabled={cancelling} className="bg-red-600 hover:bg-red-700">
+              {cancelling ? 'Cancelling…' : 'Cancel Purchase Order'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </SalesLayout>
   );
 }

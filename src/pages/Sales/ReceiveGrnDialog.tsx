@@ -49,7 +49,17 @@ export default function ReceiveGrnDialog({ open, onOpenChange, purchaseOrderId, 
     setQuantities(prev => ({ ...prev, [itemId]: Math.max(0, Math.round(value) || 0) }));
   };
 
+  const canSave = Object.values(quantities).some(q => q > 0);
+
   const handleSave = async () => {
+    if (!receivedDate) {
+      toast({ title: 'Received date is required', variant: 'destructive' });
+      return;
+    }
+    if (!canSave) {
+      toast({ title: 'Enter a quantity greater than 0 for at least one item', variant: 'destructive' });
+      return;
+    }
     setSaving(true);
     const payloadItems = poItems.map(i => ({
       po_item_id: i.id,
@@ -121,7 +131,7 @@ export default function ReceiveGrnDialog({ open, onOpenChange, purchaseOrderId, 
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Receive Goods'}</Button>
+          <Button onClick={handleSave} disabled={saving || !canSave}>{saving ? 'Saving…' : 'Receive Goods'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
