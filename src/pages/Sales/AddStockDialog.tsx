@@ -67,7 +67,7 @@ export default function AddStockDialog({
           </div>
           <div>
             <Label htmlFor="as-qty">Quantity</Label>
-            <Input id="as-qty" type="number" min="1" value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} />
+            <Input id="as-qty" type="number" min="1" step="1" value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: String(Math.max(1, Math.round(Number(e.target.value) || 1))) }))} />
           </div>
           <div>
             <Label htmlFor="as-reason">Reason</Label>

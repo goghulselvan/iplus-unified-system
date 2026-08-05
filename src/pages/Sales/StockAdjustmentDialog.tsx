@@ -93,7 +93,7 @@ export default function StockAdjustmentDialog({
           </div>
           <div>
             <Label htmlFor="sa-qty">Quantity</Label>
-            <Input id="sa-qty" type="number" min="1" value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} />
+            <Input id="sa-qty" type="number" min="1" step="1" value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: String(Math.max(1, Math.round(Number(e.target.value) || 1))) }))} />
           </div>
           <div>
             <Label htmlFor="sa-reason">Reason</Label>
