@@ -15,14 +15,20 @@ type IssueRow = {
   issued_to_name: string;
   issue_date: string;
   notes: string | null;
+  issued_by: string | null;
   products: { name: string } | null;
 };
 
+type IssuedByProfile = { user_id: string; full_name: string | null; username: string };
+
 const TYPE_LABELS: Record<string, string> = { student: 'Student', staff: 'Staff', other: 'Other' };
+
+const PAGE_SIZE = 200;
 
 export default function ItemIssuePage() {
   const { toast } = useToast();
   const [issues, setIssues] = useState<IssueRow[]>([]);
+  const [profilesById, setProfilesById] = useState<Record<string, IssuedByProfile>>({});
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
 
@@ -30,9 +36,10 @@ export default function ItemIssuePage() {
     setLoading(true);
     const { data, error } = await supabase
       .from('inventory_item_issues' as any)
-      .select('id, quantity, issued_to_type, issued_to_name, issue_date, notes, products(name)')
+      .select('id, quantity, issued_to_type, issued_to_name, issue_date, notes, issued_by, products(name)')
       .order('issue_date', { ascending: false })
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(PAGE_SIZE);
     if (error) {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
     } else {
@@ -41,7 +48,18 @@ export default function ItemIssuePage() {
     setLoading(false);
   };
 
-  useEffect(() => { loadIssues(); }, []);
+  const loadProfiles = async () => {
+    const { data, error } = await supabase.from('profiles').select('user_id, full_name, username');
+    if (error) {
+      toast({ title: 'Error loading staff names', description: error.message, variant: 'destructive' });
+      return;
+    }
+    const map: Record<string, IssuedByProfile> = {};
+    for (const p of data || []) map[p.user_id] = p;
+    setProfilesById(map);
+  };
+
+  useEffect(() => { loadIssues(); loadProfiles(); }, []);
 
   return (
     <SalesLayout>
@@ -59,14 +77,15 @@ export default function ItemIssuePage() {
                 <TableHead>Product</TableHead>
                 <TableHead>Issued To</TableHead>
                 <TableHead>Quantity</TableHead>
+                <TableHead>Issued By</TableHead>
                 <TableHead>Notes</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">Loading…</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Loading…</TableCell></TableRow>
               ) : issues.length === 0 ? (
-                <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No items issued yet.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No items issued yet.</TableCell></TableRow>
               ) : (
                 issues.map(i => (
                   <TableRow key={i.id}>
@@ -77,6 +96,7 @@ export default function ItemIssuePage() {
                       {i.issued_to_name}
                     </TableCell>
                     <TableCell>{i.quantity}</TableCell>
+                    <TableCell>{i.issued_by ? (profilesById[i.issued_by]?.full_name || profilesById[i.issued_by]?.username || '—') : '—'}</TableCell>
                     <TableCell className="text-muted-foreground text-sm">{i.notes || '—'}</TableCell>
                   </TableRow>
                 ))

@@ -35,11 +35,16 @@ export default function IssueItemDialog({
   useEffect(() => {
     if (!open) return;
     setForm(emptyForm);
-    supabase.from('products' as any).select('id, name, stock_quantity').eq('is_active', true).order('name')
-      .then(({ data, error }) => {
+    (async () => {
+      try {
+        const { data, error } = await supabase.from('products' as any).select('id, name, stock_quantity').eq('is_active', true).order('name');
         if (error) { toast({ title: 'Error loading products', description: error.message, variant: 'destructive' }); return; }
         setProducts((data || []) as unknown as IssueProduct[]);
-      });
+      } catch (err: any) {
+        toast({ title: 'Error loading products', description: err?.message ?? 'Unknown error', variant: 'destructive' });
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const selectedProduct = products.find(p => p.id === form.product_id);
@@ -51,12 +56,15 @@ export default function IssueItemDialog({
     if (!form.issued_to_name.trim()) { toast({ title: 'Issued-to name is required', variant: 'destructive' }); return; }
     if (!quantityNum || quantityNum <= 0) { toast({ title: 'Quantity must be greater than 0', variant: 'destructive' }); return; }
 
+    const quantityInt = Math.floor(quantityNum);
+    if (quantityInt <= 0) { toast({ title: 'Quantity must be greater than 0', variant: 'destructive' }); return; }
+
     setSaving(true);
     const { data, error } = await supabase.rpc('issue_item' as any, {
       p_product_id: form.product_id,
       p_issued_to_type: form.issued_to_type,
       p_issued_to_name: form.issued_to_name.trim(),
-      p_quantity: quantityNum,
+      p_quantity: quantityInt,
       p_notes: form.notes.trim() || null,
     });
     setSaving(false);

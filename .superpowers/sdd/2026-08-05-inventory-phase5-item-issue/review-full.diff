@@ -1,0 +1,384 @@
+ src/App.tsx                                        |   2 +
+ src/components/sales/SalesLayout.tsx               |   3 +-
+ src/pages/Sales/IssueItemDialog.tsx                | 118 +++++++++++++++++++++
+ src/pages/Sales/ItemIssuePage.tsx                  |  92 ++++++++++++++++
+ .../20260808_inventory_phase5_item_issue.sql       |  69 ++++++++++++
+ 5 files changed, 283 insertions(+), 1 deletion(-)
+--- full diff ---
+diff --git a/src/App.tsx b/src/App.tsx
+index e7820f3..6abe8a1 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -46,20 +46,21 @@ import ProspectTemplateBuilder from "./pages/ProspectTemplateBuilder";
+ import ProspectCampaigns from "./pages/ProspectCampaigns";
+ import ProspectCampaignNew from "./pages/ProspectCampaignNew";
+ import ProspectCampaignDetail from "./pages/ProspectCampaignDetail";
+ import ProspectBulkWhatsApp from "./pages/ProspectBulkWhatsApp";
+ import ProspectVoiceCampaigns from "./pages/ProspectVoiceCampaigns";
+ import ProductsPage from "./pages/Sales/ProductsPage";
+ import InvoicesPage from "./pages/Sales/InvoicesPage";
+ import SuppliersPage from "./pages/Sales/SuppliersPage";
+ import PurchaseOrdersPage from "./pages/Sales/PurchaseOrdersPage";
+ import PurchaseOrderDetail from "./pages/Sales/PurchaseOrderDetail";
++import ItemIssuePage from "./pages/Sales/ItemIssuePage";
+ import NotFound from "./pages/NotFound";
+ import { RegistrationFormatProvider } from "@/contexts/RegistrationFormatContext";
+ import { useActiveProject } from "@/hooks/useOlympiadProjects";
+ import { queryClient } from "@/lib/queryClient";
+ import { useRealtimeSync } from "@/hooks/useRealtimeSync";
+ 
+ // Real-time sync wrapper component
+ const RealtimeSyncProvider = ({ children, projectId }: { children: React.ReactNode; projectId?: string }) => {
+   // Initialize real-time sync for all critical tables
+   useRealtimeSync({
+@@ -361,20 +362,21 @@ const AppContent = () => {
+            </ProtectedRoute>
+          } />
+          <Route path="/prospect/campaigns/new" element={<ProtectedRoute><ProspectCampaignNew /></ProtectedRoute>} />
+          <Route path="/prospect/campaigns/:id" element={<ProtectedRoute><ProspectCampaignDetail /></ProtectedRoute>} />
+          <Route path="/sales" element={<ProtectedRoute><Navigate to="/sales/invoices" replace /></ProtectedRoute>} />
+          <Route path="/sales/products" element={<ProtectedRoute><ProductsPage /></ProtectedRoute>} />
+          <Route path="/sales/invoices" element={<ProtectedRoute><InvoicesPage /></ProtectedRoute>} />
+          <Route path="/sales/suppliers" element={<ProtectedRoute><SuppliersPage /></ProtectedRoute>} />
+         <Route path="/sales/purchase-orders" element={<ProtectedRoute><PurchaseOrdersPage /></ProtectedRoute>} />
+         <Route path="/sales/purchase-orders/:id" element={<ProtectedRoute><PurchaseOrderDetail /></ProtectedRoute>} />
++        <Route path="/sales/item-issue" element={<ProtectedRoute><ItemIssuePage /></ProtectedRoute>} />
+          <Route path="*" element={<NotFound />} />
+         </Routes>
+       </RegistrationFormatProvider>
+     </RealtimeSyncProvider>
+   );
+ };
+ 
+ const App = () => {
+   return (
+     <QueryClientProvider client={queryClient}>
+diff --git a/src/components/sales/SalesLayout.tsx b/src/components/sales/SalesLayout.tsx
+index 9dc3009..94c997f 100644
+--- a/src/components/sales/SalesLayout.tsx
++++ b/src/components/sales/SalesLayout.tsx
+@@ -1,25 +1,26 @@
+ import { Link, useLocation, useNavigate } from 'react-router-dom';
+ import { useAuth } from '@/hooks/useAuth';
+ import { Button } from '@/components/ui/button';
+-import { LogOut, ArrowLeft, Package, FileText, Truck, ClipboardList } from 'lucide-react';
++import { LogOut, ArrowLeft, Package, FileText, Truck, ClipboardList, PackageMinus } from 'lucide-react';
+ 
+ const SalesLayout = ({ children }: { children: React.ReactNode }) => {
+   const { profile, signOut } = useAuth();
+   const location = useLocation();
+   const navigate = useNavigate();
+ 
+   const nav = [
+     { label: 'Products', href: '/sales/products', icon: Package },
+     { label: 'Invoices', href: '/sales/invoices', icon: FileText },
+     { label: 'Suppliers', href: '/sales/suppliers', icon: Truck },
+     { label: 'Purchase Orders', href: '/sales/purchase-orders', icon: ClipboardList },
++    { label: 'Item Issue', href: '/sales/item-issue', icon: PackageMinus },
+   ];
+ 
+   return (
+     <div className="min-h-screen bg-gray-50 flex flex-col">
+       <nav className="bg-violet-700 text-white shadow-lg">
+         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+           <div className="flex items-center justify-between h-14">
+             <div className="flex items-center gap-6">
+               <button
+                 onClick={() => navigate('/module-select')}
+diff --git a/src/pages/Sales/IssueItemDialog.tsx b/src/pages/Sales/IssueItemDialog.tsx
+new file mode 100644
+index 0000000..cce67a2
+--- /dev/null
++++ b/src/pages/Sales/IssueItemDialog.tsx
+@@ -0,0 +1,118 @@
++import { useState, useEffect } from 'react';
++import { Button } from '@/components/ui/button';
++import { Input } from '@/components/ui/input';
++import { Label } from '@/components/ui/label';
++import { Textarea } from '@/components/ui/textarea';
++import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
++import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
++import { supabase } from '@/integrations/supabase/client';
++import { useToast } from '@/hooks/use-toast';
++
++const ISSUED_TO_TYPES = [
++  { value: 'student', label: 'Student' },
++  { value: 'staff', label: 'Staff' },
++  { value: 'other', label: 'Other' },
++];
++
++type IssueProduct = { id: string; name: string; stock_quantity: number };
++
++const emptyForm = {
++  product_id: '', issued_to_type: 'student', issued_to_name: '', quantity: '1', notes: '',
++};
++
++export default function IssueItemDialog({
++  open, onOpenChange, onSaved,
++}: {
++  open: boolean;
++  onOpenChange: (open: boolean) => void;
++  onSaved: () => void;
++}) {
++  const { toast } = useToast();
++  const [form, setForm] = useState(emptyForm);
++  const [saving, setSaving] = useState(false);
++  const [products, setProducts] = useState<IssueProduct[]>([]);
++
++  useEffect(() => {
++    if (!open) return;
++    setForm(emptyForm);
++    supabase.from('products' as any).select('id, name, stock_quantity').eq('is_active', true).order('name')
++      .then(({ data, error }) => {
++        if (error) { toast({ title: 'Error loading products', description: error.message, variant: 'destructive' }); return; }
++        setProducts((data || []) as unknown as IssueProduct[]);
++      });
++  }, [open]);
++
++  const selectedProduct = products.find(p => p.id === form.product_id);
++  const quantityNum = Number(form.quantity);
++  const exceedsStock = !!selectedProduct && quantityNum > selectedProduct.stock_quantity;
++
++  const handleSave = async () => {
++    if (!form.product_id) { toast({ title: 'Select a product', variant: 'destructive' }); return; }
++    if (!form.issued_to_name.trim()) { toast({ title: 'Issued-to name is required', variant: 'destructive' }); return; }
++    if (!quantityNum || quantityNum <= 0) { toast({ title: 'Quantity must be greater than 0', variant: 'destructive' }); return; }
++
++    setSaving(true);
++    const { data, error } = await supabase.rpc('issue_item' as any, {
++      p_product_id: form.product_id,
++      p_issued_to_type: form.issued_to_type,
++      p_issued_to_name: form.issued_to_name.trim(),
++      p_quantity: quantityNum,
++      p_notes: form.notes.trim() || null,
++    });
++    setSaving(false);
++    if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
++    const r = data as any;
++    toast({ title: `Item issued — remaining stock: ${r.new_stock_quantity}` });
++    onOpenChange(false);
++    onSaved();
++  };
++
++  return (
++    <Dialog open={open} onOpenChange={onOpenChange}>
++      <DialogContent className="max-w-md">
++        <DialogHeader><DialogTitle>Issue Item</DialogTitle></DialogHeader>
++        <div className="grid grid-cols-2 gap-3">
++          <div className="col-span-2">
++            <Label>Product</Label>
++            <Select value={form.product_id || undefined} onValueChange={v => setForm(f => ({ ...f, product_id: v }))}>
++              <SelectTrigger><SelectValue placeholder="Select product" /></SelectTrigger>
++              <SelectContent>
++                {products.map(p => <SelectItem key={p.id} value={p.id}>{p.name} (stock: {p.stock_quantity})</SelectItem>)}
++              </SelectContent>
++            </Select>
++          </div>
++          <div>
++            <Label>Issued To Type</Label>
++            <Select value={form.issued_to_type} onValueChange={v => setForm(f => ({ ...f, issued_to_type: v }))}>
++              <SelectTrigger><SelectValue /></SelectTrigger>
++              <SelectContent>
++                {ISSUED_TO_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
++              </SelectContent>
++            </Select>
++          </div>
++          <div>
++            <Label htmlFor="ii-name">Issued To Name</Label>
++            <Input id="ii-name" value={form.issued_to_name} onChange={e => setForm(f => ({ ...f, issued_to_name: e.target.value }))} />
++          </div>
++          <div>
++            <Label htmlFor="ii-qty">Quantity</Label>
++            <Input id="ii-qty" type="number" min="1" step="1" value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} />
++            {exceedsStock && (
++              <p className="text-[11px] text-amber-600 mt-1">
++                Exceeds current stock ({selectedProduct!.stock_quantity}) — allowed, but stock will go negative.
++              </p>
++            )}
++          </div>
++          <div className="col-span-2">
++            <Label htmlFor="ii-notes">Notes</Label>
++            <Textarea id="ii-notes" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
++          </div>
++        </div>
++        <DialogFooter>
++          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
++          <Button onClick={handleSave} disabled={saving}>{saving ? 'Issuing…' : 'Issue Item'}</Button>
++        </DialogFooter>
++      </DialogContent>
++    </Dialog>
++  );
++}
+diff --git a/src/pages/Sales/ItemIssuePage.tsx b/src/pages/Sales/ItemIssuePage.tsx
+new file mode 100644
+index 0000000..45d449f
+--- /dev/null
++++ b/src/pages/Sales/ItemIssuePage.tsx
+@@ -0,0 +1,92 @@
++import { useState, useEffect } from 'react';
++import SalesLayout from '@/components/sales/SalesLayout';
++import { Button } from '@/components/ui/button';
++import { Badge } from '@/components/ui/badge';
++import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
++import { Plus } from 'lucide-react';
++import { supabase } from '@/integrations/supabase/client';
++import { useToast } from '@/hooks/use-toast';
++import IssueItemDialog from './IssueItemDialog';
++
++type IssueRow = {
++  id: string;
++  quantity: number;
++  issued_to_type: 'student' | 'staff' | 'other';
++  issued_to_name: string;
++  issue_date: string;
++  notes: string | null;
++  products: { name: string } | null;
++};
++
++const TYPE_LABELS: Record<string, string> = { student: 'Student', staff: 'Staff', other: 'Other' };
++
++export default function ItemIssuePage() {
++  const { toast } = useToast();
++  const [issues, setIssues] = useState<IssueRow[]>([]);
++  const [loading, setLoading] = useState(true);
++  const [dialogOpen, setDialogOpen] = useState(false);
++
++  const loadIssues = async () => {
++    setLoading(true);
++    const { data, error } = await supabase
++      .from('inventory_item_issues' as any)
++      .select('id, quantity, issued_to_type, issued_to_name, issue_date, notes, products(name)')
++      .order('issue_date', { ascending: false })
++      .order('created_at', { ascending: false });
++    if (error) {
++      toast({ title: 'Error', description: error.message, variant: 'destructive' });
++    } else {
++      setIssues((data || []) as unknown as IssueRow[]);
++    }
++    setLoading(false);
++  };
++
++  useEffect(() => { loadIssues(); }, []);
++
++  return (
++    <SalesLayout>
++      <div className="max-w-6xl mx-auto px-4 py-8">
++        <div className="flex items-center justify-between mb-6">
++          <h1 className="text-2xl font-bold">Item Issue</h1>
++          <Button onClick={() => setDialogOpen(true)}><Plus className="h-4 w-4 mr-2" />Issue Item</Button>
++        </div>
++
++        <div className="bg-white rounded-xl border overflow-hidden">
++          <Table>
++            <TableHeader>
++              <TableRow>
++                <TableHead>Date</TableHead>
++                <TableHead>Product</TableHead>
++                <TableHead>Issued To</TableHead>
++                <TableHead>Quantity</TableHead>
++                <TableHead>Notes</TableHead>
++              </TableRow>
++            </TableHeader>
++            <TableBody>
++              {loading ? (
++                <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">Loading…</TableCell></TableRow>
++              ) : issues.length === 0 ? (
++                <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No items issued yet.</TableCell></TableRow>
++              ) : (
++                issues.map(i => (
++                  <TableRow key={i.id}>
++                    <TableCell>{new Date(i.issue_date).toLocaleDateString('en-IN')}</TableCell>
++                    <TableCell className="font-medium">{i.products?.name ?? '—'}</TableCell>
++                    <TableCell>
++                      <Badge variant="outline" className="mr-1.5 text-[10px]">{TYPE_LABELS[i.issued_to_type]}</Badge>
++                      {i.issued_to_name}
++                    </TableCell>
++                    <TableCell>{i.quantity}</TableCell>
++                    <TableCell className="text-muted-foreground text-sm">{i.notes || '—'}</TableCell>
++                  </TableRow>
++                ))
++              )}
++            </TableBody>
++          </Table>
++        </div>
++      </div>
++
++      <IssueItemDialog open={dialogOpen} onOpenChange={setDialogOpen} onSaved={loadIssues} />
++    </SalesLayout>
++  );
++}
+diff --git a/supabase/migrations/20260808_inventory_phase5_item_issue.sql b/supabase/migrations/20260808_inventory_phase5_item_issue.sql
+new file mode 100644
+index 0000000..3e10726
+--- /dev/null
++++ b/supabase/migrations/20260808_inventory_phase5_item_issue.sql
+@@ -0,0 +1,69 @@
++-- Phase 5 of inventory module rebuild: internal stock issuance (no sale/
++-- invoice attached — e.g. handing out consumables to students/staff).
++
++CREATE TABLE IF NOT EXISTS public.inventory_item_issues (
++  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
++  product_id uuid NOT NULL REFERENCES public.products(id),
++  issued_to_type text NOT NULL CHECK (issued_to_type IN ('student', 'staff', 'other')),
++  issued_to_name text NOT NULL,
++  quantity integer NOT NULL CHECK (quantity > 0),
++  issued_by uuid,
++  issue_date date NOT NULL DEFAULT current_date,
++  notes text,
++  created_at timestamptz NOT NULL DEFAULT now()
++);
++ALTER TABLE public.inventory_item_issues ENABLE ROW LEVEL SECURITY;
++CREATE INDEX IF NOT EXISTS idx_inventory_item_issues_product_id ON public.inventory_item_issues(product_id);
++
++DROP POLICY IF EXISTS "inventory_item_issues_select" ON public.inventory_item_issues;
++CREATE POLICY "inventory_item_issues_select" ON public.inventory_item_issues FOR SELECT USING (is_crm_user());
++-- No write policy — all writes via issue_item (SECURITY DEFINER).
++
++-- ── issue_item ───────────────────────────────────────────────────────────────
++CREATE OR REPLACE FUNCTION public.issue_item(
++  p_product_id uuid,
++  p_issued_to_type text,
++  p_issued_to_name text,
++  p_quantity integer,
++  p_notes text
++)
++RETURNS jsonb
++LANGUAGE plpgsql
++SECURITY DEFINER
++SET search_path = public
++AS $$
++DECLARE
++  v_id uuid;
++  v_new_stock integer;
++BEGIN
++  IF NOT is_crm_user() THEN
++    RAISE EXCEPTION 'Not authorized';
++  END IF;
++  IF p_quantity <= 0 THEN
++    RAISE EXCEPTION 'Quantity must be positive';
++  END IF;
++  IF p_issued_to_name IS NULL OR trim(p_issued_to_name) = '' THEN
++    RAISE EXCEPTION 'Issued-to name is required';
++  END IF;
++  IF p_issued_to_type NOT IN ('student', 'staff', 'other') THEN
++    RAISE EXCEPTION 'Invalid issued_to_type';
++  END IF;
++
++  INSERT INTO inventory_item_issues (product_id, issued_to_type, issued_to_name, quantity, issued_by, notes)
++  VALUES (p_product_id, p_issued_to_type, trim(p_issued_to_name), p_quantity, auth.uid(), p_notes)
++  RETURNING id INTO v_id;
++
++  UPDATE products SET stock_quantity = stock_quantity - p_quantity, updated_at = now()
++  WHERE id = p_product_id
++  RETURNING stock_quantity INTO v_new_stock;
++
++  IF v_new_stock IS NULL THEN
++    RAISE EXCEPTION 'Product not found';
++  END IF;
++
++  RETURN jsonb_build_object('id', v_id, 'new_stock_quantity', v_new_stock);
++END;
++$$;
++
++REVOKE EXECUTE ON FUNCTION public.issue_item(uuid, text, text, integer, text) FROM PUBLIC, anon;
++GRANT EXECUTE ON FUNCTION public.issue_item(uuid, text, text, integer, text) TO authenticated, service_role;
