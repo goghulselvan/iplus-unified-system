@@ -30,3 +30,4 @@ dist-ssr
 # Lovable internal notes (may contain incident details)
 .lovable/
 .worktrees/
+.superpowers/
