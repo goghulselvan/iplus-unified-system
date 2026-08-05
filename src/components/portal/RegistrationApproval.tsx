@@ -15,10 +15,31 @@ function last10Digits(v: string | null | undefined): string | null {
   return digits.length >= 10 ? digits.slice(-10) : null;
 }
 
+interface ContactEntry { name: string; mobile: string; role?: string }
+
+// Before a portal-submitted value overwrites an existing contact-mobile field,
+// keep the old number (if real and different) instead of silently dropping it —
+// same {name, mobile, role} shape additional_contacts already uses elsewhere
+// (manual entry, incoming-call auto-linking).
+function preserveIfChanged(
+  contacts: ContactEntry[],
+  oldMobile: string | null | undefined,
+  newMobile: string | null | undefined,
+  oldName: string | null | undefined,
+  role: string,
+): ContactEntry[] {
+  if (!oldMobile || !newMobile) return contacts;
+  if (last10Digits(oldMobile) === last10Digits(newMobile)) return contacts;
+  if (contacts.some((c) => last10Digits(c.mobile) === last10Digits(oldMobile))) return contacts;
+  if (contacts.length >= 5) return contacts;
+  return [...contacts, { name: oldName ?? "", mobile: oldMobile, role }];
+}
+
 interface CandidateMatch {
   id: string; school_name: string; ss_no: number; district: string; state: string;
   board: string | null; mobile: string | null; email: string | null; address: string | null;
   pincode: string | null; stage: string; linked_to_crm: boolean; matchedOn: string;
+  additional_contacts: ContactEntry[] | null;
 }
 
 // Finds likely-existing prospect_schools matches for a portal registration by
@@ -26,7 +47,7 @@ interface CandidateMatch {
 // and don't accidentally create a duplicate school for someone already in CRM.
 async function findCandidateMatches(reg: PortalRegistration): Promise<CandidateMatch[]> {
   const found = new Map<string, CandidateMatch>();
-  const cols = "id, school_name, ss_no, district, state, board, mobile, email, address, pincode, stage, linked_to_crm";
+  const cols = "id, school_name, ss_no, district, state, board, mobile, email, address, pincode, stage, linked_to_crm, additional_contacts";
 
   if (reg.ss_no) {
     const { data } = await supabase.from("prospect_schools").select(cols).eq("ss_no", reg.ss_no).eq("is_active", true);
@@ -116,6 +137,7 @@ interface ProspectSchool {
   pincode: string | null;
   stage: string;
   linked_to_crm: boolean;
+  additional_contacts: ContactEntry[] | null;
 }
 
 /* ── Prospect school search ─────────────────────────────────────────────────── */
@@ -141,7 +163,7 @@ function ProspectSearchField({
       setLoading(true);
       let q = supabase
         .from("prospect_schools")
-        .select("id, school_name, ss_no, district, state, board, mobile, email, address, pincode, stage, linked_to_crm")
+        .select("id, school_name, ss_no, district, state, board, mobile, email, address, pincode, stage, linked_to_crm, additional_contacts")
         .eq("is_active", true)
         .order("school_name")
         .limit(10);
@@ -442,17 +464,26 @@ export function RegistrationApproval() {
       const now = new Date().toISOString();
       let crmSchoolId: string;
       let crmSsNo: number = prospect.ss_no;
+      // Existing CRM school's contact fields, captured before any overwrite —
+      // null for Case 2 (no schools row exists yet to have old values).
+      let existingSchoolContacts: {
+        mobile1: string | null; contact_person_name: string | null;
+        principal_name: string | null; principal_mobile: string | null;
+        corr_name: string | null; corr_mobile: string | null; coord_mobile: string | null;
+        additional_contacts: ContactEntry[] | null;
+      } | null = null;
 
       if (prospect.linked_to_crm) {
         // Case 1: already in CRM as interested — just update workflow + stage
         const { data: existing, error: findErr } = await supabase
           .from("schools")
-          .select("id, ss_no")
+          .select("id, ss_no, mobile1, contact_person_name, principal_name, principal_mobile, corr_name, corr_mobile, coord_mobile, additional_contacts")
           .eq("prospect_school_id", prospect.id)
           .single();
         if (findErr || !existing) throw new Error("Could not find CRM school linked to this prospect");
         crmSchoolId = existing.id;
         crmSsNo = existing.ss_no ?? prospect.ss_no;
+        existingSchoolContacts = existing;
 
         // Update workflow to In Progress
         await supabase.from("school_project_workflow").upsert(
@@ -497,6 +528,21 @@ export function RegistrationApproval() {
         });
       }
 
+      // Before overwriting any contact-mobile field below, keep whatever old
+      // number is about to be replaced (if it's real and different) instead of
+      // dropping it — same additional_contacts array both tables already share
+      // with the incoming-call auto-linking trigger. Start from the union of
+      // both tables' existing lists since they can drift apart.
+      let contacts: ContactEntry[] = existingSchoolContacts?.additional_contacts ?? [];
+      for (const c of prospect.additional_contacts ?? []) {
+        if (!contacts.some((e) => last10Digits(e.mobile) === last10Digits(c.mobile))) contacts.push(c);
+      }
+      contacts = preserveIfChanged(contacts, existingSchoolContacts?.mobile1 ?? null, reg.phone, existingSchoolContacts?.contact_person_name ?? null, "School");
+      contacts = preserveIfChanged(contacts, prospect.mobile, reg.phone, null, "School");
+      contacts = preserveIfChanged(contacts, existingSchoolContacts?.principal_mobile ?? null, reg.principal_mobile, existingSchoolContacts?.principal_name ?? null, "Principal");
+      contacts = preserveIfChanged(contacts, existingSchoolContacts?.corr_mobile ?? null, reg.corr_mobile, existingSchoolContacts?.corr_name ?? null, "Correspondent");
+      contacts = preserveIfChanged(contacts, existingSchoolContacts?.coord_mobile ?? null, reg.coord_mobile, null, "Coordinator");
+
       // Update prospect stage to registered, AND sync portal-submitted details
       // into prospect_schools too — this used to only update the CRM `schools`
       // copy, leaving prospect_schools permanently stale after a school
@@ -505,6 +551,7 @@ export function RegistrationApproval() {
       await supabase.from("prospect_schools").update({
         stage: "registered",
         linked_to_crm: true,
+        additional_contacts: contacts,
         ...(reg.school_name    && { school_name: reg.school_name }),
         ...(regAddress         && { address: regAddress }),
         ...(reg.email          && { email: reg.email }),
@@ -517,6 +564,7 @@ export function RegistrationApproval() {
       // Sync portal-submitted details to CRM school — the school's own portal
       // submission is treated as authoritative over old prospect-import data.
       await supabase.from("schools").update({
+        additional_contacts: contacts,
         ...(reg.school_name      && { school_name: reg.school_name }),
         ...(regAddress           && { school_address: regAddress }),
         ...(reg.email            && { email: reg.email }),
