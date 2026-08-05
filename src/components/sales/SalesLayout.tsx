@@ -1,7 +1,7 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
-import { LogOut, ArrowLeft, Package, FileText, Truck, ClipboardList, PackageMinus, ArrowUpDown } from 'lucide-react';
+import { LogOut, ArrowLeft, Package, FileText, Truck, ClipboardList, PackageMinus, ArrowUpDown, BarChart3 } from 'lucide-react';
 
 const SalesLayout = ({ children }: { children: React.ReactNode }) => {
   const { profile, signOut } = useAuth();
@@ -15,6 +15,7 @@ const SalesLayout = ({ children }: { children: React.ReactNode }) => {
     { label: 'Purchase Orders', href: '/sales/purchase-orders', icon: ClipboardList },
     { label: 'Stock Movements', href: '/sales/stock-movements', icon: ArrowUpDown },
     { label: 'Item Issue', href: '/sales/item-issue', icon: PackageMinus },
+    { label: 'Stock Report', href: '/sales/stock-report', icon: BarChart3 },
   ];
 
   return (

@@ -55,6 +55,7 @@ import PurchaseOrdersPage from "./pages/Sales/PurchaseOrdersPage";
 import StockMovementsPage from "./pages/Sales/StockMovementsPage";
 import PurchaseOrderDetail from "./pages/Sales/PurchaseOrderDetail";
 import ItemIssuePage from "./pages/Sales/ItemIssuePage";
+import StockReportPage from "./pages/Sales/StockReportPage";
 import NotFound from "./pages/NotFound";
 import { RegistrationFormatProvider } from "@/contexts/RegistrationFormatContext";
 import { useActiveProject } from "@/hooks/useOlympiadProjects";
@@ -372,6 +373,7 @@ const AppContent = () => {
         <Route path="/sales/purchase-orders/:id" element={<ProtectedRoute><PurchaseOrderDetail /></ProtectedRoute>} />
         <Route path="/sales/stock-movements" element={<ProtectedRoute><StockMovementsPage /></ProtectedRoute>} />
         <Route path="/sales/item-issue" element={<ProtectedRoute><ItemIssuePage /></ProtectedRoute>} />
+        <Route path="/sales/stock-report" element={<ProtectedRoute><StockReportPage /></ProtectedRoute>} />
          <Route path="*" element={<NotFound />} />
         </Routes>
       </RegistrationFormatProvider>
