@@ -11,6 +11,7 @@ type StockRow = {
   name: string;
   sku: string | null;
   category_id: string | null;
+  item_type: 'consumable' | 'saleable';
   series: string | null;
   subject: string | null;
   class_number: number | null;
@@ -42,7 +43,7 @@ export default function StockReportPage() {
     setLoading(true);
     const { data, error } = await supabase
       .from('products' as any)
-      .select('id, name, sku, category_id, series, subject, class_number, unit, stock_quantity, minimum_stock_level, unit_price, is_active, product_categories(name)')
+      .select('id, name, sku, category_id, item_type, series, subject, class_number, unit, stock_quantity, minimum_stock_level, unit_price, is_active, product_categories(name)')
       .eq('is_active', true)
       .order('name');
     if (error) {
@@ -64,13 +65,12 @@ export default function StockReportPage() {
   const filteredProducts = useMemo(() => products.filter(p => {
     if (filters.search && !p.name.toLowerCase().includes(filters.search.toLowerCase()) && !(p.sku ?? '').toLowerCase().includes(filters.search.toLowerCase())) return false;
     if (filters.categoryId !== 'all' && p.category_id !== filters.categoryId) return false;
+    if (filters.itemType !== 'all' && p.item_type !== filters.itemType) return false;
     if (filters.series !== 'all' && p.series !== filters.series) return false;
     if (filters.subject !== 'all' && p.subject !== filters.subject) return false;
     if (filters.classNumber !== 'all' && String(p.class_number) !== filters.classNumber) return false;
     if (filters.stockStatus === 'low' && !isLowStock(p)) return false;
     if (filters.stockStatus === 'out' && !isOutOfStock(p)) return false;
-    if (filters.activeStatus === 'active' && !p.is_active) return false;
-    if (filters.activeStatus === 'inactive' && p.is_active) return false;
     return true;
   }), [products, filters]);
 
@@ -119,6 +119,7 @@ export default function StockReportPage() {
         <ProductsFilterBar
           filters={filters} onChange={setFilters} categories={categories}
           seriesOptions={seriesOptions} subjectOptions={subjectOptions} classOptions={classOptions}
+          hideActiveStatus
         />
 
         <div className="bg-white rounded-xl border overflow-hidden">

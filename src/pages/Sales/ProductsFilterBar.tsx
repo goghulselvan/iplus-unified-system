@@ -18,7 +18,7 @@ export const DEFAULT_FILTERS: ProductFilters = {
 };
 
 export default function ProductsFilterBar({
-  filters, onChange, categories, seriesOptions, subjectOptions, classOptions,
+  filters, onChange, categories, seriesOptions, subjectOptions, classOptions, hideActiveStatus,
 }: {
   filters: ProductFilters;
   onChange: (f: ProductFilters) => void;
@@ -26,6 +26,7 @@ export default function ProductsFilterBar({
   seriesOptions: string[];
   subjectOptions: string[];
   classOptions: string[];
+  hideActiveStatus?: boolean;
 }) {
   const set = (patch: Partial<ProductFilters>) => onChange({ ...filters, ...patch });
 
@@ -81,14 +82,16 @@ export default function ProductsFilterBar({
           <SelectItem value="out">Out of Stock</SelectItem>
         </SelectContent>
       </Select>
-      <Select value={filters.activeStatus} onValueChange={v => set({ activeStatus: v })}>
-        <SelectTrigger className="w-[120px]"><SelectValue placeholder="Status" /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">All Status</SelectItem>
-          <SelectItem value="active">Active</SelectItem>
-          <SelectItem value="inactive">Inactive</SelectItem>
-        </SelectContent>
-      </Select>
+      {!hideActiveStatus && (
+        <Select value={filters.activeStatus} onValueChange={v => set({ activeStatus: v })}>
+          <SelectTrigger className="w-[120px]"><SelectValue placeholder="Status" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="active">Active</SelectItem>
+            <SelectItem value="inactive">Inactive</SelectItem>
+          </SelectContent>
+        </Select>
+      )}
     </div>
   );
 }
