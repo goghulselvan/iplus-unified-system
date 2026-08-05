@@ -565,12 +565,14 @@ export function RegistrationApproval() {
       const now = new Date().toISOString();
       const ssNo = fields.ss_no ? parseInt(fields.ss_no) : null;
 
-      // Create prospect_schools row
+      // Create prospect_schools row. ss_no is NOT NULL with a nextval() default —
+      // omit the key when blank so Postgres assigns the next SS No; sending an
+      // explicit null overrides the default and violates the constraint.
       const { data: newProspect, error: prospectErr } = await supabase
         .from("prospect_schools")
         .insert({
           school_name:  fields.school_name.trim(),
-          ss_no:        ssNo,
+          ...(ssNo !== null && { ss_no: ssNo }),
           district:     fields.district.trim(),
           state:        fields.state.trim(),
           board:        fields.board.trim() || null,
@@ -581,17 +583,18 @@ export function RegistrationApproval() {
           stage:        "registered",
           linked_to_crm: true,
         })
-        .select("id")
+        .select("id, ss_no")
         .single();
       if (prospectErr) throw prospectErr;
 
-      // Create CRM school
+      // Create CRM school — reuse the SS No that was just assigned to prospect_schools
+      // (not the original, possibly-blank form value) so both rows stay in sync.
       const newRegAddress = [reg.address1, reg.address2].filter(Boolean).join(", ");
       const { data: newSchool, error: schoolErr } = await supabase
         .from("schools")
         .insert({
           school_name:          fields.school_name.trim(),
-          ss_no:                ssNo,
+          ss_no:                newProspect.ss_no,
           district:             fields.district.trim(),
           state:                fields.state.trim(),
           board:                fields.board.trim() || null,
@@ -638,7 +641,11 @@ export function RegistrationApproval() {
       toast({ title: "New school created and linked" });
     },
     onError: (err) => {
-      toast({ title: "Failed to create school", description: err instanceof Error ? err.message : "Something went wrong", variant: "destructive" });
+      // Supabase query errors are plain {message, details, code} objects, not
+      // real Error instances, unless .throwOnError() was used — so check for
+      // .message directly instead of relying on instanceof Error.
+      const message = (err as { message?: string })?.message || "Something went wrong";
+      toast({ title: "Failed to create school", description: message, variant: "destructive" });
     },
   });
 
