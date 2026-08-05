@@ -52,6 +52,7 @@ import ProductsPage from "./pages/Sales/ProductsPage";
 import InvoicesPage from "./pages/Sales/InvoicesPage";
 import SuppliersPage from "./pages/Sales/SuppliersPage";
 import PurchaseOrdersPage from "./pages/Sales/PurchaseOrdersPage";
+import StockMovementsPage from "./pages/Sales/StockMovementsPage";
 import PurchaseOrderDetail from "./pages/Sales/PurchaseOrderDetail";
 import NotFound from "./pages/NotFound";
 import { RegistrationFormatProvider } from "@/contexts/RegistrationFormatContext";
@@ -368,6 +369,7 @@ const AppContent = () => {
          <Route path="/sales/suppliers" element={<ProtectedRoute><SuppliersPage /></ProtectedRoute>} />
         <Route path="/sales/purchase-orders" element={<ProtectedRoute><PurchaseOrdersPage /></ProtectedRoute>} />
         <Route path="/sales/purchase-orders/:id" element={<ProtectedRoute><PurchaseOrderDetail /></ProtectedRoute>} />
+        <Route path="/sales/stock-movements" element={<ProtectedRoute><StockMovementsPage /></ProtectedRoute>} />
          <Route path="*" element={<NotFound />} />
         </Routes>
       </RegistrationFormatProvider>
