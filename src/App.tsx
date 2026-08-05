@@ -51,6 +51,7 @@ import ProspectVoiceCampaigns from "./pages/ProspectVoiceCampaigns";
 import ProductsPage from "./pages/Sales/ProductsPage";
 import InvoicesPage from "./pages/Sales/InvoicesPage";
 import SuppliersPage from "./pages/Sales/SuppliersPage";
+import PurchaseOrdersPage from "./pages/Sales/PurchaseOrdersPage";
 import NotFound from "./pages/NotFound";
 import { RegistrationFormatProvider } from "@/contexts/RegistrationFormatContext";
 import { useActiveProject } from "@/hooks/useOlympiadProjects";
@@ -364,6 +365,7 @@ const AppContent = () => {
          <Route path="/sales/products" element={<ProtectedRoute><ProductsPage /></ProtectedRoute>} />
          <Route path="/sales/invoices" element={<ProtectedRoute><InvoicesPage /></ProtectedRoute>} />
          <Route path="/sales/suppliers" element={<ProtectedRoute><SuppliersPage /></ProtectedRoute>} />
+        <Route path="/sales/purchase-orders" element={<ProtectedRoute><PurchaseOrdersPage /></ProtectedRoute>} />
          <Route path="*" element={<NotFound />} />
         </Routes>
       </RegistrationFormatProvider>
