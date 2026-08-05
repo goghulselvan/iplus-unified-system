@@ -18,6 +18,8 @@ const STATUS_LABELS: Record<PoStatus, string> = {
 
 const PENDING_STATUSES: PoStatus[] = ['draft', 'ordered', 'partially_received'];
 
+const PAGE_SIZE = 200;
+
 type PurchaseOrderRow = {
   id: string;
   po_number: number;
@@ -63,16 +65,19 @@ export default function PurchaseReportPage() {
   const [grnItems, setGrnItems] = useState<GrnItemRow[]>([]);
   const [suppliers, setSuppliers] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [supplierFilter, setSupplierFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
 
   const loadAll = async () => {
     setLoading(true);
+    setError(false);
     const [poRes, itemsRes, grnRes, grnItemsRes, suppliersRes] = await Promise.all([
       supabase
         .from('inventory_purchase_orders' as any)
         .select('id, po_number, supplier_id, order_date, status, created_at')
-        .order('order_date', { ascending: false }),
+        .order('order_date', { ascending: false })
+        .limit(PAGE_SIZE),
       supabase
         .from('inventory_po_items' as any)
         .select('id, purchase_order_id, quantity_ordered, unit_cost'),
@@ -90,6 +95,7 @@ export default function PurchaseReportPage() {
 
     const firstError = poRes.error || itemsRes.error || grnRes.error || grnItemsRes.error || suppliersRes.error;
     if (firstError) {
+      setError(true);
       toast({ title: 'Error', description: firstError.message, variant: 'destructive' });
       setLoading(false);
       return;
@@ -178,23 +184,23 @@ export default function PurchaseReportPage() {
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
           <div className="bg-white rounded-xl border p-5">
             <div className="text-sm text-muted-foreground">Total POs</div>
-            <div className="text-2xl font-bold mt-1">{totalPOs}</div>
+            <div className="text-2xl font-bold mt-1">{loading || error ? '—' : totalPOs}</div>
           </div>
           <div className="bg-white rounded-xl border p-5">
             <div className="text-sm text-muted-foreground">Total Ordered Value</div>
             <div className="text-2xl font-bold text-violet-700 mt-1">
-              ₹{totalOrderedValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              {loading || error ? '—' : `₹${totalOrderedValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}
             </div>
           </div>
           <div className="bg-white rounded-xl border p-5">
             <div className="text-sm text-muted-foreground">Total Received Value</div>
             <div className="text-2xl font-bold text-green-700 mt-1">
-              ₹{totalReceivedValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              {loading || error ? '—' : `₹${totalReceivedValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}
             </div>
           </div>
           <div className="bg-white rounded-xl border p-5">
             <div className="text-sm text-muted-foreground">Pending POs</div>
-            <div className="text-2xl font-bold text-amber-600 mt-1">{pendingCount}</div>
+            <div className="text-2xl font-bold text-amber-600 mt-1">{loading || error ? '—' : pendingCount}</div>
           </div>
         </div>
 
@@ -220,6 +226,12 @@ export default function PurchaseReportPage() {
             </SelectContent>
           </Select>
         </div>
+
+        {!loading && !error && purchaseOrders.length === PAGE_SIZE && (
+          <p className="text-sm text-muted-foreground mb-3">
+            Showing the {PAGE_SIZE} most recent purchase orders.
+          </p>
+        )}
 
         <div className="bg-white rounded-xl border overflow-hidden">
           <Table>

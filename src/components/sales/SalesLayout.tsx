@@ -34,12 +34,12 @@ const SalesLayout = ({ children }: { children: React.ReactNode }) => {
               </button>
               <div className="h-5 w-px bg-violet-500" />
               <span className="font-semibold text-sm tracking-wide">Sales</span>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 overflow-x-auto">
                 {nav.map(({ label, href, icon: Icon }) => (
                   <Link
                     key={href}
                     to={href}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
                       location.pathname === href
                         ? 'bg-white text-violet-700'
                         : 'text-violet-100 hover:bg-violet-600'

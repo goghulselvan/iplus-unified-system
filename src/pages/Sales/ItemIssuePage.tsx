@@ -31,20 +31,26 @@ export default function ItemIssuePage() {
   const [issues, setIssues] = useState<IssueRow[]>([]);
   const [profilesById, setProfilesById] = useState<Record<string, IssuedByProfile>>({});
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
 
   const loadIssues = async () => {
     setLoading(true);
-    const { data, error } = await supabase
+    setError(false);
+    let query = supabase
       .from('inventory_item_issues' as any)
-      .select('id, quantity, issued_to_type, issued_to_name, issue_date, notes, issued_by, products(name)')
+      .select('id, quantity, issued_to_type, issued_to_name, issue_date, notes, issued_by, products(name)');
+    if (fromDate) query = query.gte('issue_date', fromDate);
+    if (toDate) query = query.lte('issue_date', toDate);
+    const { data, error: loadErr } = await query
       .order('issue_date', { ascending: false })
       .order('created_at', { ascending: false })
       .limit(PAGE_SIZE);
-    if (error) {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    if (loadErr) {
+      setError(true);
+      toast({ title: 'Error', description: loadErr.message, variant: 'destructive' });
     } else {
       setIssues((data || []) as unknown as IssueRow[]);
     }
@@ -62,27 +68,21 @@ export default function ItemIssuePage() {
     setProfilesById(map);
   };
 
-  useEffect(() => { loadIssues(); loadProfiles(); }, []);
+  useEffect(() => { loadIssues(); }, [fromDate, toDate]);
+  useEffect(() => { loadProfiles(); }, []);
 
-  // Client-side filter over the already-loaded issues list — no range selected means no filtering (current behavior).
-  const filteredIssues = useMemo(() => issues.filter(i => {
-    if (fromDate && i.issue_date < fromDate) return false;
-    if (toDate && i.issue_date > toDate) return false;
-    return true;
-  }), [issues, fromDate, toDate]);
-
-  const totalQuantity = useMemo(() => filteredIssues.reduce((s, i) => s + i.quantity, 0), [filteredIssues]);
+  const totalQuantity = useMemo(() => issues.reduce((s, i) => s + i.quantity, 0), [issues]);
   const studentQuantity = useMemo(
-    () => filteredIssues.filter(i => i.issued_to_type === 'student').reduce((s, i) => s + i.quantity, 0),
-    [filteredIssues]
+    () => issues.filter(i => i.issued_to_type === 'student').reduce((s, i) => s + i.quantity, 0),
+    [issues]
   );
   const staffQuantity = useMemo(
-    () => filteredIssues.filter(i => i.issued_to_type === 'staff').reduce((s, i) => s + i.quantity, 0),
-    [filteredIssues]
+    () => issues.filter(i => i.issued_to_type === 'staff').reduce((s, i) => s + i.quantity, 0),
+    [issues]
   );
   const otherQuantity = useMemo(
-    () => filteredIssues.filter(i => i.issued_to_type === 'other').reduce((s, i) => s + i.quantity, 0),
-    [filteredIssues]
+    () => issues.filter(i => i.issued_to_type === 'other').reduce((s, i) => s + i.quantity, 0),
+    [issues]
   );
 
   return (
@@ -106,19 +106,19 @@ export default function ItemIssuePage() {
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
           <div className="bg-white rounded-xl border p-5">
             <div className="text-sm text-muted-foreground">Total Quantity Issued</div>
-            <div className="text-2xl font-bold text-violet-700 mt-1">{totalQuantity}</div>
+            <div className="text-2xl font-bold text-violet-700 mt-1">{loading || error ? '—' : totalQuantity}</div>
           </div>
           <div className="bg-white rounded-xl border p-5">
             <div className="text-sm text-muted-foreground">Issued to Students</div>
-            <div className="text-2xl font-bold mt-1">{studentQuantity}</div>
+            <div className="text-2xl font-bold mt-1">{loading || error ? '—' : studentQuantity}</div>
           </div>
           <div className="bg-white rounded-xl border p-5">
             <div className="text-sm text-muted-foreground">Issued to Staff</div>
-            <div className="text-2xl font-bold mt-1">{staffQuantity}</div>
+            <div className="text-2xl font-bold mt-1">{loading || error ? '—' : staffQuantity}</div>
           </div>
           <div className="bg-white rounded-xl border p-5">
             <div className="text-sm text-muted-foreground">Issued to Other</div>
-            <div className="text-2xl font-bold mt-1">{otherQuantity}</div>
+            <div className="text-2xl font-bold mt-1">{loading || error ? '—' : otherQuantity}</div>
           </div>
         </div>
 
@@ -137,10 +137,10 @@ export default function ItemIssuePage() {
             <TableBody>
               {loading ? (
                 <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Loading…</TableCell></TableRow>
-              ) : filteredIssues.length === 0 ? (
-                <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">{issues.length === 0 ? 'No items issued yet.' : 'No items issued in this date range.'}</TableCell></TableRow>
+              ) : issues.length === 0 ? (
+                <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">{fromDate || toDate ? 'No items issued in this date range.' : 'No items issued yet.'}</TableCell></TableRow>
               ) : (
-                filteredIssues.map(i => (
+                issues.map(i => (
                   <TableRow key={i.id}>
                     <TableCell>{new Date(i.issue_date).toLocaleDateString('en-IN')}</TableCell>
                     <TableCell className="font-medium">{i.products?.name ?? '—'}</TableCell>

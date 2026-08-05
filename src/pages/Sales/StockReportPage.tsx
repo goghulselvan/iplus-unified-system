@@ -31,6 +31,7 @@ export default function StockReportPage() {
   const { toast } = useToast();
   const [products, setProducts] = useState<StockRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [filters, setFilters] = useState<ProductFilters>(DEFAULT_FILTERS);
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
 
@@ -41,13 +42,15 @@ export default function StockReportPage() {
 
   const loadProducts = async () => {
     setLoading(true);
-    const { data, error } = await supabase
+    setError(false);
+    const { data, error: loadErr } = await supabase
       .from('products' as any)
       .select('id, name, sku, category_id, item_type, series, subject, class_number, unit, stock_quantity, minimum_stock_level, unit_price, is_active, product_categories(name)')
       .eq('is_active', true)
       .order('name');
-    if (error) {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    if (loadErr) {
+      setError(true);
+      toast({ title: 'Error', description: loadErr.message, variant: 'destructive' });
     } else {
       setProducts((data || []) as unknown as StockRow[]);
     }
@@ -99,22 +102,23 @@ export default function StockReportPage() {
           <h1 className="text-2xl font-bold">Stock Report</h1>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-2">
           <div className="bg-white rounded-xl border p-5">
             <div className="text-sm text-muted-foreground">Out of Stock</div>
-            <div className="text-2xl font-bold text-red-600 mt-1">{outOfStockCount}</div>
+            <div className="text-2xl font-bold text-red-600 mt-1">{loading || error ? '—' : outOfStockCount}</div>
           </div>
           <div className="bg-white rounded-xl border p-5">
             <div className="text-sm text-muted-foreground">Low Stock</div>
-            <div className="text-2xl font-bold text-amber-600 mt-1">{lowStockCount}</div>
+            <div className="text-2xl font-bold text-amber-600 mt-1">{loading || error ? '—' : lowStockCount}</div>
           </div>
           <div className="bg-white rounded-xl border p-5">
             <div className="text-sm text-muted-foreground">Total Stock Value</div>
             <div className="text-2xl font-bold text-violet-700 mt-1">
-              ₹{totalStockValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              {loading || error ? '—' : `₹${totalStockValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}
             </div>
           </div>
         </div>
+        <p className="text-sm text-muted-foreground mb-6">Totals across all active products.</p>
 
         <ProductsFilterBar
           filters={filters} onChange={setFilters} categories={categories}
