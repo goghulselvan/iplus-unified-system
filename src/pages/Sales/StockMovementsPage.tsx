@@ -101,7 +101,7 @@ export default function StockMovementsPage() {
           </TabsList>
 
           <TabsContent value="adds">
-            <div className="bg-white rounded-xl border overflow-hidden mt-4">
+            <div className="bg-white rounded-xl border border-neutral-200 shadow-sm overflow-hidden mt-4">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -134,7 +134,7 @@ export default function StockMovementsPage() {
           </TabsContent>
 
           <TabsContent value="adjustments">
-            <div className="bg-white rounded-xl border overflow-hidden mt-4">
+            <div className="bg-white rounded-xl border border-neutral-200 shadow-sm overflow-hidden mt-4">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -157,7 +157,7 @@ export default function StockMovementsPage() {
                         <TableCell>{new Date(a.adjusted_date).toLocaleDateString('en-IN')}</TableCell>
                         <TableCell className="font-medium">{a.products?.name ?? '—'}</TableCell>
                         <TableCell>
-                          <Badge variant={a.quantity_delta > 0 ? 'default' : 'destructive'}>
+                          <Badge variant="outline" className={a.quantity_delta > 0 ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-red-50 text-red-600 border-red-100'}>
                             {a.quantity_delta > 0 ? '+' : ''}{a.quantity_delta}
                           </Badge>
                         </TableCell>

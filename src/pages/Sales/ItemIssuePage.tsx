@@ -104,25 +104,25 @@ export default function ItemIssuePage() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
-          <div className="bg-white rounded-xl border p-5">
+          <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5">
             <div className="text-sm text-muted-foreground">Total Quantity Issued</div>
             <div className="text-2xl font-bold text-violet-700 mt-1">{loading || error ? '—' : totalQuantity}</div>
           </div>
-          <div className="bg-white rounded-xl border p-5">
+          <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5">
             <div className="text-sm text-muted-foreground">Issued to Students</div>
             <div className="text-2xl font-bold mt-1">{loading || error ? '—' : studentQuantity}</div>
           </div>
-          <div className="bg-white rounded-xl border p-5">
+          <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5">
             <div className="text-sm text-muted-foreground">Issued to Staff</div>
             <div className="text-2xl font-bold mt-1">{loading || error ? '—' : staffQuantity}</div>
           </div>
-          <div className="bg-white rounded-xl border p-5">
+          <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5">
             <div className="text-sm text-muted-foreground">Issued to Other</div>
             <div className="text-2xl font-bold mt-1">{loading || error ? '—' : otherQuantity}</div>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border overflow-hidden">
+        <div className="bg-white rounded-xl border border-neutral-200 shadow-sm overflow-hidden">
           <Table>
             <TableHeader>
               <TableRow>
@@ -145,7 +145,7 @@ export default function ItemIssuePage() {
                     <TableCell>{new Date(i.issue_date).toLocaleDateString('en-IN')}</TableCell>
                     <TableCell className="font-medium">{i.products?.name ?? '—'}</TableCell>
                     <TableCell>
-                      <Badge variant="outline" className="mr-1.5 text-[10px]">{TYPE_LABELS[i.issued_to_type]}</Badge>
+                      <Badge variant="outline" className="mr-1.5 text-[10px] bg-neutral-100 text-neutral-500 border-neutral-200">{TYPE_LABELS[i.issued_to_type]}</Badge>
                       {i.issued_to_name}
                     </TableCell>
                     <TableCell>{i.quantity}</TableCell>

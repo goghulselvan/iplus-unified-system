@@ -169,9 +169,9 @@ export default function PurchaseReportPage() {
   const pendingCount = useMemo(() => filteredRows.filter(r => PENDING_STATUSES.includes(r.status)).length, [filteredRows]);
 
   const statusBadge = (s: PoStatus) => {
-    if (s === 'cancelled') return <Badge variant="destructive">{STATUS_LABELS[s]}</Badge>;
-    if (s === 'received') return <Badge variant="default">{STATUS_LABELS[s]}</Badge>;
-    return <Badge variant="outline">{STATUS_LABELS[s]}</Badge>;
+    if (s === 'cancelled') return <Badge variant="outline" className="bg-red-50 text-red-600 border-red-100">{STATUS_LABELS[s]}</Badge>;
+    if (s === 'received') return <Badge variant="outline" className="bg-emerald-50 text-emerald-600 border-emerald-100">{STATUS_LABELS[s]}</Badge>;
+    return <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-100">{STATUS_LABELS[s]}</Badge>;
   };
 
   return (
@@ -182,23 +182,23 @@ export default function PurchaseReportPage() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
-          <div className="bg-white rounded-xl border p-5">
+          <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5">
             <div className="text-sm text-muted-foreground">Total POs</div>
             <div className="text-2xl font-bold mt-1">{loading || error ? '—' : totalPOs}</div>
           </div>
-          <div className="bg-white rounded-xl border p-5">
+          <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5">
             <div className="text-sm text-muted-foreground">Total Ordered Value</div>
             <div className="text-2xl font-bold text-violet-700 mt-1">
               {loading || error ? '—' : `₹${totalOrderedValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}
             </div>
           </div>
-          <div className="bg-white rounded-xl border p-5">
+          <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5">
             <div className="text-sm text-muted-foreground">Total Received Value</div>
             <div className="text-2xl font-bold text-green-700 mt-1">
               {loading || error ? '—' : `₹${totalReceivedValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}
             </div>
           </div>
-          <div className="bg-white rounded-xl border p-5">
+          <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5">
             <div className="text-sm text-muted-foreground">Pending POs</div>
             <div className="text-2xl font-bold text-amber-600 mt-1">{loading || error ? '—' : pendingCount}</div>
           </div>
@@ -233,7 +233,7 @@ export default function PurchaseReportPage() {
           </p>
         )}
 
-        <div className="bg-white rounded-xl border overflow-hidden">
+        <div className="bg-white rounded-xl border border-neutral-200 shadow-sm overflow-hidden">
           <Table>
             <TableHeader>
               <TableRow>

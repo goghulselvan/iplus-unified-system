@@ -103,15 +103,15 @@ export default function StockReportPage() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-2">
-          <div className="bg-white rounded-xl border p-5">
+          <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5">
             <div className="text-sm text-muted-foreground">Out of Stock</div>
             <div className="text-2xl font-bold text-red-600 mt-1">{loading || error ? '—' : outOfStockCount}</div>
           </div>
-          <div className="bg-white rounded-xl border p-5">
+          <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5">
             <div className="text-sm text-muted-foreground">Low Stock</div>
             <div className="text-2xl font-bold text-amber-600 mt-1">{loading || error ? '—' : lowStockCount}</div>
           </div>
-          <div className="bg-white rounded-xl border p-5">
+          <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5">
             <div className="text-sm text-muted-foreground">Total Stock Value</div>
             <div className="text-2xl font-bold text-violet-700 mt-1">
               {loading || error ? '—' : `₹${totalStockValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}
@@ -126,7 +126,7 @@ export default function StockReportPage() {
           hideActiveStatus
         />
 
-        <div className="bg-white rounded-xl border overflow-hidden">
+        <div className="bg-white rounded-xl border border-neutral-200 shadow-sm overflow-hidden">
           <Table>
             <TableHeader>
               <TableRow>
@@ -162,11 +162,11 @@ export default function StockReportPage() {
                     <TableCell>{p.minimum_stock_level} {p.unit}</TableCell>
                     <TableCell>
                       {isOutOfStock(p) ? (
-                        <Badge variant="destructive">Out of Stock</Badge>
+                        <Badge variant="outline" className="bg-red-50 text-red-600 border-red-100">Out of Stock</Badge>
                       ) : isLowStock(p) ? (
-                        <Badge className="bg-amber-100 text-amber-700">Low Stock</Badge>
+                        <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-100">Low Stock</Badge>
                       ) : (
-                        <Badge variant="outline">OK</Badge>
+                        <Badge variant="outline" className="bg-neutral-100 text-neutral-500 border-neutral-200">OK</Badge>
                       )}
                     </TableCell>
                     <TableCell>₹{(p.stock_quantity * p.unit_price).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</TableCell>
