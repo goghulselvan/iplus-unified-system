@@ -19,6 +19,12 @@ import { toCSV } from '@/utils/csvExport';
 
 type ProspectContact = { name: string; role: string; mobile: string };
 
+type LinkedSchoolContacts = {
+  corr_name: string | null; corr_mobile: string | null;
+  principal_mobile: string | null;
+  coord_mobile: string | null; iplus_coordinator: string | null;
+};
+
 type ProspectSchool = {
   id: string; ss_no: number; udise_code: string; school_name: string;
   district: string; state: string; board: string | null;
@@ -70,6 +76,7 @@ export default function ProspectSchoolsPage() {
   const [ttsSpeech, setTtsSpeech] = useState('');
   const [calling, setCalling] = useState(false);
   const [callLogs, setCallLogs] = useState<any[]>([]);
+  const [linkedContacts, setLinkedContacts] = useState<LinkedSchoolContacts | null>(null);
 
   type InterestNotif = { schoolId: string; phone: string | null; email: string | null; name: string };
   const [interestNotif, setInterestNotif] = useState<InterestNotif | null>(null);
@@ -287,6 +294,19 @@ export default function ProspectSchoolsPage() {
     setCallLogs(data ?? []);
   };
 
+  // Once a prospect is linked to CRM, the richer contact roster (correspondent,
+  // principal's own mobile, coordinator) lives on the linked `schools` row, not
+  // on prospect_schools — fetch it so staff don't have to open the CRM record
+  // separately just to see it.
+  const loadLinkedContacts = async (prospectId: string) => {
+    const { data } = await supabase
+      .from('schools')
+      .select('corr_name, corr_mobile, principal_mobile, coord_mobile, iplus_coordinator')
+      .eq('prospect_school_id', prospectId)
+      .maybeSingle();
+    setLinkedContacts(data ?? null);
+  };
+
   const initiateCall = async () => {
     if (!selected?.mobile) return;
     if (callType === 'click2call' && !staffPhone) {
@@ -349,6 +369,7 @@ export default function ProspectSchoolsPage() {
       await supabase.from('prospect_schools')
         .update({ stage: 'interested', linked_to_crm: true }).eq('id', school.id);
       setSelected(s => s ? { ...s, stage: 'interested', linked_to_crm: true } : s);
+      loadLinkedContacts(school.id);
       fetchSchools(page);
       // Show notification popup after marking
       setInterestNotif({ schoolId: crmSchoolId, phone: school.mobile, email: school.email, name: school.school_name });
@@ -409,6 +430,7 @@ export default function ProspectSchoolsPage() {
         .update({ stage: 'registered', linked_to_crm: true }).eq('id', school.id);
       toast({ title: 'Registered', description: `${school.school_name} added to ${activeProject.project_name}.` });
       setSelected(s => s ? { ...s, stage: 'registered', linked_to_crm: true } : s);
+      loadLinkedContacts(school.id);
       fetchSchools(page);
     } catch (e: any) {
       toast({ title: 'Error', description: e.message, variant: 'destructive' });
@@ -587,7 +609,11 @@ export default function ProspectSchoolsPage() {
                 ) : schools.map(s => (
                   <tr
                     key={s.id}
-                    onClick={() => { setSelected(s); setEditingContact(false); loadCallLogs(s.id); }}
+                    onClick={() => {
+                      setSelected(s); setEditingContact(false); loadCallLogs(s.id);
+                      setLinkedContacts(null);
+                      if (s.linked_to_crm) loadLinkedContacts(s.id);
+                    }}
                     className={`border-b border-gray-50 cursor-pointer transition-colors hover:bg-indigo-50/40 ${selected?.id === s.id ? 'bg-indigo-50' : ''}`}
                   >
                     <td className="px-4 py-3.5 text-gray-400 font-mono text-sm">{String(s.ss_no).padStart(4, '0')}</td>
@@ -812,7 +838,24 @@ export default function ProspectSchoolsPage() {
                         </a>
                       ) : null}
                       {selected.principal_name ? (
-                        <p className="text-gray-600 text-xs">Principal: <span className="font-medium text-gray-800">{selected.principal_name}</span></p>
+                        <p className="text-gray-600 text-xs">
+                          Principal: <span className="font-medium text-gray-800">{selected.principal_name}</span>
+                          {linkedContacts?.principal_mobile ? (
+                            <> — <a href={`tel:${linkedContacts.principal_mobile}`} className="text-gray-700">{linkedContacts.principal_mobile}</a></>
+                          ) : null}
+                        </p>
+                      ) : null}
+                      {linkedContacts?.corr_mobile ? (
+                        <p className="text-gray-600 text-xs">
+                          Correspondent{linkedContacts.corr_name ? <>: <span className="font-medium text-gray-800">{linkedContacts.corr_name}</span></> : null}
+                          {' — '}<a href={`tel:${linkedContacts.corr_mobile}`} className="text-gray-700">{linkedContacts.corr_mobile}</a>
+                        </p>
+                      ) : null}
+                      {linkedContacts?.coord_mobile ? (
+                        <p className="text-gray-600 text-xs">
+                          Coordinator{linkedContacts.iplus_coordinator ? <>: <span className="font-medium text-gray-800">{linkedContacts.iplus_coordinator}</span></> : null}
+                          {' — '}<a href={`tel:${linkedContacts.coord_mobile}`} className="text-gray-700">{linkedContacts.coord_mobile}</a>
+                        </p>
                       ) : null}
                       {(selected.additional_contacts ?? []).map((c, i) => (
                         <div key={i} className="flex items-center gap-2">
@@ -821,7 +864,7 @@ export default function ProspectSchoolsPage() {
                           <span className="text-xs text-gray-400 truncate">{[c.role, c.name].filter(Boolean).join(' — ')}</span>
                         </div>
                       ))}
-                      {!selected.email && !selected.mobile && !selected.principal_name && !(selected.additional_contacts ?? []).length && (
+                      {!selected.email && !selected.mobile && !selected.principal_name && !linkedContacts?.corr_mobile && !linkedContacts?.coord_mobile && !(selected.additional_contacts ?? []).length && (
                         <p className="text-xs text-gray-400 italic">No contact info — click Add to fill in.</p>
                       )}
                     </div>
