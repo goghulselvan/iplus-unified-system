@@ -57,6 +57,7 @@ import PurchaseOrderDetail from "./pages/Sales/PurchaseOrderDetail";
 import ItemIssuePage from "./pages/Sales/ItemIssuePage";
 import StockReportPage from "./pages/Sales/StockReportPage";
 import PurchaseReportPage from "./pages/Sales/PurchaseReportPage";
+import DashboardPage from "./pages/Sales/DashboardPage";
 import NotFound from "./pages/NotFound";
 import { RegistrationFormatProvider } from "@/contexts/RegistrationFormatContext";
 import { useActiveProject } from "@/hooks/useOlympiadProjects";
@@ -366,7 +367,8 @@ const AppContent = () => {
          } />
          <Route path="/prospect/campaigns/new" element={<ProtectedRoute><ProspectCampaignNew /></ProtectedRoute>} />
          <Route path="/prospect/campaigns/:id" element={<ProtectedRoute><ProspectCampaignDetail /></ProtectedRoute>} />
-         <Route path="/sales" element={<ProtectedRoute><Navigate to="/sales/invoices" replace /></ProtectedRoute>} />
+         <Route path="/sales" element={<ProtectedRoute><Navigate to="/sales/dashboard" replace /></ProtectedRoute>} />
+         <Route path="/sales/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
          <Route path="/sales/products" element={<ProtectedRoute><ProductsPage /></ProtectedRoute>} />
          <Route path="/sales/invoices" element={<ProtectedRoute><InvoicesPage /></ProtectedRoute>} />
          <Route path="/sales/suppliers" element={<ProtectedRoute><SuppliersPage /></ProtectedRoute>} />
