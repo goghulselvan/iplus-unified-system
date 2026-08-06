@@ -47,25 +47,25 @@ const SalesLayout = ({ children }: { children: React.ReactNode }) => {
   const linkClass = (active: boolean) =>
     `flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
       active
-        ? 'bg-orange-50 text-orange-700'
-        : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900'
+        ? 'bg-white text-orange-700'
+        : 'text-orange-100 hover:bg-orange-700 hover:text-white'
     }`;
 
   return (
     <div className="min-h-screen bg-neutral-50 flex flex-col">
-      <nav className="bg-white text-neutral-900 shadow-sm border-b border-neutral-200">
+      <nav className="bg-orange-600 text-white shadow-lg">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-14">
             <div className="flex items-center gap-6">
               <button
                 onClick={() => navigate('/module-select')}
-                className="flex items-center gap-1.5 text-neutral-500 hover:text-neutral-900 text-sm transition-colors"
+                className="flex items-center gap-1.5 text-orange-100 hover:text-white text-sm transition-colors"
               >
                 <ArrowLeft className="h-4 w-4" />
                 Back
               </button>
-              <div className="h-5 w-px bg-neutral-200" />
-              <span className="font-semibold text-sm tracking-wide text-neutral-900">Sales</span>
+              <div className="h-5 w-px bg-orange-400" />
+              <span className="font-semibold text-sm tracking-wide text-white">Sales</span>
               <div className="flex items-center gap-1 overflow-x-auto">
                 {standaloneNav.map(({ label, href, icon: Icon }) => (
                   <Link key={href} to={href} className={linkClass(location.pathname === href)}>
@@ -104,12 +104,12 @@ const SalesLayout = ({ children }: { children: React.ReactNode }) => {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <span className="text-neutral-500 text-sm">{profile?.username}</span>
+              <span className="text-orange-100 text-sm">{profile?.username}</span>
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={signOut}
-                className="text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 h-8 w-8 p-0"
+                className="text-orange-100 hover:text-white hover:bg-orange-700 h-8 w-8 p-0"
               >
                 <LogOut className="h-4 w-4" />
               </Button>
