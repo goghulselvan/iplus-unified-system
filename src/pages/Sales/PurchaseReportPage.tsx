@@ -178,29 +178,29 @@ export default function PurchaseReportPage() {
     <SalesLayout>
       <div className="max-w-6xl mx-auto px-4 py-8">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold">Purchase Report</h1>
+          <h1 className="text-3xl font-bold">Purchase Report</h1>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
           <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5">
             <div className="text-sm text-muted-foreground">Total POs</div>
-            <div className="text-2xl font-bold mt-1">{loading || error ? '—' : totalPOs}</div>
+            <div className="text-3xl font-bold mt-1">{loading || error ? '—' : totalPOs}</div>
           </div>
           <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5">
             <div className="text-sm text-muted-foreground">Total Ordered Value</div>
-            <div className="text-2xl font-bold text-gray-900 mt-1">
+            <div className="text-3xl font-bold text-gray-900 mt-1">
               {loading || error ? '—' : `₹${totalOrderedValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}
             </div>
           </div>
           <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5">
             <div className="text-sm text-muted-foreground">Total Received Value</div>
-            <div className="text-2xl font-bold text-emerald-600 mt-1">
+            <div className="text-3xl font-bold text-emerald-600 mt-1">
               {loading || error ? '—' : `₹${totalReceivedValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}
             </div>
           </div>
           <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5">
             <div className="text-sm text-muted-foreground">Pending POs</div>
-            <div className="text-2xl font-bold text-amber-600 mt-1">{loading || error ? '—' : pendingCount}</div>
+            <div className="text-3xl font-bold text-amber-600 mt-1">{loading || error ? '—' : pendingCount}</div>
           </div>
         </div>
 

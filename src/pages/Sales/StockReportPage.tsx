@@ -99,21 +99,21 @@ export default function StockReportPage() {
     <SalesLayout>
       <div className="max-w-6xl mx-auto px-4 py-8">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold">Stock Report</h1>
+          <h1 className="text-3xl font-bold">Stock Report</h1>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-2">
           <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5">
             <div className="text-sm text-muted-foreground">Out of Stock</div>
-            <div className="text-2xl font-bold text-red-600 mt-1">{loading || error ? '—' : outOfStockCount}</div>
+            <div className="text-3xl font-bold text-red-600 mt-1">{loading || error ? '—' : outOfStockCount}</div>
           </div>
           <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5">
             <div className="text-sm text-muted-foreground">Low Stock</div>
-            <div className="text-2xl font-bold text-amber-600 mt-1">{loading || error ? '—' : lowStockCount}</div>
+            <div className="text-3xl font-bold text-amber-600 mt-1">{loading || error ? '—' : lowStockCount}</div>
           </div>
           <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5">
             <div className="text-sm text-muted-foreground">Total Stock Value</div>
-            <div className="text-2xl font-bold text-gray-900 mt-1">
+            <div className="text-3xl font-bold text-gray-900 mt-1">
               {loading || error ? '—' : `₹${totalStockValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}
             </div>
           </div>

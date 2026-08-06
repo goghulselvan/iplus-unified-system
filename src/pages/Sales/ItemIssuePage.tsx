@@ -89,7 +89,7 @@ export default function ItemIssuePage() {
     <SalesLayout>
       <div className="max-w-6xl mx-auto px-4 py-8">
         <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
-          <h1 className="text-2xl font-bold">Item Issue</h1>
+          <h1 className="text-3xl font-bold">Item Issue</h1>
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex items-center gap-2">
               <label htmlFor="issue-from-date" className="text-sm text-muted-foreground">From</label>
@@ -106,19 +106,19 @@ export default function ItemIssuePage() {
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
           <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5">
             <div className="text-sm text-muted-foreground">Total Quantity Issued</div>
-            <div className="text-2xl font-bold text-gray-900 mt-1">{loading || error ? '—' : totalQuantity}</div>
+            <div className="text-3xl font-bold text-gray-900 mt-1">{loading || error ? '—' : totalQuantity}</div>
           </div>
           <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5">
             <div className="text-sm text-muted-foreground">Issued to Students</div>
-            <div className="text-2xl font-bold mt-1">{loading || error ? '—' : studentQuantity}</div>
+            <div className="text-3xl font-bold mt-1">{loading || error ? '—' : studentQuantity}</div>
           </div>
           <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5">
             <div className="text-sm text-muted-foreground">Issued to Staff</div>
-            <div className="text-2xl font-bold mt-1">{loading || error ? '—' : staffQuantity}</div>
+            <div className="text-3xl font-bold mt-1">{loading || error ? '—' : staffQuantity}</div>
           </div>
           <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5">
             <div className="text-sm text-muted-foreground">Issued to Other</div>
-            <div className="text-2xl font-bold mt-1">{loading || error ? '—' : otherQuantity}</div>
+            <div className="text-3xl font-bold mt-1">{loading || error ? '—' : otherQuantity}</div>
           </div>
         </div>
 

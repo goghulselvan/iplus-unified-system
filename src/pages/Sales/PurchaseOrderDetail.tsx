@@ -215,7 +215,7 @@ export default function PurchaseOrderDetail() {
 
         <div className="flex items-start justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-bold">PO-{po.po_number}</h1>
+            <h1 className="text-3xl font-bold">PO-{po.po_number}</h1>
             <p className="text-muted-foreground text-sm mt-1">{po.inventory_suppliers?.name || '—'}</p>
           </div>
           <div className="flex items-center gap-3">

@@ -87,7 +87,7 @@ export default function StockMovementsPage() {
     <SalesLayout>
       <div className="max-w-6xl mx-auto px-4 py-8">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold">Stock Movements</h1>
+          <h1 className="text-3xl font-bold">Stock Movements</h1>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => setAdjustDialogOpen(true)}><Plus className="h-4 w-4 mr-2" />Adjust Stock</Button>
             <Button onClick={() => setAddDialogOpen(true)}><Plus className="h-4 w-4 mr-2" />Add Stock</Button>

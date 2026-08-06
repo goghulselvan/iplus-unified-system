@@ -187,7 +187,7 @@ export default function DashboardPage() {
       }`}
     >
       <div className={`text-xs ${opts?.emphasis ? 'text-neutral-400' : 'text-muted-foreground'}`}>{label}</div>
-      <div className={`text-2xl font-bold mt-1 ${opts?.emphasis ? 'text-white' : 'text-gray-900'}`}>
+      <div className={`text-3xl font-bold mt-1 ${opts?.emphasis ? 'text-white' : 'text-gray-900'}`}>
         {loading || error ? '—' : value}
       </div>
     </button>
@@ -197,7 +197,7 @@ export default function DashboardPage() {
     <SalesLayout>
       <div className="max-w-6xl mx-auto px-4 py-8">
         <div className="bg-gradient-to-br from-orange-50 to-neutral-50 rounded-2xl px-6 py-5 mb-6 border border-orange-100">
-          <h1 className="text-xl font-bold text-gray-900">Dashboard</h1>
+          <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
           <p className="text-sm text-muted-foreground mt-1">Overview of your catalog, procurement, and stock activity.</p>
         </div>
 
@@ -290,7 +290,7 @@ export default function DashboardPage() {
                 strokeDasharray={`${(healthyPercent / 100) * 176} 176`}
               />
             </svg>
-            <div className="text-2xl font-bold text-gray-900 -mt-2">{loading || error ? '—' : `${healthyPercent}%`}</div>
+            <div className="text-3xl font-bold text-gray-900 -mt-2">{loading || error ? '—' : `${healthyPercent}%`}</div>
             <div className="text-[10px] text-muted-foreground">products in healthy stock</div>
           </div>
         </div>
