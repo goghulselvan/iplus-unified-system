@@ -122,7 +122,7 @@ export default function ProductsPage() {
           seriesOptions={seriesOptions} subjectOptions={subjectOptions} classOptions={classOptions}
         />
 
-        <div className="bg-white rounded-xl border overflow-hidden">
+        <div className="bg-white rounded-xl border border-neutral-200 shadow-sm overflow-hidden">
           <Table>
             <TableHeader>
               <TableRow>
@@ -161,15 +161,15 @@ export default function ProductsPage() {
                     <TableCell>
                       {p.stock_quantity}
                       {isOutOfStock(p) && (
-                        <Badge variant="destructive" className="ml-2 text-[10px]">Out of stock</Badge>
+                        <Badge className="ml-2 text-[10px] bg-red-50 text-red-600 border-red-100">Out of stock</Badge>
                       )}
                       {isLowStock(p) && (
-                        <Badge variant="destructive" className="ml-2 text-[10px]">Low stock</Badge>
+                        <Badge className="ml-2 text-[10px] bg-amber-50 text-amber-600 border-amber-100">Low stock</Badge>
                       )}
                     </TableCell>
                     <TableCell>
                       <button onClick={() => toggleActive(p)}>
-                        <Badge variant={p.is_active ? 'default' : 'outline'}>{p.is_active ? 'Active' : 'Inactive'}</Badge>
+                        <Badge className={p.is_active ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-neutral-100 text-neutral-500 border-neutral-200'}>{p.is_active ? 'Active' : 'Inactive'}</Badge>
                       </button>
                     </TableCell>
                     <TableCell className="text-right">

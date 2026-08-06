@@ -169,9 +169,9 @@ export default function PurchaseOrderDetail() {
   };
 
   const statusBadge = (s: PoStatus) => {
-    if (s === 'cancelled') return <Badge variant="destructive">{STATUS_LABELS[s]}</Badge>;
-    if (s === 'received') return <Badge variant="default">{STATUS_LABELS[s]}</Badge>;
-    return <Badge variant="outline">{STATUS_LABELS[s]}</Badge>;
+    if (s === 'cancelled') return <Badge className="bg-red-50 text-red-600 border-red-100">{STATUS_LABELS[s]}</Badge>;
+    if (s === 'received') return <Badge className="bg-emerald-50 text-emerald-600 border-emerald-100">{STATUS_LABELS[s]}</Badge>;
+    return <Badge className="bg-amber-50 text-amber-600 border-amber-100">{STATUS_LABELS[s]}</Badge>;
   };
 
   const grandTotal = items.reduce((s, i) => s + i.quantity_ordered * i.unit_cost, 0);
@@ -258,7 +258,7 @@ export default function PurchaseOrderDetail() {
           )}
         </div>
 
-        <div className="bg-white rounded-xl border overflow-hidden mb-8">
+        <div className="bg-white rounded-xl border border-neutral-200 shadow-sm overflow-hidden mb-8">
           <Table>
             <TableHeader>
               <TableRow>

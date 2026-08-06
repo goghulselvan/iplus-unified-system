@@ -172,9 +172,9 @@ export default function InvoicesPage() {
   };
 
   const statusBadge = (s: string) => {
-    if (s === 'paid') return <Badge className="bg-emerald-100 text-emerald-700">Paid</Badge>;
-    if (s === 'void') return <Badge className="bg-gray-200 text-gray-600">Void</Badge>;
-    return <Badge className="bg-amber-100 text-amber-700">Unpaid</Badge>;
+    if (s === 'paid') return <Badge className="bg-emerald-50 text-emerald-600 border-emerald-100">Paid</Badge>;
+    if (s === 'void') return <Badge className="bg-neutral-100 text-neutral-500 border-neutral-200">Void</Badge>;
+    return <Badge className="bg-amber-50 text-amber-600 border-amber-100">Unpaid</Badge>;
   };
 
   return (
@@ -210,7 +210,7 @@ export default function InvoicesPage() {
           </Select>
         </div>
 
-        <div className="bg-white rounded-xl border overflow-hidden">
+        <div className="bg-white rounded-xl border border-neutral-200 shadow-sm overflow-hidden">
           <Table>
             <TableHeader>
               <TableRow>

@@ -93,7 +93,7 @@ export default function SuppliersPage() {
           <Button onClick={openAdd}><Plus className="h-4 w-4 mr-2" />Add Supplier</Button>
         </div>
 
-        <div className="bg-white rounded-xl border overflow-hidden">
+        <div className="bg-white rounded-xl border border-neutral-200 shadow-sm overflow-hidden">
           <Table>
             <TableHeader>
               <TableRow>
@@ -128,7 +128,7 @@ export default function SuppliersPage() {
                     </TableCell>
                     <TableCell>
                       <button onClick={() => toggleActive(s)}>
-                        <Badge variant={s.is_active ? 'default' : 'outline'}>{s.is_active ? 'Active' : 'Inactive'}</Badge>
+                        <Badge className={s.is_active ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-neutral-100 text-neutral-500 border-neutral-200'}>{s.is_active ? 'Active' : 'Inactive'}</Badge>
                       </button>
                     </TableCell>
                     <TableCell className="text-right">
