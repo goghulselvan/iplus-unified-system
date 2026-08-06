@@ -19,14 +19,14 @@
   - Emphasis (dark) card: `bg-gray-900 text-white` — used once, for the Dashboard's Out of Stock tile only
 - Badge recolor table (every status badge in the module moves from the shadcn `Badge` component's saturated `variant="destructive"/"default"/"outline"` look to a soft-pill `className` override — the `Badge` component itself is unchanged, `rounded-full` is already its base class):
 
-  | Meaning | Old | New `className` |
+  | Meaning | Old | New (`variant` + `className`) |
   |---|---|---|
-  | Danger / Out of stock / Cancelled | `variant="destructive"` | `bg-red-50 text-red-600 border-red-100` |
-  | Warning / Low stock / Pending PO statuses | `bg-amber-100 text-amber-700` or `variant="outline"` used for this meaning | `bg-amber-50 text-amber-600 border-amber-100` |
-  | Success / Active / Received / Paid | `variant="default"` or `bg-emerald-100 text-emerald-700` | `bg-emerald-50 text-emerald-600 border-emerald-100` |
-  | Neutral / Inactive / Void / type-tag | `variant="outline"` or `bg-gray-200 text-gray-600` | `bg-neutral-100 text-neutral-500 border-neutral-200` |
+  | Danger / Out of stock / Cancelled | `variant="destructive"` | `variant="outline" className="bg-red-50 text-red-600 border-red-100"` |
+  | Warning / Low stock / Pending PO statuses | `bg-amber-100 text-amber-700` or `variant="outline"` used for this meaning | `variant="outline" className="bg-amber-50 text-amber-600 border-amber-100"` |
+  | Success / Active / Received / Paid | `variant="default"` or `bg-emerald-100 text-emerald-700` | `variant="outline" className="bg-emerald-50 text-emerald-600 border-emerald-100"` |
+  | Neutral / Inactive / Void / type-tag | `variant="outline"` or `bg-gray-200 text-gray-600` | `variant="outline" className="bg-neutral-100 text-neutral-500 border-neutral-200"` |
 
-  This table is the single source of truth every task below references — do not invent new colors per-file.
+  This table is the single source of truth every task below references — do not invent new colors per-file. **Every new badge below MUST keep `variant="outline"` alongside its `className` override** — omitting `variant` falls back to shadcn `Badge`'s `defaultVariants: { variant: "default" }`, whose base classes include `hover:bg-primary/80`; `tailwind-merge` does not treat a `hover:`-prefixed utility as conflicting with the unprefixed `bg-*`/`text-*` classes in the override, so the badge's background flashes to the brand primary color on hover. `variant="outline"` has no `bg-primary`/`hover:` in its base classes at all, which avoids this cleanly. (Discovered during Task 2's review — Task 2's own diff needs the same fix applied as a follow-up; every occurrence below already includes it.)
 - No test framework — verify via `npx tsc --noEmit` + `npm run build` (visual correctness needs the user's own browser click-through, no CRM login in this dev environment).
 - Do not touch: any RPC, any Supabase query's selected columns/filters/logic (only className/JSX structure changes), any dialog component, any button's function (only its color classes, where explicitly listed).
 
@@ -514,7 +514,7 @@ Replace:
 ```
 with:
 ```tsx
-<Badge className="ml-2 text-[10px] bg-red-50 text-red-600 border-red-100">Out of stock</Badge>
+<Badge variant="outline" className="ml-2 text-[10px] bg-red-50 text-red-600 border-red-100">Out of stock</Badge>
 ```
 
 Replace:
@@ -523,7 +523,7 @@ Replace:
 ```
 with:
 ```tsx
-<Badge className="ml-2 text-[10px] bg-amber-50 text-amber-600 border-amber-100">Low stock</Badge>
+<Badge variant="outline" className="ml-2 text-[10px] bg-amber-50 text-amber-600 border-amber-100">Low stock</Badge>
 ```
 
 Replace:
@@ -532,7 +532,7 @@ Replace:
 ```
 with:
 ```tsx
-<Badge className={p.is_active ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-neutral-100 text-neutral-500 border-neutral-200'}>{p.is_active ? 'Active' : 'Inactive'}</Badge>
+<Badge variant="outline" className={p.is_active ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-neutral-100 text-neutral-500 border-neutral-200'}>{p.is_active ? 'Active' : 'Inactive'}</Badge>
 ```
 
 - [ ] **Step 2: `InvoicesPage.tsx`**
@@ -557,9 +557,9 @@ Replace the whole `statusBadge` function body:
 with:
 ```tsx
   const statusBadge = (s: string) => {
-    if (s === 'paid') return <Badge className="bg-emerald-50 text-emerald-600 border-emerald-100">Paid</Badge>;
-    if (s === 'void') return <Badge className="bg-neutral-100 text-neutral-500 border-neutral-200">Void</Badge>;
-    return <Badge className="bg-amber-50 text-amber-600 border-amber-100">Unpaid</Badge>;
+    if (s === 'paid') return <Badge variant="outline" className="bg-emerald-50 text-emerald-600 border-emerald-100">Paid</Badge>;
+    if (s === 'void') return <Badge variant="outline" className="bg-neutral-100 text-neutral-500 border-neutral-200">Void</Badge>;
+    return <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-100">Unpaid</Badge>;
   };
 ```
 
@@ -580,7 +580,7 @@ Replace:
 ```
 with:
 ```tsx
-<Badge className={s.is_active ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-neutral-100 text-neutral-500 border-neutral-200'}>{s.is_active ? 'Active' : 'Inactive'}</Badge>
+<Badge variant="outline" className={s.is_active ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-neutral-100 text-neutral-500 border-neutral-200'}>{s.is_active ? 'Active' : 'Inactive'}</Badge>
 ```
 
 - [ ] **Step 4: `PurchaseOrdersPage.tsx`**
@@ -605,9 +605,9 @@ Replace the whole `statusBadge` function body:
 with:
 ```tsx
   const statusBadge = (s: PoStatus) => {
-    if (s === 'cancelled') return <Badge className="bg-red-50 text-red-600 border-red-100">{STATUS_LABELS[s]}</Badge>;
-    if (s === 'received') return <Badge className="bg-emerald-50 text-emerald-600 border-emerald-100">{STATUS_LABELS[s]}</Badge>;
-    return <Badge className="bg-amber-50 text-amber-600 border-amber-100">{STATUS_LABELS[s]}</Badge>;
+    if (s === 'cancelled') return <Badge variant="outline" className="bg-red-50 text-red-600 border-red-100">{STATUS_LABELS[s]}</Badge>;
+    if (s === 'received') return <Badge variant="outline" className="bg-emerald-50 text-emerald-600 border-emerald-100">{STATUS_LABELS[s]}</Badge>;
+    return <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-100">{STATUS_LABELS[s]}</Badge>;
   };
 ```
 
@@ -660,7 +660,7 @@ Replace:
 ```
 with:
 ```tsx
-                          <Badge className={a.quantity_delta > 0 ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-red-50 text-red-600 border-red-100'}>
+                          <Badge variant="outline" className={a.quantity_delta > 0 ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-red-50 text-red-600 border-red-100'}>
 ```
 
 If this file also has any `bg-white rounded-xl border p-5` summary-card divs (check for them — earlier phases of this module sometimes added summary cards, sometimes didn't), apply the same treatment: append `border-neutral-200 shadow-sm` so the string reads `bg-white rounded-xl border border-neutral-200 shadow-sm p-5`. If no such divs exist in this file, skip this — do not add new summary cards that weren't already there (out of scope for a re-theme task).
@@ -677,7 +677,7 @@ Replace:
 ```
 with:
 ```tsx
-<Badge className="mr-1.5 text-[10px] bg-neutral-100 text-neutral-500 border-neutral-200">{TYPE_LABELS[i.issued_to_type]}</Badge>
+<Badge variant="outline" className="mr-1.5 text-[10px] bg-neutral-100 text-neutral-500 border-neutral-200">{TYPE_LABELS[i.issued_to_type]}</Badge>
 ```
 
 - [ ] **Step 3: `StockReportPage.tsx`**
@@ -690,7 +690,7 @@ Replace:
 ```
 with:
 ```tsx
-                        <Badge className="bg-red-50 text-red-600 border-red-100">Out of Stock</Badge>
+                        <Badge variant="outline" className="bg-red-50 text-red-600 border-red-100">Out of Stock</Badge>
 ```
 
 Replace:
@@ -699,7 +699,7 @@ Replace:
 ```
 with:
 ```tsx
-                        <Badge className="bg-amber-50 text-amber-600 border-amber-100">Low Stock</Badge>
+                        <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-100">Low Stock</Badge>
 ```
 
 Replace:
@@ -708,7 +708,7 @@ Replace:
 ```
 with:
 ```tsx
-                        <Badge className="bg-neutral-100 text-neutral-500 border-neutral-200">OK</Badge>
+                        <Badge variant="outline" className="bg-neutral-100 text-neutral-500 border-neutral-200">OK</Badge>
 ```
 
 - [ ] **Step 4: `PurchaseReportPage.tsx`**
@@ -726,9 +726,9 @@ Replace the whole `statusBadge` function body (identical to `PurchaseOrdersPage.
 with:
 ```tsx
   const statusBadge = (s: PoStatus) => {
-    if (s === 'cancelled') return <Badge className="bg-red-50 text-red-600 border-red-100">{STATUS_LABELS[s]}</Badge>;
-    if (s === 'received') return <Badge className="bg-emerald-50 text-emerald-600 border-emerald-100">{STATUS_LABELS[s]}</Badge>;
-    return <Badge className="bg-amber-50 text-amber-600 border-amber-100">{STATUS_LABELS[s]}</Badge>;
+    if (s === 'cancelled') return <Badge variant="outline" className="bg-red-50 text-red-600 border-red-100">{STATUS_LABELS[s]}</Badge>;
+    if (s === 'received') return <Badge variant="outline" className="bg-emerald-50 text-emerald-600 border-emerald-100">{STATUS_LABELS[s]}</Badge>;
+    return <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-100">{STATUS_LABELS[s]}</Badge>;
   };
 ```
 
