@@ -113,7 +113,7 @@ export default function StockReportPage() {
           </div>
           <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5">
             <div className="text-sm text-muted-foreground">Total Stock Value</div>
-            <div className="text-2xl font-bold text-violet-700 mt-1">
+            <div className="text-2xl font-bold text-gray-900 mt-1">
               {loading || error ? '—' : `₹${totalStockValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}
             </div>
           </div>

@@ -1,7 +1,7 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
-import { LogOut, ArrowLeft, LayoutDashboard, Package, FileText, Truck, ClipboardList, PackageMinus, ArrowUpDown } from 'lucide-react';
+import { LogOut, ArrowLeft, LayoutDashboard, Package, FileText, Truck, ClipboardList, PackageMinus, ArrowUpDown, BarChart3, FileBarChart } from 'lucide-react';
 
 const SalesLayout = ({ children }: { children: React.ReactNode }) => {
   const { profile, signOut } = useAuth();
@@ -16,8 +16,8 @@ const SalesLayout = ({ children }: { children: React.ReactNode }) => {
     { label: 'Purchase Orders', href: '/sales/purchase-orders', icon: ClipboardList },
     { label: 'Stock Movements', href: '/sales/stock-movements', icon: ArrowUpDown },
     { label: 'Item Issue', href: '/sales/item-issue', icon: PackageMinus },
-    { label: 'Stock Report', href: '/sales/stock-report', icon: FileText },
-    { label: 'Purchase Report', href: '/sales/purchase-report', icon: FileText },
+    { label: 'Stock Report', href: '/sales/stock-report', icon: BarChart3 },
+    { label: 'Purchase Report', href: '/sales/purchase-report', icon: FileBarChart },
   ];
 
   return (
@@ -42,7 +42,7 @@ const SalesLayout = ({ children }: { children: React.ReactNode }) => {
                     to={href}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
                       location.pathname === href
-                        ? 'bg-orange-50 text-orange-600'
+                        ? 'bg-orange-50 text-orange-700'
                         : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900'
                     }`}
                   >

@@ -233,7 +233,7 @@ export default function PurchaseOrderDetail() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border p-4 mb-6 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+        <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-4 mb-6 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
           <div>
             <div className="text-muted-foreground">Order Date</div>
             <div className="font-medium">{new Date(po.order_date).toLocaleDateString('en-IN')}</div>
@@ -281,7 +281,7 @@ export default function PurchaseOrderDetail() {
               ))}
             </TableBody>
           </Table>
-          <div className="flex justify-end px-4 py-3 border-t bg-gray-50">
+          <div className="flex justify-end px-4 py-3 border-t bg-neutral-50">
             <div className="text-sm font-semibold">Grand Total: ₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
           </div>
         </div>
@@ -292,7 +292,7 @@ export default function PurchaseOrderDetail() {
         ) : (
           <div className="space-y-3">
             {grns.map(g => (
-              <div key={g.id} className="bg-white rounded-xl border p-4">
+              <div key={g.id} className="bg-white rounded-xl border border-neutral-200 shadow-sm p-4">
                 <div className="flex items-center justify-between mb-2">
                   <div className="font-medium">GRN-{g.grn_number} — {new Date(g.received_date).toLocaleDateString('en-IN')}</div>
                 </div>

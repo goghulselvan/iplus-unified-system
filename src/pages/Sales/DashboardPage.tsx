@@ -48,7 +48,8 @@ export default function DashboardPage() {
 
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthStartDate = monthStart.toISOString().slice(0, 10);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const monthStartDate = `${monthStart.getFullYear()}-${pad(monthStart.getMonth() + 1)}-01`;
     const monthStartIso = monthStart.toISOString();
 
     const [
@@ -200,7 +201,7 @@ export default function DashboardPage() {
           <p className="text-sm text-muted-foreground mt-1">Overview of your catalog, procurement, and stock activity.</p>
         </div>
 
-        <div className="text-xs font-bold text-orange-600 uppercase tracking-wide mb-2">Catalog &amp; Stock</div>
+        <div className="text-xs font-bold text-orange-700 uppercase tracking-wide mb-2">Catalog &amp; Stock</div>
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-6">
           {tile('Active Products', String(products.length), '/sales/products')}
           {tile('Out of Stock', String(outOfStockCount), '/sales/stock-report', { emphasis: true })}
@@ -208,14 +209,14 @@ export default function DashboardPage() {
           {tile('Stock Value', money(stockValue), '/sales/stock-report')}
         </div>
 
-        <div className="text-xs font-bold text-orange-600 uppercase tracking-wide mb-2">Procurement</div>
+        <div className="text-xs font-bold text-orange-700 uppercase tracking-wide mb-2">Procurement</div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
           {tile('Pending POs', String(pendingPoCount), '/sales/purchase-orders')}
           {tile('Open Order Value', money(openOrderValue), '/sales/purchase-report')}
           {tile('Active Suppliers', String(activeSupplierCount), '/sales/suppliers')}
         </div>
 
-        <div className="text-xs font-bold text-orange-600 uppercase tracking-wide mb-2">Activity (this month)</div>
+        <div className="text-xs font-bold text-orange-700 uppercase tracking-wide mb-2">Activity (this month)</div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
           {tile('Items Issued', String(itemsIssuedThisMonth), '/sales/item-issue')}
           {tile('Stock Movements', String(stockMovementsThisMonth), '/sales/stock-movements')}
@@ -226,7 +227,7 @@ export default function DashboardPage() {
           <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-4">
             <div className="flex items-center justify-between mb-3">
               <div className="text-sm font-bold text-gray-900">Needs Attention</div>
-              <button onClick={() => navigate('/sales/stock-report')} className="text-xs text-orange-600 hover:underline">
+              <button onClick={() => navigate('/sales/stock-report')} className="text-xs text-orange-700 hover:underline">
                 View full report →
               </button>
             </div>
@@ -255,7 +256,7 @@ export default function DashboardPage() {
           <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-4">
             <div className="flex items-center justify-between mb-3">
               <div className="text-sm font-bold text-gray-900">Recent Activity</div>
-              <button onClick={() => navigate('/sales/stock-movements')} className="text-xs text-orange-600 hover:underline">
+              <button onClick={() => navigate('/sales/stock-movements')} className="text-xs text-orange-700 hover:underline">
                 View all →
               </button>
             </div>

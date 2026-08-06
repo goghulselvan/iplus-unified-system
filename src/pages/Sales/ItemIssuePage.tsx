@@ -106,7 +106,7 @@ export default function ItemIssuePage() {
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
           <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5">
             <div className="text-sm text-muted-foreground">Total Quantity Issued</div>
-            <div className="text-2xl font-bold text-violet-700 mt-1">{loading || error ? '—' : totalQuantity}</div>
+            <div className="text-2xl font-bold text-gray-900 mt-1">{loading || error ? '—' : totalQuantity}</div>
           </div>
           <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5">
             <div className="text-sm text-muted-foreground">Issued to Students</div>
