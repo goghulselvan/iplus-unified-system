@@ -1063,7 +1063,22 @@ export default function ProspectSchoolsPage() {
             state: selected.state,
             mobile: selected.mobile,
             email: selected.email,
-            contacts: selected.additional_contacts ?? [],
+            // prospect_schools only has one mobile field — the richer roster
+            // (principal's own number, correspondent, coordinator) lives on the
+            // linked CRM school, so fold it in here as extra contacts instead of
+            // only ever offering the single "School Mobile" checkbox.
+            contacts: [
+              ...(linkedContacts?.principal_mobile
+                ? [{ name: selected.principal_name ?? '', role: 'Principal', mobile: linkedContacts.principal_mobile }]
+                : []),
+              ...(linkedContacts?.corr_mobile
+                ? [{ name: linkedContacts.corr_name ?? '', role: 'Correspondent', mobile: linkedContacts.corr_mobile }]
+                : []),
+              ...(linkedContacts?.coord_mobile
+                ? [{ name: linkedContacts.iplus_coordinator ?? '', role: 'Coordinator', mobile: linkedContacts.coord_mobile }]
+                : []),
+              ...(selected.additional_contacts ?? []),
+            ],
           }}
           onSaveManualContact={async (contact) => {
             const digits = contact.mobile.replace(/\D/g, '').slice(-10);
