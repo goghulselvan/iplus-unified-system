@@ -161,15 +161,15 @@ export default function ProductsPage() {
                     <TableCell>
                       {p.stock_quantity}
                       {isOutOfStock(p) && (
-                        <Badge className="ml-2 text-[10px] bg-red-50 text-red-600 border-red-100">Out of stock</Badge>
+                        <Badge variant="outline" className="ml-2 text-[10px] bg-red-50 text-red-600 border-red-100">Out of stock</Badge>
                       )}
                       {isLowStock(p) && (
-                        <Badge className="ml-2 text-[10px] bg-amber-50 text-amber-600 border-amber-100">Low stock</Badge>
+                        <Badge variant="outline" className="ml-2 text-[10px] bg-amber-50 text-amber-600 border-amber-100">Low stock</Badge>
                       )}
                     </TableCell>
                     <TableCell>
                       <button onClick={() => toggleActive(p)}>
-                        <Badge className={p.is_active ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-neutral-100 text-neutral-500 border-neutral-200'}>{p.is_active ? 'Active' : 'Inactive'}</Badge>
+                        <Badge variant="outline" className={p.is_active ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-neutral-100 text-neutral-500 border-neutral-200'}>{p.is_active ? 'Active' : 'Inactive'}</Badge>
                       </button>
                     </TableCell>
                     <TableCell className="text-right">

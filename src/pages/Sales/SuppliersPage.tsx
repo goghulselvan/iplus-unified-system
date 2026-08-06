@@ -128,7 +128,7 @@ export default function SuppliersPage() {
                     </TableCell>
                     <TableCell>
                       <button onClick={() => toggleActive(s)}>
-                        <Badge className={s.is_active ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-neutral-100 text-neutral-500 border-neutral-200'}>{s.is_active ? 'Active' : 'Inactive'}</Badge>
+                        <Badge variant="outline" className={s.is_active ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-neutral-100 text-neutral-500 border-neutral-200'}>{s.is_active ? 'Active' : 'Inactive'}</Badge>
                       </button>
                     </TableCell>
                     <TableCell className="text-right">

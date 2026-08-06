@@ -172,9 +172,9 @@ export default function InvoicesPage() {
   };
 
   const statusBadge = (s: string) => {
-    if (s === 'paid') return <Badge className="bg-emerald-50 text-emerald-600 border-emerald-100">Paid</Badge>;
-    if (s === 'void') return <Badge className="bg-neutral-100 text-neutral-500 border-neutral-200">Void</Badge>;
-    return <Badge className="bg-amber-50 text-amber-600 border-amber-100">Unpaid</Badge>;
+    if (s === 'paid') return <Badge variant="outline" className="bg-emerald-50 text-emerald-600 border-emerald-100">Paid</Badge>;
+    if (s === 'void') return <Badge variant="outline" className="bg-neutral-100 text-neutral-500 border-neutral-200">Void</Badge>;
+    return <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-100">Unpaid</Badge>;
   };
 
   return (
