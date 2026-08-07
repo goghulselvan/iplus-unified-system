@@ -116,7 +116,7 @@ git commit -m "Add book order requests schema: product_orders, product_order_ite
 ### Task 2: RPCs — order intake and payment review
 
 **Files:**
-- Create: `supabase/migrations/20260807b_book_order_requests_intake_rpcs.sql`
+- Create: `supabase/migrations/20260807d_book_order_requests_intake_rpcs.sql`
 
 **Interfaces:**
 - Consumes: `product_orders`/`product_order_items` from Task 1; `products(id, unit_price, stock_quantity, is_active)`; `get_portal_school_id()` (existing).
@@ -326,8 +326,8 @@ GRANT EXECUTE ON FUNCTION public.resubmit_product_order_payment(uuid, text, date
 - [ ] **Step 2: Apply + register**
 
 ```bash
-supabase db query --linked --file supabase/migrations/20260807b_book_order_requests_intake_rpcs.sql
-supabase db query --linked "INSERT INTO supabase_migrations.schema_migrations (version, name) VALUES ('20260807b', 'book_order_requests_intake_rpcs');"
+supabase db query --linked --file supabase/migrations/20260807d_book_order_requests_intake_rpcs.sql
+supabase db query --linked "INSERT INTO supabase_migrations.schema_migrations (version, name) VALUES ('20260807d', 'book_order_requests_intake_rpcs');"
 ```
 
 - [ ] **Step 3: End-to-end smoke test**
@@ -353,7 +353,7 @@ supabase db query --linked "DELETE FROM product_orders WHERE id = '<id>';"
 - [ ] **Step 4: Commit**
 
 ```bash
-git add supabase/migrations/20260807b_book_order_requests_intake_rpcs.sql
+git add supabase/migrations/20260807d_book_order_requests_intake_rpcs.sql
 git commit -m "Add book order intake RPCs: submit, confirm, request resubmit, resubmit"
 ```
 
@@ -362,7 +362,7 @@ git commit -m "Add book order intake RPCs: submit, confirm, request resubmit, re
 ### Task 3: RPCs — approve/reject/dispatch + payment-sync trigger
 
 **Files:**
-- Create: `supabase/migrations/20260807c_book_order_requests_fulfillment_rpcs.sql`
+- Create: `supabase/migrations/20260807e_book_order_requests_fulfillment_rpcs.sql`
 
 **Interfaces:**
 - Consumes: `create_invoice` (existing, exact signature `create_invoice(p_school_id uuid, p_prospect_school_id uuid, p_buyer_name text, p_buyer_address text, p_buyer_state text, p_buyer_gstin text, p_payment_method text, p_line_items jsonb) RETURNS jsonb` — returns `{id, invoice_number, fy}`); `mark_invoice_paid` (existing, unchanged); `schools(school_name, school_address, state)`; `product_order_items`/`product_orders` from Tasks 1-2.
@@ -573,8 +573,8 @@ EXECUTE FUNCTION public.sync_order_items_on_invoice_paid();
 - [ ] **Step 2: Apply + register**
 
 ```bash
-supabase db query --linked --file supabase/migrations/20260807c_book_order_requests_fulfillment_rpcs.sql
-supabase db query --linked "INSERT INTO supabase_migrations.schema_migrations (version, name) VALUES ('20260807c', 'book_order_requests_fulfillment_rpcs');"
+supabase db query --linked --file supabase/migrations/20260807e_book_order_requests_fulfillment_rpcs.sql
+supabase db query --linked "INSERT INTO supabase_migrations.schema_migrations (version, name) VALUES ('20260807e', 'book_order_requests_fulfillment_rpcs');"
 ```
 
 - [ ] **Step 3: End-to-end smoke test (staff-side RPCs, verified via direct SQL setup since CLI isn't a real staff session)**
@@ -616,7 +616,7 @@ Separately, verify `mark_invoice_dispatched` rejects a non-paid invoice: create 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add supabase/migrations/20260807c_book_order_requests_fulfillment_rpcs.sql
+git add supabase/migrations/20260807e_book_order_requests_fulfillment_rpcs.sql
 git commit -m "Add book order fulfillment RPCs: approve (creates invoice), reject, dispatch, paid-sync trigger"
 ```
 
