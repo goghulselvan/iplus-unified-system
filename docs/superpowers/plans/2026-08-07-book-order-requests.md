@@ -130,6 +130,7 @@ git commit -m "Add book order requests schema: product_orders, product_order_ite
 CREATE OR REPLACE FUNCTION public.submit_product_order(
   p_school_id uuid,
   p_items jsonb,
+  p_payment_amount numeric,
   p_payment_mode text,
   p_payment_date date,
   p_payment_utr_reference text,
@@ -165,7 +166,7 @@ BEGIN
     school_id, notes, payment_amount, payment_mode, payment_date,
     payment_utr_reference, payment_account_holder_name, payment_screenshot_url
   ) VALUES (
-    p_school_id, p_notes, 0, p_payment_mode, p_payment_date,
+    p_school_id, p_notes, p_payment_amount, p_payment_mode, p_payment_date,
     p_payment_utr_reference, p_payment_account_holder_name, p_payment_screenshot_url
   ) RETURNING id INTO v_order_id;
 
@@ -192,14 +193,12 @@ BEGIN
     v_total := v_total + (v_unit_price * v_quantity);
   END LOOP;
 
-  UPDATE product_orders SET payment_amount = v_total WHERE id = v_order_id;
-
   RETURN v_order_id;
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.submit_product_order(uuid, jsonb, text, date, text, text, text, text) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.submit_product_order(uuid, jsonb, text, date, text, text, text, text) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.submit_product_order(uuid, jsonb, numeric, text, date, text, text, text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.submit_product_order(uuid, jsonb, numeric, text, date, text, text, text, text) TO authenticated, service_role;
 
 -- ── confirm_product_order_payment ───────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.confirm_product_order_payment(p_order_id uuid)
@@ -553,6 +552,17 @@ BEGIN
     SET line_status = 'paid'
     WHERE invoice_id = NEW.id AND line_status = 'invoiced_unpaid';
   ELSIF NEW.status = 'void' THEN
+    -- Restore stock for released items first (undo create_invoice's earlier
+    -- decrement for exactly these lines) BEFORE releasing them, so the
+    -- void -> re-approve recovery path below doesn't silently double-decrement
+    -- stock for books that never physically moved.
+    UPDATE products p
+    SET stock_quantity = p.stock_quantity + oi.quantity
+    FROM product_order_items oi
+    WHERE oi.invoice_id = NEW.id
+      AND oi.line_status IN ('invoiced_unpaid', 'paid')
+      AND p.id = oi.product_id;
+
     -- A voided invoice can never become paid again (mark_invoice_paid refuses void
     -- invoices) or be dispatched, so items left pointing at it would be stuck forever.
     -- Release them back to 'pending' with no invoice, so they re-enter the normal
@@ -819,7 +829,7 @@ type ItemRow = {
   unit_price: number;
   line_status: LineStatus;
   rejected_reason: string | null;
-  products: { name: string } | null;
+  products: { name: string; stock_quantity: number } | null;
   invoices: { invoice_number: number; fy: number } | null;
 };
 
@@ -856,7 +866,7 @@ export default function OrderRequestDetail() {
         .select('id, notes, payment_amount, payment_mode, payment_date, payment_utr_reference, payment_account_holder_name, payment_screenshot_url, payment_status, payment_review_note, schools(school_name)')
         .eq('id', id).single(),
       supabase.from('product_order_items' as any)
-        .select('id, quantity, unit_price, line_status, rejected_reason, products(name), invoices(invoice_number, fy)')
+        .select('id, quantity, unit_price, line_status, rejected_reason, products(name, stock_quantity), invoices(invoice_number, fy)')
         .eq('order_id', id),
     ]);
     if (orderRes.error) toast({ title: 'Error', description: orderRes.error.message, variant: 'destructive' });
@@ -955,6 +965,7 @@ export default function OrderRequestDetail() {
                 {order.payment_status === 'confirmed' && <TableHead className="w-10"></TableHead>}
                 <TableHead>Product</TableHead>
                 <TableHead>Qty</TableHead>
+                <TableHead>Stock</TableHead>
                 <TableHead>Unit Price</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Invoice</TableHead>
@@ -966,12 +977,19 @@ export default function OrderRequestDetail() {
                   {order.payment_status === 'confirmed' && (
                     <TableCell>
                       {i.line_status === 'pending' && (
-                        <Checkbox checked={selected.has(i.id)} onCheckedChange={() => toggleSelected(i.id)} />
+                        <Checkbox
+                          checked={selected.has(i.id)}
+                          disabled={!!i.products && i.quantity > i.products.stock_quantity}
+                          onCheckedChange={() => toggleSelected(i.id)}
+                        />
                       )}
                     </TableCell>
                   )}
                   <TableCell className="font-medium">{i.products?.name ?? '—'}</TableCell>
                   <TableCell>{i.quantity}</TableCell>
+                  <TableCell className={i.products && i.quantity > i.products.stock_quantity ? 'text-red-600 font-medium' : ''}>
+                    {i.products?.stock_quantity ?? '—'}
+                  </TableCell>
                   <TableCell>₹{i.unit_price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</TableCell>
                   <TableCell>
                     {lineBadge(i.line_status)}
@@ -1148,3 +1166,16 @@ git commit -m "Add Mark as Dispatched button to Invoices page"
 - **Type consistency:** `PaymentStatus`/`LineStatus` union types match the DB CHECK constraints exactly and are used identically across `OrderRequestsPage.tsx` and `OrderRequestDetail.tsx`.
 - **Known limitation, deliberately deferred:** `approve_order_items`' stock re-check and `create_invoice`'s own decrement are two separate statements — a genuine concurrent double-approval could still both pass the re-check before either decrements. This matches `create_invoice`'s own pre-existing warn-don't-block philosophy (it already tolerates negative stock by design), so this isn't a new risk class being introduced, just an existing, accepted one. Not treated as a bug to fix in this plan.
 - **Smoke testing:** `submit_product_order`/`resubmit_product_order_payment` depend on `auth.uid()` via `get_portal_school_id()`, which the CLI session doesn't have — their negative/guard paths are verified instead, and their full positive-path testing happens naturally once the portal-side plan (which runs as a real browser session) is built and Goghul clicks through both sides together.
+
+---
+
+## Final Whole-Branch Review Fixes
+
+A final review after all 5 tasks merged found 4 Important findings only visible looking at the complete feature together. All 4 fixed and live-verified before this branch was merged to `main`:
+
+1. **Void-recovery silently double-decremented stock** (the trigger fix above) — `create_invoice` decrements stock; the original void-recovery branch (added during Task 3's own fix round) released items back to `pending` without restoring it, so "approve → void → re-approve" silently decremented stock twice for books that never physically moved. Fixed by restoring stock in the trigger's `void` branch before releasing the items. Live-verified end to end: stock 51 → approve → 48 → mark paid → void → **51 (restored)** → re-approve → **48 (correct, not 45)**.
+2. **Deleting a book-order-linked invoice showed a raw Postgres FK error.** `InvoicesPage.tsx`'s pre-existing, unmodified `handleDelete` piped `error.message` straight to a toast; since `product_order_items.invoice_id` is `ON DELETE NO ACTION`, deleting an order-linked invoice now hits that FK and shows an unexplained constraint dump. Fixed by checking `error.code === '23503'` and showing "This invoice is linked to a book order and cannot be deleted — void it instead." for that specific case, falling back to the raw message otherwise. (No literal `handleDelete` code block existed in this plan's Task 5 section to retroactively edit — Task 5 only ever touched the type/query/handler/button around it — so this fix is documented here rather than as a rewritten Task 5 step.)
+3. **`submit_product_order` had no payment-amount parameter** (the signature above) — it silently overwrote `payment_amount` with the computed cart total instead of capturing what the school declares paying, unlike the existing `portal_payment_submissions.amount_paid` convention this was meant to mirror. Fixed by adding `p_payment_amount numeric` as a new parameter, stored directly; the computed-total overwrite at the end of the function was removed. This is a breaking signature change but safe in practice — no real caller exists yet (the portal side is a separate, not-yet-written plan).
+4. **Order Requests detail page had no live-stock visibility or in-stock gating** (the `ItemRow`/query/table changes above) — the design doc specified both; the plan had dropped them, so every task review passed correctly (matched the plan) without catching the drift. Fixed by adding a Stock column (red text when the ordered quantity exceeds it) and disabling the Approve checkbox for any pending item where quantity exceeds live stock — the server-side guard in `approve_order_items` already blocked this; this is the UI affordance so staff see it before clicking Approve, not only after.
+
+Not fixed, deliberately parked (Minor, or explicitly out of this plan's stated scope): `dist/` rebuild (handled at merge time as usual), the payment-method vocabulary mapping's lossy fallback (worth locking down as part of the portal spec, not this branch), a dispatched item's invoice-number rendering when that invoice was later voided (rare, cosmetic), dispatch state not shown as a badge on the Invoices list, the dispatch button's missing tooltip/aria-label, the 200-row cap on Order Requests behaving more like a queue-cap than a browse-cap as volume grows, no staff action to close out an abandoned `resubmit_requested` order, and `update_invoice` being able to silently desync a book-order invoice's line items from `product_order_items` (real, but touches pre-existing `update_invoice` logic explicitly out of this spec's scope). No role gating exists on any of the 5 new staff actions (Confirm/Resubmit/Approve/Reject/Dispatch) — confirmed consistent across the whole branch, restated here as an open decision for Goghul, not resolved either way.

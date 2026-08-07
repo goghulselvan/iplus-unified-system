@@ -166,7 +166,14 @@ export default function InvoicesPage() {
   const handleDelete = async () => {
     if (!deleteTarget) return;
     const { error } = await supabase.from('invoices' as any).delete().eq('id', deleteTarget.id);
-    if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); setDeleteTarget(null); return; }
+    if (error) {
+      const description = error.code === '23503'
+        ? 'This invoice is linked to a book order and cannot be deleted — void it instead.'
+        : error.message;
+      toast({ title: 'Error', description, variant: 'destructive' });
+      setDeleteTarget(null);
+      return;
+    }
     toast({ title: 'Invoice deleted' });
     setDeleteTarget(null);
     loadInvoices();

@@ -34,7 +34,7 @@ type ItemRow = {
   unit_price: number;
   line_status: LineStatus;
   rejected_reason: string | null;
-  products: { name: string } | null;
+  products: { name: string; stock_quantity: number } | null;
   invoices: { invoice_number: number; fy: number } | null;
 };
 
@@ -71,7 +71,7 @@ export default function OrderRequestDetail() {
         .select('id, notes, payment_amount, payment_mode, payment_date, payment_utr_reference, payment_account_holder_name, payment_screenshot_url, payment_status, payment_review_note, schools(school_name)')
         .eq('id', id).single(),
       supabase.from('product_order_items' as any)
-        .select('id, quantity, unit_price, line_status, rejected_reason, products(name), invoices(invoice_number, fy)')
+        .select('id, quantity, unit_price, line_status, rejected_reason, products(name, stock_quantity), invoices(invoice_number, fy)')
         .eq('order_id', id),
     ]);
     if (orderRes.error) toast({ title: 'Error', description: orderRes.error.message, variant: 'destructive' });
@@ -170,6 +170,7 @@ export default function OrderRequestDetail() {
                 {order.payment_status === 'confirmed' && <TableHead className="w-10"></TableHead>}
                 <TableHead>Product</TableHead>
                 <TableHead>Qty</TableHead>
+                <TableHead>Stock</TableHead>
                 <TableHead>Unit Price</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Invoice</TableHead>
@@ -181,12 +182,19 @@ export default function OrderRequestDetail() {
                   {order.payment_status === 'confirmed' && (
                     <TableCell>
                       {i.line_status === 'pending' && (
-                        <Checkbox checked={selected.has(i.id)} onCheckedChange={() => toggleSelected(i.id)} />
+                        <Checkbox
+                          checked={selected.has(i.id)}
+                          disabled={!!i.products && i.quantity > i.products.stock_quantity}
+                          onCheckedChange={() => toggleSelected(i.id)}
+                        />
                       )}
                     </TableCell>
                   )}
                   <TableCell className="font-medium">{i.products?.name ?? '—'}</TableCell>
                   <TableCell>{i.quantity}</TableCell>
+                  <TableCell className={i.products && i.quantity > i.products.stock_quantity ? 'text-red-600 font-medium' : ''}>
+                    {i.products?.stock_quantity ?? '—'}
+                  </TableCell>
                   <TableCell>₹{i.unit_price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</TableCell>
                   <TableCell>
                     {lineBadge(i.line_status)}

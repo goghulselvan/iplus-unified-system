@@ -3,6 +3,7 @@
 CREATE OR REPLACE FUNCTION public.submit_product_order(
   p_school_id uuid,
   p_items jsonb,
+  p_payment_amount numeric,
   p_payment_mode text,
   p_payment_date date,
   p_payment_utr_reference text,
@@ -38,7 +39,7 @@ BEGIN
     school_id, notes, payment_amount, payment_mode, payment_date,
     payment_utr_reference, payment_account_holder_name, payment_screenshot_url
   ) VALUES (
-    p_school_id, p_notes, 0, p_payment_mode, p_payment_date,
+    p_school_id, p_notes, p_payment_amount, p_payment_mode, p_payment_date,
     p_payment_utr_reference, p_payment_account_holder_name, p_payment_screenshot_url
   ) RETURNING id INTO v_order_id;
 
@@ -65,14 +66,12 @@ BEGIN
     v_total := v_total + (v_unit_price * v_quantity);
   END LOOP;
 
-  UPDATE product_orders SET payment_amount = v_total WHERE id = v_order_id;
-
   RETURN v_order_id;
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.submit_product_order(uuid, jsonb, text, date, text, text, text, text) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.submit_product_order(uuid, jsonb, text, date, text, text, text, text) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.submit_product_order(uuid, jsonb, numeric, text, date, text, text, text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.submit_product_order(uuid, jsonb, numeric, text, date, text, text, text, text) TO authenticated, service_role;
 
 -- ── confirm_product_order_payment ───────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.confirm_product_order_payment(p_order_id uuid)

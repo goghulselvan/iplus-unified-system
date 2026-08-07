@@ -180,6 +180,17 @@ BEGIN
     SET line_status = 'paid'
     WHERE invoice_id = NEW.id AND line_status = 'invoiced_unpaid';
   ELSIF NEW.status = 'void' THEN
+    -- Restore stock for released items first (undo create_invoice's earlier
+    -- decrement for exactly these lines) BEFORE releasing them, so the
+    -- void -> re-approve recovery path below doesn't silently double-decrement
+    -- stock for books that never physically moved.
+    UPDATE products p
+    SET stock_quantity = p.stock_quantity + oi.quantity
+    FROM product_order_items oi
+    WHERE oi.invoice_id = NEW.id
+      AND oi.line_status IN ('invoiced_unpaid', 'paid')
+      AND p.id = oi.product_id;
+
     -- A voided invoice can never become paid again (mark_invoice_paid refuses void
     -- invoices) or be dispatched, so items left pointing at it would be stuck forever.
     -- Release them back to 'pending' with no invoice, so they re-enter the normal
