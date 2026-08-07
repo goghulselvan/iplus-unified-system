@@ -552,9 +552,19 @@ BEGIN
     UPDATE product_order_items
     SET line_status = 'paid'
     WHERE invoice_id = NEW.id AND line_status = 'invoiced_unpaid';
-  ELSIF NEW.status != 'paid' AND OLD.status = 'paid' THEN
-    -- Invoice un-marked as paid — revert any linked item that hadn't dispatched yet.
-    -- Items already 'dispatched' stay dispatched (the books already physically left).
+  ELSIF NEW.status = 'void' THEN
+    -- A voided invoice can never become paid again (mark_invoice_paid refuses void
+    -- invoices) or be dispatched, so items left pointing at it would be stuck forever.
+    -- Release them back to 'pending' with no invoice, so they re-enter the normal
+    -- approve_order_items queue on a fresh invoice. Dispatched items are untouched —
+    -- the books already physically left, voiding the paperwork after the fact
+    -- doesn't undo that.
+    UPDATE product_order_items
+    SET line_status = 'pending', invoice_id = NULL
+    WHERE invoice_id = NEW.id AND line_status IN ('invoiced_unpaid', 'paid');
+  ELSIF NEW.status = 'unpaid' AND OLD.status = 'paid' THEN
+    -- Invoice un-marked as paid (not voided) — revert any linked item that hadn't
+    -- dispatched yet. Items already 'dispatched' stay dispatched.
     UPDATE product_order_items
     SET line_status = 'invoiced_unpaid'
     WHERE invoice_id = NEW.id AND line_status = 'paid';
@@ -606,7 +616,7 @@ supabase db query --linked "SELECT line_status FROM product_order_items WHERE id
 
 # Cleanup: restore stock, delete the test invoice/order rows
 supabase db query --linked "UPDATE products SET stock_quantity = stock_quantity + 1 WHERE id = '<product_id>';"
-supabase db query --linked "DELETE FROM invoice_line_items WHERE invoice_id = '<invoice_id>'; DELETE FROM invoices WHERE id = '<invoice_id>'; DELETE FROM product_order_items WHERE order_id = '<order_id>'; DELETE FROM product_orders WHERE id = '<order_id>';"
+supabase db query --linked "DELETE FROM product_order_items WHERE order_id = '<order_id>'; DELETE FROM invoice_line_items WHERE invoice_id = '<invoice_id>'; DELETE FROM invoices WHERE id = '<invoice_id>'; DELETE FROM product_orders WHERE id = '<order_id>';"
 ```
 
 Separately, verify `reject_order_items` on a second throwaway pending item (same setup pattern): call it with a reason, confirm `line_status='rejected'`, `rejected_reason` set, then clean up.
