@@ -194,7 +194,7 @@ export default function OrderRequestDetail() {
                       <div className="text-xs text-muted-foreground mt-1">{i.rejected_reason}</div>
                     )}
                   </TableCell>
-                  <TableCell>{i.invoices ? `INV ${i.invoices.fy}-${i.invoices.invoice_number}` : '—'}</TableCell>
+                  <TableCell>{i.invoices ? `INV/${i.invoices.fy}-${i.invoices.fy + 1}/${i.invoices.invoice_number}` : '—'}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
