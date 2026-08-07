@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Textarea } from '@/components/ui/textarea';
-import { Plus, Download, Pencil, Ban, Trash2, Search } from 'lucide-react';
+import { Plus, Download, Pencil, Ban, Trash2, Search, Truck } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
@@ -26,6 +26,7 @@ type InvoiceRow = {
   status: 'unpaid' | 'paid' | 'void';
   grand_total: number;
   created_at: string;
+  dispatched_at: string | null;
 };
 
 const PAGE_SIZE = 200;
@@ -51,7 +52,7 @@ export default function InvoicesPage() {
     setLoading(true);
     const { data, error } = await supabase
       .from('invoices' as any)
-      .select('id, invoice_number, fy, buyer_name, school_id, prospect_school_id, payment_method, status, grand_total, created_at')
+      .select('id, invoice_number, fy, buyer_name, school_id, prospect_school_id, payment_method, status, grand_total, created_at, dispatched_at')
       .order('fy', { ascending: false })
       .order('invoice_number', { ascending: false })
       .limit(PAGE_SIZE);
@@ -171,6 +172,13 @@ export default function InvoicesPage() {
     loadInvoices();
   };
 
+  const handleDispatch = async (invoiceId: string) => {
+    const { error } = await supabase.rpc('mark_invoice_dispatched' as any, { p_invoice_id: invoiceId });
+    if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
+    toast({ title: 'Marked as dispatched' });
+    loadInvoices();
+  };
+
   const statusBadge = (s: string) => {
     if (s === 'paid') return <Badge variant="outline" className="bg-emerald-50 text-emerald-600 border-emerald-100">Paid</Badge>;
     if (s === 'void') return <Badge variant="outline" className="bg-neutral-100 text-neutral-500 border-neutral-200">Void</Badge>;
@@ -243,6 +251,9 @@ export default function InvoicesPage() {
                         <Button variant="ghost" size="sm" onClick={() => togglePaid(row)}>
                           {row.status === 'paid' ? 'Mark Unpaid' : 'Mark Paid'}
                         </Button>
+                      )}
+                      {row.status === 'paid' && !row.dispatched_at && (
+                        <Button variant="ghost" size="sm" onClick={() => handleDispatch(row.id)}><Truck className="h-3.5 w-3.5 text-emerald-600" /></Button>
                       )}
                       {canManage && row.status !== 'void' && (
                         <>
