@@ -151,7 +151,7 @@ DECLARE
   v_stock integer;
   v_total numeric := 0;
 BEGIN
-  IF p_school_id IS NULL OR p_school_id != get_portal_school_id() THEN
+  IF p_school_id IS NULL OR p_school_id IS DISTINCT FROM get_portal_school_id() THEN
     RAISE EXCEPTION 'Not authorized for this school';
   END IF;
   IF p_payment_screenshot_url IS NULL OR trim(p_payment_screenshot_url) = '' THEN
@@ -297,7 +297,7 @@ BEGIN
   IF v_school_id IS NULL THEN
     RAISE EXCEPTION 'Order not found';
   END IF;
-  IF v_school_id != get_portal_school_id() THEN
+  IF v_school_id IS DISTINCT FROM get_portal_school_id() THEN
     RAISE EXCEPTION 'Not authorized for this order';
   END IF;
   IF v_status != 'resubmit_requested' THEN
