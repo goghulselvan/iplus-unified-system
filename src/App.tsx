@@ -58,6 +58,8 @@ import ItemIssuePage from "./pages/Sales/ItemIssuePage";
 import StockReportPage from "./pages/Sales/StockReportPage";
 import PurchaseReportPage from "./pages/Sales/PurchaseReportPage";
 import DashboardPage from "./pages/Sales/DashboardPage";
+import OrderRequestsPage from "./pages/Sales/OrderRequestsPage";
+import OrderRequestDetail from "./pages/Sales/OrderRequestDetail";
 import NotFound from "./pages/NotFound";
 import { RegistrationFormatProvider } from "@/contexts/RegistrationFormatContext";
 import { useActiveProject } from "@/hooks/useOlympiadProjects";
@@ -369,6 +371,8 @@ const AppContent = () => {
          <Route path="/prospect/campaigns/:id" element={<ProtectedRoute><ProspectCampaignDetail /></ProtectedRoute>} />
          <Route path="/sales" element={<ProtectedRoute><Navigate to="/sales/dashboard" replace /></ProtectedRoute>} />
          <Route path="/sales/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
+         <Route path="/sales/order-requests" element={<ProtectedRoute><OrderRequestsPage /></ProtectedRoute>} />
+         <Route path="/sales/order-requests/:id" element={<ProtectedRoute><OrderRequestDetail /></ProtectedRoute>} />
          <Route path="/sales/products" element={<ProtectedRoute><ProductsPage /></ProtectedRoute>} />
          <Route path="/sales/invoices" element={<ProtectedRoute><InvoicesPage /></ProtectedRoute>} />
          <Route path="/sales/suppliers" element={<ProtectedRoute><SuppliersPage /></ProtectedRoute>} />

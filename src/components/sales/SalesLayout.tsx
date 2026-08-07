@@ -7,10 +7,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { LogOut, ArrowLeft, ChevronDown, LayoutDashboard, Package, FileText, Truck, ClipboardList, PackageMinus, ArrowUpDown, BarChart3, FileBarChart } from 'lucide-react';
+import { LogOut, ArrowLeft, ChevronDown, LayoutDashboard, Package, FileText, Truck, ClipboardList, PackageMinus, ArrowUpDown, BarChart3, FileBarChart, PackageSearch } from 'lucide-react';
 
 const standaloneNav = [
   { label: 'Dashboard', href: '/sales/dashboard', icon: LayoutDashboard },
+  { label: 'Order Requests', href: '/sales/order-requests', icon: PackageSearch },
   { label: 'Products', href: '/sales/products', icon: Package },
   { label: 'Invoices', href: '/sales/invoices', icon: FileText },
 ];
