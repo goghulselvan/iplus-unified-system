@@ -7,9 +7,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
 import {
   PhoneIncoming, PhoneOutgoing, PhoneCall, RefreshCw, Link2, Plus, X, PlayCircle,
   MessageSquare, AlarmClock, CheckCircle2, Flame, UserRound, Mail, Bot, Download, History,
+  PhoneForwarded,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -60,6 +62,7 @@ type QueueRow = {
 type StaffProfile = { user_id: string; full_name: string | null; username: string };
 type CallerHit = { source: "crm" | "prospect"; id: string; school_name: string; ss_no: number | null; district: string | null; state: string | null };
 type OtherContact = { id: string; phone_last10: string; name: string; category: string; notes: string | null };
+type TransferStaffRow = { id: string; name: string; phone: string; active: boolean };
 
 const OTHER_CONTACT_CATEGORIES = ["Courier", "Delivery", "Vendor", "Personal", "Spam", "Other"];
 
@@ -141,6 +144,12 @@ export default function CallCenter() {
   const [tagCategory, setTagCategory] = useState("Courier");
   const [editingContact, setEditingContact] = useState<OtherContact | null>(null);
 
+  // ── Transfer Staff (AI voicebot live call transfer roster) ─────────────────
+  const [transferStaff, setTransferStaff] = useState<TransferStaffRow[]>([]);
+  const [newStaffName, setNewStaffName] = useState("");
+  const [newStaffPhone, setNewStaffPhone] = useState("");
+  const [editingStaff, setEditingStaff] = useState<TransferStaffRow | null>(null);
+
   // ── Comment dialog ──────────────────────────────────────────────────────────
   const [commentTarget, setCommentTarget] = useState<{ callId: string; schoolId: string | null; direction: string | null; callRefId: string | null } | null>(null);
   const [commentText, setCommentText] = useState("");
@@ -208,12 +217,17 @@ export default function CallCenter() {
     setOtherContacts((data as OtherContact[]) ?? []);
   }, []);
 
+  const fetchTransferStaff = useCallback(async () => {
+    const { data } = await supabase.from("transfer_staff").select("id, name, phone, active").order("name");
+    setTransferStaff((data as TransferStaffRow[]) ?? []);
+  }, []);
+
   useEffect(() => { fetchCalls(); }, [fetchCalls]);
-  useEffect(() => { fetchQueue(); fetchProfiles(); fetchOtherContacts(); }, [fetchQueue, fetchProfiles, fetchOtherContacts]);
+  useEffect(() => { fetchQueue(); fetchProfiles(); fetchOtherContacts(); fetchTransferStaff(); }, [fetchQueue, fetchProfiles, fetchOtherContacts, fetchTransferStaff]);
 
   const otherContactByPhone = Object.fromEntries(otherContacts.map(c => [c.phone_last10, c]));
 
-  const refreshAll = () => { fetchCalls(); fetchQueue(); fetchOtherContacts(); };
+  const refreshAll = () => { fetchCalls(); fetchQueue(); fetchOtherContacts(); fetchTransferStaff(); };
 
   const tagCurrentAsOtherContact = async () => {
     if (!linkingRow?.school_phone || !tagName.trim()) return;
@@ -257,6 +271,69 @@ export default function CallCenter() {
       if (error) throw error;
       toast({ title: "Removed", description: "This number can create follow-ups again." });
       fetchOtherContacts();
+    } catch (e: any) {
+      toast({ title: "Failed to remove", description: e.message, variant: "destructive" });
+    } finally { setBusy(false); }
+  };
+
+  // ── Transfer Staff CRUD ──────────────────────────────────────────────────────
+
+  const addTransferStaff = async () => {
+    const phone = last10(newStaffPhone);
+    if (!newStaffName.trim() || !/^[6-9]\d{9}$/.test(phone)) return;
+    setBusy(true);
+    try {
+      const { error } = await supabase.from("transfer_staff").insert({ name: newStaffName.trim(), phone });
+      if (error) throw error;
+      toast({ title: "Staff added", description: `${newStaffName.trim()} can now receive AI-transferred calls.` });
+      setNewStaffName(""); setNewStaffPhone("");
+      fetchTransferStaff();
+    } catch (e: any) {
+      toast({ title: "Failed to add staff", description: e.message, variant: "destructive" });
+    } finally { setBusy(false); }
+  };
+
+  const saveStaffEdit = async () => {
+    if (!editingStaff || !editingStaff.name.trim()) return;
+    const phone = last10(editingStaff.phone);
+    if (!/^[6-9]\d{9}$/.test(phone)) {
+      toast({ title: "Invalid phone", description: "Enter a valid 10-digit mobile number.", variant: "destructive" });
+      return;
+    }
+    setBusy(true);
+    try {
+      const { error } = await supabase.from("transfer_staff")
+        .update({ name: editingStaff.name.trim(), phone, updated_at: new Date().toISOString() })
+        .eq("id", editingStaff.id);
+      if (error) throw error;
+      toast({ title: "Saved" });
+      setEditingStaff(null);
+      fetchTransferStaff();
+    } catch (e: any) {
+      toast({ title: "Failed to save", description: e.message, variant: "destructive" });
+    } finally { setBusy(false); }
+  };
+
+  const toggleStaffActive = async (row: TransferStaffRow) => {
+    setBusy(true);
+    try {
+      const { error } = await supabase.from("transfer_staff")
+        .update({ active: !row.active, updated_at: new Date().toISOString() })
+        .eq("id", row.id);
+      if (error) throw error;
+      fetchTransferStaff();
+    } catch (e: any) {
+      toast({ title: "Failed to update", description: e.message, variant: "destructive" });
+    } finally { setBusy(false); }
+  };
+
+  const removeTransferStaff = async (id: string) => {
+    setBusy(true);
+    try {
+      const { error } = await supabase.from("transfer_staff").delete().eq("id", id);
+      if (error) throw error;
+      toast({ title: "Removed" });
+      fetchTransferStaff();
     } catch (e: any) {
       toast({ title: "Failed to remove", description: e.message, variant: "destructive" });
     } finally { setBusy(false); }
@@ -622,6 +699,9 @@ export default function CallCenter() {
             <TabsTrigger value="reports">Reports</TabsTrigger>
             <TabsTrigger value="contacts">
               Other Contacts{otherContacts.length > 0 ? ` (${otherContacts.length})` : ""}
+            </TabsTrigger>
+            <TabsTrigger value="staff">
+              Transfer Staff{transferStaff.length > 0 ? ` (${transferStaff.filter(s => s.active).length})` : ""}
             </TabsTrigger>
           </TabsList>
 
@@ -1057,7 +1137,88 @@ export default function CallCenter() {
               </div>
             )}
           </TabsContent>
+
+          {/* ══ TAB: TRANSFER STAFF ═══════════════════════════════════════════════ */}
+          <TabsContent value="staff" className="space-y-3">
+            <p className="text-sm text-gray-500">
+              Staff the AI voicebot can transfer a live call to when it can't resolve something
+              on its own. One active staff member is picked at random per transfer, with a
+              Telegram summary sent at the same time. Turn someone off instead of deleting
+              them if they're just away for the day.
+            </p>
+
+            <div className="bg-white rounded-xl border border-gray-200 p-3 flex flex-wrap items-end gap-2">
+              <div className="flex-1 min-w-[160px]">
+                <Label className="text-xs">Name</Label>
+                <Input value={newStaffName} onChange={e => setNewStaffName(e.target.value)} placeholder="e.g. Priya" />
+              </div>
+              <div className="flex-1 min-w-[160px]">
+                <Label className="text-xs">Mobile number</Label>
+                <Input value={newStaffPhone} onChange={e => setNewStaffPhone(e.target.value)} placeholder="10-digit mobile" />
+              </div>
+              <Button size="sm" onClick={addTransferStaff}
+                disabled={busy || !newStaffName.trim() || !/^[6-9]\d{9}$/.test(last10(newStaffPhone))}>
+                <Plus className="h-3.5 w-3.5 mr-1" /> Add
+              </Button>
+            </div>
+
+            {transferStaff.length === 0 ? (
+              <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
+                <PhoneForwarded className="h-9 w-9 text-gray-300 mx-auto mb-2" />
+                <p className="text-gray-500 font-medium text-sm">No transfer staff added yet</p>
+                <p className="text-xs text-gray-400 mt-1">Add at least one active number above so the AI has someone to transfer to.</p>
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-50">
+                {transferStaff.map(s => (
+                  <div key={s.id} className="px-4 py-3 flex items-center gap-3">
+                    <Switch checked={s.active} disabled={busy} onCheckedChange={() => toggleStaffActive(s)} />
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-medium ${s.active ? "text-gray-800" : "text-gray-400"}`}>{s.name}</p>
+                      <span className="font-mono text-xs text-gray-500">{s.phone}</span>
+                    </div>
+                    {!s.active && <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">Inactive</span>}
+                    <button onClick={() => setEditingStaff(s)}
+                      className="text-xs px-2.5 py-1 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">
+                      Edit
+                    </button>
+                    <button onClick={() => removeTransferStaff(s.id)} disabled={busy}
+                      className="text-xs px-2.5 py-1 rounded-lg border border-red-200 text-red-600 hover:bg-red-50">
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </TabsContent>
         </Tabs>
+
+        {/* ── Edit Transfer Staff dialog ──────────────────────────────────────── */}
+        <Dialog open={!!editingStaff} onOpenChange={open => { if (!open) setEditingStaff(null); }}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="text-sm">Edit staff — {editingStaff?.name}</DialogTitle>
+            </DialogHeader>
+            {editingStaff && (
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs">Name</Label>
+                  <Input value={editingStaff.name}
+                    onChange={e => setEditingStaff({ ...editingStaff, name: e.target.value })} />
+                </div>
+                <div>
+                  <Label className="text-xs">Mobile number</Label>
+                  <Input value={editingStaff.phone}
+                    onChange={e => setEditingStaff({ ...editingStaff, phone: e.target.value })} />
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditingStaff(null)}>Cancel</Button>
+              <Button onClick={saveStaffEdit} disabled={busy || !editingStaff?.name.trim()}>Save</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* ── Edit Other Contact dialog ───────────────────────────────────────── */}
         <Dialog open={!!editingContact} onOpenChange={open => { if (!open) setEditingContact(null); }}>
