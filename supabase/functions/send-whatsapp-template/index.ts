@@ -21,6 +21,9 @@ const BodySchema = z.object({
   transactionId: z.string().uuid().optional(),
   // The book order this message is about — enables the order_ref variable source
   orderId: z.string().uuid().optional(),
+  // The invoice this message is about — enables order_ref (resolved via the
+  // order the invoice's items came from) and item_list variable sources
+  invoiceId: z.string().uuid().optional(),
 });
 
 function normalizeMobile(raw: string | null | undefined): string | null {
@@ -36,15 +39,16 @@ function resolveVariable(
   customText: string | undefined,
   ctx: {
     school: any; project: any; workflow: any; studentCount: number;
-    thisPayment?: number | null; orderRef?: string | null;
+    thisPayment?: number | null; orderRef?: string | null; itemList?: string | null;
   }
 ): string {
-  const { school, project, workflow, studentCount, thisPayment, orderRef } = ctx;
+  const { school, project, workflow, studentCount, thisPayment, orderRef, itemList } = ctx;
   const inr = (n: unknown) => Number(n ?? 0).toLocaleString("en-IN");
   switch (source) {
     case "school_name": return school?.school_name || "";
     case "ss_no": return String(school?.ss_no ?? "");
     case "order_ref": return orderRef || "";
+    case "item_list": return itemList || "";
     case "contact_person": return school?.contact_person_name || "";
     case "mobile1": return school?.mobile1 || "";
     case "district": return school?.district || "";
@@ -123,7 +127,7 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ success: false, error: parsed.error.flatten() }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
-  const { schoolId, templateKey, mobileOverride, documentUrl, documentFilename, transactionId, orderId } = parsed.data;
+  const { schoolId, templateKey, mobileOverride, documentUrl, documentFilename, transactionId, orderId, invoiceId } = parsed.data;
 
   const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -171,6 +175,7 @@ Deno.serve(async (req) => {
     thisPayment = tx ? Number(tx.payment_amount) : null;
   }
   let orderRef: string | null = null;
+  let itemList: string | null = null;
   if (orderId) {
     // Scoped to schoolId too — a caller can't reference another school's order.
     const { data: order } = await admin
@@ -183,7 +188,32 @@ Deno.serve(async (req) => {
       orderRef = `${order.fy}-${order.fy + 1}-${order.order_number}`;
     }
   }
-  const ctx = { school, project, workflow, studentCount: studentCount || 0, thisPayment, orderRef };
+  if (invoiceId) {
+    // Scoped to schoolId too — a caller can't reference another school's invoice.
+    const { data: invoice } = await admin
+      .from("invoices")
+      .select("id, school_id")
+      .eq("id", invoiceId)
+      .eq("school_id", schoolId)
+      .maybeSingle();
+    if (invoice) {
+      const [{ data: orderItem }, { data: lineItems }] = await Promise.all([
+        admin.from("product_order_items").select("order_id").eq("invoice_id", invoiceId).limit(1).maybeSingle(),
+        admin.from("invoice_line_items").select("item_name, quantity").eq("invoice_id", invoiceId).order("row_order"),
+      ]);
+      if (orderItem?.order_id) {
+        const { data: order } = await admin
+          .from("product_orders").select("order_number, fy").eq("id", orderItem.order_id).maybeSingle();
+        if (order?.order_number != null && order?.fy != null) {
+          orderRef = `${order.fy}-${order.fy + 1}-${order.order_number}`;
+        }
+      }
+      if (lineItems && lineItems.length > 0) {
+        itemList = lineItems.map((i) => `${i.item_name} x${i.quantity}`).join(", ");
+      }
+    }
+  }
+  const ctx = { school, project, workflow, studentCount: studentCount || 0, thisPayment, orderRef, itemList };
   const components: any[] = [];
 
   if (template.header_media_url && (template.template_type as string).includes("image")) {

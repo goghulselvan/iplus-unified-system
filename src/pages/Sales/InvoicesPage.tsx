@@ -34,7 +34,7 @@ const PAGE_SIZE = 200;
 
 export default function InvoicesPage() {
   const { toast } = useToast();
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   const canManage = profile?.role === 'superadmin' || profile?.role === 'accountant';
 
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
@@ -184,9 +184,24 @@ export default function InvoicesPage() {
     loadInvoices();
   };
 
-  const handleDispatch = async (invoiceId: string) => {
+  const handleDispatch = async (invoiceId: string, schoolId: string | null) => {
     const { error } = await supabase.rpc('mark_invoice_dispatched' as any, { p_invoice_id: invoiceId });
     if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
+
+    // Dispatch notification — fire-and-forget, doesn't block the dispatch action.
+    // Only book-order invoices (school-backed) have a meaningful order_ref/item
+    // context here; a school-less (prospect) invoice has no order to reference.
+    if (schoolId) {
+      supabase.functions.invoke('send-whatsapp-template', {
+        body: { schoolId, templateKey: 'book_order_dispatched', invoiceId },
+      }).catch(console.error);
+      if (user?.id) {
+        supabase.functions.invoke('send-template-email', {
+          body: { schoolId, templateType: 'book_order_dispatched', userId: user.id, invoiceId },
+        }).catch(console.error);
+      }
+    }
+
     toast({ title: 'Marked as dispatched' });
     loadInvoices();
   };
@@ -286,7 +301,7 @@ export default function InvoicesPage() {
                         <>
                           <Button
                             size="sm"
-                            onClick={() => handleDispatch(row.id)}
+                            onClick={() => handleDispatch(row.id, row.school_id)}
                             className="rounded-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
                           >
                             <Truck className="h-3.5 w-3.5 mr-1" /> Mark as Dispatched

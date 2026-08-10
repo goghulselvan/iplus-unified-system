@@ -107,6 +107,8 @@ interface SendEmailRequest {
   transactionId?: string;      // Optional: the payment this message is about — enables
                                // {this_payment}/{this_payment_date}/{payment_history} variables
   orderId?: string;            // Optional: the book order this message is about — enables {order_ref}
+  invoiceId?: string;          // Optional: the invoice this message is about — enables {order_ref}
+                               // (resolved via the order the invoice's items came from) and {item_list}
 }
 
 serve(async (req: Request): Promise<Response> => {
@@ -115,7 +117,7 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    const { schoolId, templateType, userId, emailOverride, attachmentUrl, attachmentFilename, transactionId, orderId }: SendEmailRequest = await req.json();
+    const { schoolId, templateType, userId, emailOverride, attachmentUrl, attachmentFilename, transactionId, orderId, invoiceId }: SendEmailRequest = await req.json();
     
     console.log(`Processing email request - School: ${schoolId}, Template: ${templateType}, Email override: ${emailOverride}`);
 
@@ -197,6 +199,8 @@ serve(async (req: Request): Promise<Response> => {
     }
 
     let orderRef = "";
+    let itemList = "";
+    let itemListHtml = "";
     if (orderId) {
       // Scoped to schoolId too — a caller can't reference another school's order.
       const { data: order } = await supabase
@@ -209,12 +213,38 @@ serve(async (req: Request): Promise<Response> => {
         orderRef = `${order.fy}-${order.fy + 1}-${order.order_number}`;
       }
     }
+    if (invoiceId) {
+      // Scoped to schoolId too — a caller can't reference another school's invoice.
+      const { data: invoice } = await supabase
+        .from("invoices").select("id, school_id").eq("id", invoiceId).eq("school_id", schoolId).maybeSingle();
+      if (invoice) {
+        const [{ data: orderItem }, { data: lineItems }] = await Promise.all([
+          supabase.from("product_order_items").select("order_id").eq("invoice_id", invoiceId).limit(1).maybeSingle(),
+          supabase.from("invoice_line_items").select("item_name, quantity").eq("invoice_id", invoiceId).order("row_order"),
+        ]);
+        if (orderItem?.order_id) {
+          const { data: order } = await supabase
+            .from("product_orders").select("order_number, fy").eq("id", orderItem.order_id).maybeSingle();
+          if (order?.order_number != null && order?.fy != null) {
+            orderRef = `${order.fy}-${order.fy + 1}-${order.order_number}`;
+          }
+        }
+        if (lineItems && lineItems.length > 0) {
+          itemList = lineItems.map((i) => `${i.item_name} x${i.quantity}`).join(", ");
+          itemListHtml = lineItems.map((i) =>
+            `<tr><td style="font-size:13px;color:#111827;padding:4px 0;">${i.item_name}</td><td style="font-size:13px;color:#6b7280;padding:4px 0;text-align:right;">x${i.quantity}</td></tr>`
+          ).join("");
+        }
+      }
+    }
 
     // Replace template variables
     const variables: Record<string, string> = {
       "{school_name}": school.school_name || "",
       "{ss_no}": school.ss_no?.toString() || "",
       "{order_ref}": orderRef,
+      "{item_list}": itemList,
+      "{item_list_html}": itemListHtml,
       "{contact_person}": school.contact_person_name || "",
       "{project_name}": school.olympiad_projects?.project_name || "",
       "{project_year}": school.olympiad_projects?.project_year?.toString() || "",
