@@ -159,7 +159,9 @@ export default function ManualOrderDialog({ open, onOpenChange, onSaved }: Props
     // Order-received confirmation — fire-and-forget, doesn't block the dialog closing.
     const newOrderId = data as string;
     supabase.functions.invoke('send-whatsapp-template', {
-      body: { schoolId: selectedSchool.id, templateKey: 'book_order_confirmation', orderId: newOrderId },
+      // AskEVA template name has a leading underscore (as approved by Meta) — the
+      // key here must match it exactly, this isn't a typo.
+      body: { schoolId: selectedSchool.id, templateKey: '_book_order_confirmation', orderId: newOrderId },
     }).catch(console.error);
     if (user?.id) {
       supabase.functions.invoke('send-template-email', {

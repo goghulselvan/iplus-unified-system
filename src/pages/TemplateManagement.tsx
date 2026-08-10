@@ -151,6 +151,7 @@ export default function TemplateManagement() {
   const [editName, setEditName] = useState<string>("");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [newMarketingKey, setNewMarketingKey] = useState("");
 
   // Local form state for email
@@ -220,6 +221,19 @@ export default function TemplateManagement() {
     setWaAskevaName(""); setWaLang("en"); setWaType("text"); setWaActive(true); setWaId(null);
     setEmailPreview(false);
     setSheetOpen(true);
+  };
+
+  const handleSyncAskeva = async () => {
+    if (!projectId) return;
+    setSyncing(true);
+    const { data, error } = await supabase.functions.invoke("sync-askeva-templates", {
+      body: { projectId },
+    });
+    setSyncing(false);
+    if (error) { toast({ title: "Sync failed", description: error.message, variant: "destructive" }); return; }
+    const r = data as { total_from_askeva?: number; inserted?: number; updated?: number };
+    toast({ title: "Synced from AskEVA", description: `${r.total_from_askeva ?? 0} templates found — ${r.inserted ?? 0} new, ${r.updated ?? 0} updated.` });
+    refetchWA();
   };
 
   const handleDelete = async (email: CommunicationTemplate | null, wa: WhatsAppTemplate | null, name: string) => {
@@ -318,6 +332,9 @@ export default function TemplateManagement() {
             </p>
           </div>
           <div className="flex items-center gap-3">
+            <Button variant="outline" size="sm" disabled={!projectId || syncing} onClick={handleSyncAskeva}>
+              {syncing ? "Syncing…" : "Sync from AskEVA"}
+            </Button>
             <Select value={projectId} onValueChange={setProjectId}>
               <SelectTrigger className="w-52">
                 <SelectValue placeholder="Select project" />
