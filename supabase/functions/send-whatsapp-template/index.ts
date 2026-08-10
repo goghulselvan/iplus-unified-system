@@ -26,6 +26,12 @@ const BodySchema = z.object({
   invoiceId: z.string().uuid().optional(),
 });
 
+// "Logical Reasoning - iPlus Olympiads - Ignite Series - Class 1" -> "Logical Reasoning - Class 1"
+// Strips the brand/series boilerplate that's redundant once it's one line among several.
+function shortItemName(name: string): string {
+  return name.replace(/\s*-\s*iPlus Olympiads\s*-\s*(Ignite|Impact) Series\s*/i, " - ").replace(/\s+/g, " ").trim();
+}
+
 function normalizeMobile(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const digits = String(raw).replace(/\D/g, "");
@@ -209,7 +215,10 @@ Deno.serve(async (req) => {
         }
       }
       if (lineItems && lineItems.length > 0) {
-        itemList = lineItems.map((i) => `${i.item_name} x${i.quantity}`).join(", ");
+        // WhatsApp template body parameters have real restrictions on newlines
+        // (Meta strips/rejects runs of them) — one \n between items is within
+        // the allowed range, but this is worth confirming on a real send.
+        itemList = lineItems.map((i) => `${shortItemName(i.item_name)} x${i.quantity}`).join("\n");
       }
     }
   }

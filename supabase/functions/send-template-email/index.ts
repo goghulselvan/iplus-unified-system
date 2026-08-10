@@ -28,6 +28,12 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// "Logical Reasoning - iPlus Olympiads - Ignite Series - Class 1" -> "Logical Reasoning - Class 1"
+// Strips the brand/series boilerplate that's redundant once it's one row among several.
+function shortItemName(name: string): string {
+  return name.replace(/\s*-\s*iPlus Olympiads\s*-\s*(Ignite|Impact) Series\s*/i, " - ").replace(/\s+/g, " ").trim();
+}
+
 // Clean email address (remove spaces, extra dots, etc.)
 function cleanEmail(email: string): string {
   if (!email || typeof email !== 'string') return email;
@@ -230,9 +236,9 @@ serve(async (req: Request): Promise<Response> => {
           }
         }
         if (lineItems && lineItems.length > 0) {
-          itemList = lineItems.map((i) => `${i.item_name} x${i.quantity}`).join(", ");
+          itemList = lineItems.map((i) => `${shortItemName(i.item_name)} x${i.quantity}`).join(", ");
           itemListHtml = lineItems.map((i) =>
-            `<tr><td style="font-size:13px;color:#111827;padding:4px 0;">${i.item_name}</td><td style="font-size:13px;color:#6b7280;padding:4px 0;text-align:right;">x${i.quantity}</td></tr>`
+            `<tr><td style="font-size:13px;color:#111827;padding:4px 0;">${shortItemName(i.item_name)}</td><td style="font-size:13px;color:#6b7280;padding:4px 0;text-align:right;">x${i.quantity}</td></tr>`
           ).join("");
         }
       }
