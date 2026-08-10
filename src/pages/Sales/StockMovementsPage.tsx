@@ -8,6 +8,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Plus, Trash2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
 import AddStockDialog from './AddStockDialog';
 import StockAdjustmentDialog from './StockAdjustmentDialog';
 
@@ -35,6 +36,8 @@ const PAGE_SIZE = 200;
 
 export default function StockMovementsPage() {
   const { toast } = useToast();
+  const { profile } = useAuth();
+  const isSuperadmin = profile?.role === 'superadmin';
   const [adds, setAdds] = useState<StockAdd[]>([]);
   const [adjustments, setAdjustments] = useState<StockAdjustment[]>([]);
   const [profiles, setProfiles] = useState<Record<string, ProfileLite>>({});
@@ -88,10 +91,12 @@ export default function StockMovementsPage() {
       <div className="max-w-6xl mx-auto px-4 py-8">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-3xl font-bold">Stock Movements</h1>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setAdjustDialogOpen(true)}><Plus className="h-4 w-4 mr-2" />Adjust Stock</Button>
-            <Button onClick={() => setAddDialogOpen(true)}><Plus className="h-4 w-4 mr-2" />Add Stock</Button>
-          </div>
+          {isSuperadmin && (
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setAdjustDialogOpen(true)}><Plus className="h-4 w-4 mr-2" />Adjust Stock</Button>
+              <Button onClick={() => setAddDialogOpen(true)}><Plus className="h-4 w-4 mr-2" />Add Stock</Button>
+            </div>
+          )}
         </div>
 
         <Tabs defaultValue="adds">
@@ -164,7 +169,9 @@ export default function StockMovementsPage() {
                         <TableCell>{a.reason}</TableCell>
                         <TableCell>{resolveUser(a.adjusted_by)}</TableCell>
                         <TableCell className="text-right">
-                          <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(a)}><Trash2 className="h-3.5 w-3.5 text-red-600" /></Button>
+                          {isSuperadmin && (
+                            <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(a)}><Trash2 className="h-3.5 w-3.5 text-red-600" /></Button>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))
