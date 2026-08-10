@@ -7,7 +7,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, ZoomIn } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
@@ -63,6 +63,7 @@ export default function OrderRequestDetail() {
   const [resubmitReason, setResubmitReason] = useState('');
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  const [proofOpen, setProofOpen] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -143,7 +144,16 @@ export default function OrderRequestDetail() {
           <div className="flex items-center justify-between mb-3">
             <div className="font-semibold">Payment Proof</div>
           </div>
-          <img src={order.payment_screenshot_url} alt="Payment proof" className="max-w-sm rounded-lg border border-neutral-200 mb-3" />
+          <button
+            type="button"
+            onClick={() => setProofOpen(true)}
+            className="group relative block max-w-sm mb-3"
+          >
+            <img src={order.payment_screenshot_url} alt="Payment proof" className="w-full rounded-lg border border-neutral-200 group-hover:opacity-90 transition-opacity" />
+            <span className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/10 rounded-lg transition-colors">
+              <ZoomIn className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 drop-shadow transition-opacity" />
+            </span>
+          </button>
           <div className="text-sm text-muted-foreground grid grid-cols-2 gap-2">
             <div>UTR / Reference: {order.payment_utr_reference || '—'}</div>
             <div>Account Holder: {order.payment_account_holder_name || '—'}</div>
@@ -216,6 +226,15 @@ export default function OrderRequestDetail() {
           </div>
         )}
       </div>
+
+      <Dialog open={proofOpen} onOpenChange={setProofOpen}>
+        <DialogContent className="max-w-3xl p-2">
+          <img src={order.payment_screenshot_url} alt="Payment proof" className="w-full max-h-[80vh] object-contain rounded" />
+          <DialogFooter className="px-2 pb-2">
+            <Button variant="outline" onClick={() => setProofOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={resubmitOpen} onOpenChange={setResubmitOpen}>
         <DialogContent>

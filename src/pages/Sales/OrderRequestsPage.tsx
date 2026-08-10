@@ -34,16 +34,25 @@ const paymentBadge = (s: PaymentStatus) => {
 };
 
 const rollup = (items: { line_status: LineStatus }[]) => {
-  if (items.length === 0) return '—';
+  if (items.length === 0) return <span className="text-muted-foreground">—</span>;
   const counts: Record<LineStatus, number> = { pending: 0, invoiced_unpaid: 0, paid: 0, dispatched: 0, rejected: 0 };
   items.forEach(i => { counts[i.line_status]++; });
   const parts: string[] = [];
   if (counts.dispatched) parts.push(`${counts.dispatched} dispatched`);
   if (counts.paid) parts.push(`${counts.paid} paid`);
   if (counts.invoiced_unpaid) parts.push(`${counts.invoiced_unpaid} invoiced`);
-  if (counts.pending) parts.push(`${counts.pending} pending`);
   if (counts.rejected) parts.push(`${counts.rejected} rejected`);
-  return parts.join(' · ') || '—';
+  return (
+    <span className="flex items-center gap-2 flex-wrap">
+      {counts.pending > 0 && (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-red-100 text-red-700 text-xs font-semibold">
+          {counts.pending} pending
+        </span>
+      )}
+      {parts.length > 0 && <span className="text-muted-foreground">{parts.join(' · ')}</span>}
+      {counts.pending === 0 && parts.length === 0 && <span className="text-muted-foreground">—</span>}
+    </span>
+  );
 };
 
 export default function OrderRequestsPage() {
