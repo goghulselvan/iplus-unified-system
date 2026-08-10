@@ -157,15 +157,23 @@ export default function ManualOrderDialog({ open, onOpenChange, onSaved }: Props
     if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
 
     // Order-received confirmation — fire-and-forget, doesn't block the dialog closing.
+    // functions.invoke() resolves (doesn't reject) on a non-2xx response, so a plain
+    // .catch() never sees a handled failure like "no active project" — must check
+    // the resolved `error` too.
     const newOrderId = data as string;
     supabase.functions.invoke('send-whatsapp-template', {
-      // AskEVA template name has a leading underscore (as approved by Meta) — the
-      // key here must match it exactly, this isn't a typo.
-      body: { schoolId: selectedSchool.id, templateKey: '_book_order_confirmation', orderId: newOrderId },
+      // Matches whatsapp_templates.template_key — our internal reference name,
+      // NOT the actual AskEVA/Meta template name (that's askeva_template_name,
+      // resolved server-side; it can differ, e.g. has a leading underscore there).
+      body: { schoolId: selectedSchool.id, templateKey: 'book_order_confirmation', orderId: newOrderId },
+    }).then(({ error: waError }) => {
+      if (waError) toast({ title: 'Order created, but WhatsApp notification failed', description: waError.message, variant: 'destructive' });
     }).catch(console.error);
     if (user?.id) {
       supabase.functions.invoke('send-template-email', {
         body: { schoolId: selectedSchool.id, templateType: 'book_order_confirmation', userId: user.id, orderId: newOrderId },
+      }).then(({ error: emailError }) => {
+        if (emailError) toast({ title: 'Order created, but email notification failed', description: emailError.message, variant: 'destructive' });
       }).catch(console.error);
     }
 

@@ -191,13 +191,20 @@ export default function InvoicesPage() {
     // Dispatch notification — fire-and-forget, doesn't block the dispatch action.
     // Only book-order invoices (school-backed) have a meaningful order_ref/item
     // context here; a school-less (prospect) invoice has no order to reference.
+    // functions.invoke() resolves (doesn't reject) on a non-2xx response, so a
+    // plain .catch() never sees a handled failure like "no active project" —
+    // must check the resolved `error` too.
     if (schoolId) {
       supabase.functions.invoke('send-whatsapp-template', {
         body: { schoolId, templateKey: 'book_order_dispatched', invoiceId },
+      }).then(({ error: waError }) => {
+        if (waError) toast({ title: 'Dispatched, but WhatsApp notification failed', description: waError.message, variant: 'destructive' });
       }).catch(console.error);
       if (user?.id) {
         supabase.functions.invoke('send-template-email', {
           body: { schoolId, templateType: 'book_order_dispatched', userId: user.id, invoiceId },
+        }).then(({ error: emailError }) => {
+          if (emailError) toast({ title: 'Dispatched, but email notification failed', description: emailError.message, variant: 'destructive' });
         }).catch(console.error);
       }
     }
