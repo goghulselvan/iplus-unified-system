@@ -1,5 +1,7 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -15,6 +17,37 @@ const standaloneNav = [
   { label: 'Products', href: '/sales/products', icon: Package },
   { label: 'Invoices', href: '/sales/invoices', icon: FileText },
 ];
+
+function NavBadge({ count }: { count: number }) {
+  if (count === 0) return null;
+  return (
+    <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-none">
+      {count > 99 ? '99+' : count}
+    </span>
+  );
+}
+
+// Orders needing staff action right now: payment not yet reviewed, or payment
+// confirmed but at least one line item still awaiting a stock decision.
+function useOrderRequestsBadge() {
+  return useQuery({
+    queryKey: ['sales-order-requests-badge'],
+    queryFn: async () => {
+      const [{ count: paymentPending }, { data: confirmedOrders }, { data: pendingItems }] = await Promise.all([
+        supabase.from('product_orders').select('*', { count: 'exact', head: true }).eq('payment_status', 'pending'),
+        supabase.from('product_orders').select('id').eq('payment_status', 'confirmed'),
+        supabase.from('product_order_items').select('order_id').eq('line_status', 'pending'),
+      ]);
+      const confirmedIds = new Set((confirmedOrders ?? []).map((o) => o.id));
+      const stockPendingOrderIds = new Set(
+        (pendingItems ?? []).filter((i) => confirmedIds.has(i.order_id)).map((i) => i.order_id)
+      );
+      return (paymentPending ?? 0) + stockPendingOrderIds.size;
+    },
+    refetchInterval: 30_000,
+    staleTime: 0,
+  });
+}
 
 const navGroups = [
   {
@@ -44,6 +77,7 @@ const SalesLayout = ({ children }: { children: React.ReactNode }) => {
   const { profile, signOut } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const { data: orderRequestsBadge = 0 } = useOrderRequestsBadge();
 
   const linkClass = (active: boolean) =>
     `flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
@@ -72,6 +106,7 @@ const SalesLayout = ({ children }: { children: React.ReactNode }) => {
                   <Link key={href} to={href} className={linkClass(location.pathname === href)}>
                     <Icon className="h-3.5 w-3.5" />
                     {label}
+                    {href === '/sales/order-requests' && <NavBadge count={orderRequestsBadge} />}
                   </Link>
                 ))}
                 {navGroups.map((group) => {
