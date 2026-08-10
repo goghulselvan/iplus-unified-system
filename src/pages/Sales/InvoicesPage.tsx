@@ -13,6 +13,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import InvoiceDialog, { EditingInvoice } from './InvoiceDialog';
+import BuyerContactDialog from './BuyerContactDialog';
 import { generateInvoice } from '@/utils/invoiceGenerator';
 
 type InvoiceRow = {
@@ -48,6 +49,7 @@ export default function InvoicesPage() {
   const [voidTarget, setVoidTarget] = useState<InvoiceRow | null>(null);
   const [voidReason, setVoidReason] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<InvoiceRow | null>(null);
+  const [contactSchoolId, setContactSchoolId] = useState<string | null>(null);
 
   const loadInvoices = async () => {
     setLoading(true);
@@ -259,7 +261,19 @@ export default function InvoicesPage() {
                   <TableRow key={row.id}>
                     <TableCell className="font-medium">INV/{row.fy}-{row.fy + 1}/{row.invoice_number}</TableCell>
                     <TableCell>{new Date(row.created_at).toLocaleDateString('en-IN')}</TableCell>
-                    <TableCell>{row.buyer_name}</TableCell>
+                    <TableCell>
+                      {row.school_id ? (
+                        <button
+                          type="button"
+                          onClick={() => setContactSchoolId(row.school_id)}
+                          className="text-indigo-600 hover:underline text-left"
+                        >
+                          {row.buyer_name}
+                        </button>
+                      ) : (
+                        row.buyer_name
+                      )}
+                    </TableCell>
                     <TableCell>{row.payment_method}</TableCell>
                     <TableCell>₹{row.grand_total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</TableCell>
                     <TableCell>{statusBadge(row.status)}</TableCell>
@@ -311,6 +325,8 @@ export default function InvoicesPage() {
       </div>
 
       <InvoiceDialog open={dialogOpen} onOpenChange={setDialogOpen} editingInvoice={editingInvoice} onSaved={handleSaved} />
+
+      <BuyerContactDialog open={!!contactSchoolId} onOpenChange={open => !open && setContactSchoolId(null)} schoolId={contactSchoolId} />
 
       <Dialog open={!!voidTarget} onOpenChange={open => { if (!open) { setVoidTarget(null); setVoidReason(''); } }}>
         <DialogContent className="max-w-sm">

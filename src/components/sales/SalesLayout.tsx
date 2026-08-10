@@ -14,8 +14,8 @@ import { LogOut, ArrowLeft, ChevronDown, LayoutDashboard, Package, FileText, Tru
 const standaloneNav = [
   { label: 'Dashboard', href: '/sales/dashboard', icon: LayoutDashboard },
   { label: 'Order Requests', href: '/sales/order-requests', icon: PackageSearch },
-  { label: 'Products', href: '/sales/products', icon: Package },
   { label: 'Invoices', href: '/sales/invoices', icon: FileText },
+  { label: 'Products', href: '/sales/products', icon: Package },
 ];
 
 function NavBadge({ count }: { count: number }) {
