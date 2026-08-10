@@ -2,10 +2,13 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import SalesLayout from '@/components/sales/SalesLayout';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Plus } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import ManualOrderDialog from './ManualOrderDialog';
 
 type PaymentStatus = 'pending' | 'confirmed' | 'resubmit_requested';
 type LineStatus = 'pending' | 'invoiced_unpaid' | 'paid' | 'dispatched' | 'rejected';
@@ -14,6 +17,7 @@ type OrderRow = {
   id: string;
   order_number: number | null;
   fy: number | null;
+  source: 'portal' | 'manual';
   payment_amount: number;
   payment_status: PaymentStatus;
   created_at: string;
@@ -67,13 +71,14 @@ export default function OrderRequestsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [manualOpen, setManualOpen] = useState(false);
 
   const load = async () => {
     setLoading(true);
     setError(false);
     const { data, error: loadErr } = await supabase
       .from('product_orders' as any)
-      .select('id, order_number, fy, payment_amount, payment_status, created_at, schools(school_name), product_order_items(line_status)')
+      .select('id, order_number, fy, source, payment_amount, payment_status, created_at, schools(school_name), product_order_items(line_status)')
       .order('created_at', { ascending: false })
       .limit(PAGE_SIZE);
     if (loadErr) {
@@ -97,16 +102,25 @@ export default function OrderRequestsPage() {
       <div className="max-w-6xl mx-auto px-4 py-8">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-3xl font-bold">Order Requests</h1>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Statuses</SelectItem>
-              <SelectItem value="pending">Pending Review</SelectItem>
-              <SelectItem value="confirmed">Confirmed</SelectItem>
-              <SelectItem value="resubmit_requested">Resubmit Requested</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-3">
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Statuses</SelectItem>
+                <SelectItem value="pending">Pending Review</SelectItem>
+                <SelectItem value="confirmed">Confirmed</SelectItem>
+                <SelectItem value="resubmit_requested">Resubmit Requested</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button onClick={() => setManualOpen(true)}><Plus className="h-4 w-4 mr-2" />New Order Request</Button>
+          </div>
         </div>
+
+        <ManualOrderDialog
+          open={manualOpen}
+          onOpenChange={setManualOpen}
+          onSaved={orderId => navigate(`/sales/order-requests/${orderId}`)}
+        />
 
         <div className="bg-white rounded-xl border border-neutral-200 shadow-sm overflow-hidden">
           <Table>
@@ -130,7 +144,12 @@ export default function OrderRequestsPage() {
               ) : (
                 filtered.map(o => (
                   <TableRow key={o.id} className="cursor-pointer hover:bg-neutral-50" onClick={() => navigate(`/sales/order-requests/${o.id}`)}>
-                    <TableCell className="font-mono text-sm">{orderRef(o)}</TableCell>
+                    <TableCell className="font-mono text-sm">
+                      <div className="flex items-center gap-1.5">
+                        {orderRef(o)}
+                        {o.source === 'manual' && <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-600 border-blue-100">Manual</Badge>}
+                      </div>
+                    </TableCell>
                     <TableCell className="font-medium">{o.schools?.school_name ?? '—'}</TableCell>
                     <TableCell>₹{o.payment_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</TableCell>
                     <TableCell>{paymentBadge(o.payment_status)}</TableCell>

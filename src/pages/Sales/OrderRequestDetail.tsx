@@ -18,6 +18,7 @@ type OrderDetail = {
   id: string;
   order_number: number | null;
   fy: number | null;
+  source: 'portal' | 'manual';
   notes: string | null;
   payment_amount: number;
   payment_mode: string;
@@ -71,7 +72,7 @@ export default function OrderRequestDetail() {
     setLoading(true);
     const [orderRes, itemsRes] = await Promise.all([
       supabase.from('product_orders' as any)
-        .select('id, order_number, fy, notes, payment_amount, payment_mode, payment_date, payment_utr_reference, payment_account_holder_name, payment_screenshot_url, payment_status, payment_review_note, schools(school_name)')
+        .select('id, order_number, fy, source, notes, payment_amount, payment_mode, payment_date, payment_utr_reference, payment_account_holder_name, payment_screenshot_url, payment_status, payment_review_note, schools(school_name)')
         .eq('id', id).single(),
       supabase.from('product_order_items' as any)
         .select('id, quantity, unit_price, line_status, rejected_reason, products(name, stock_quantity), invoices(invoice_number, fy)')
@@ -146,6 +147,7 @@ export default function OrderRequestDetail() {
               ORD/{order.fy}-{order.fy + 1}/{order.order_number}
             </span>
           )}
+          {order.source === 'manual' && <Badge variant="outline" className="text-xs bg-blue-50 text-blue-600 border-blue-100">Manual Order</Badge>}
         </div>
         <p className="text-sm text-muted-foreground mb-6">₹{order.payment_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })} · {order.payment_mode} · {new Date(order.payment_date).toLocaleDateString('en-IN')}</p>
 
