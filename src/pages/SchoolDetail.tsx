@@ -33,6 +33,7 @@ import { RegistrationSummaryTable } from '@/components/schools/RegistrationSumma
 import { SchoolResultsSummary } from '@/components/results/SchoolResultsSummary';
 import { PortalRegistrationView } from '@/components/schools/PortalRegistrationView';
 import { SendEbrochureDialog } from '@/components/schools/SendEbrochureDialog';
+import SchoolBookOrders from '@/components/schools/SchoolBookOrders';
 import { useToast } from '@/hooks/use-toast';
 
 const SchoolDetail = () => {
@@ -667,6 +668,7 @@ const SchoolDetail = () => {
             <TabsTrigger value="summary">Summary</TabsTrigger>
             <TabsTrigger value="exams">Exam Dates</TabsTrigger>
             <TabsTrigger value="communications">Communications</TabsTrigger>
+            <TabsTrigger value="book-orders">Book Orders</TabsTrigger>
             <TabsTrigger value="results">Results</TabsTrigger>
             <TabsTrigger value="students">Archived</TabsTrigger>
           </TabsList>
@@ -1264,6 +1266,10 @@ const SchoolDetail = () => {
 
           <TabsContent value="exams">
             <ExamScheduleManager school={school} />
+          </TabsContent>
+
+          <TabsContent value="book-orders">
+            <SchoolBookOrders schoolId={school.id} />
           </TabsContent>
 
           <TabsContent value="communications">
