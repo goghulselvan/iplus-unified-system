@@ -23,6 +23,8 @@ export const WHATSAPP_VARIABLE_SOURCES: VariableSource[] = [
   { key: "expected_amount", label: "Expected Amount", description: "school_project_workflow.expected_amount" },
   { key: "outstanding_balance", label: "Outstanding Balance", description: "school_project_workflow.outstanding_balance" },
   { key: "registration_status", label: "Registration Status", description: "school_project_workflow.registration_status" },
+  { key: "order_ref", label: "Book Order Number", description: "product_orders order_number/fy, formatted as {fy}-{fy+1}-{order_number} — needs orderId or invoiceId passed to the send" },
+  { key: "item_list", label: "Book Order Items", description: "comma-separated item x qty for the invoice — needs invoiceId passed to the send" },
   { key: "custom", label: "Custom Text", description: "Free text entered by admin" },
 ];
 
