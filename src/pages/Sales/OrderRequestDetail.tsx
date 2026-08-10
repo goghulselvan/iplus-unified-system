@@ -16,6 +16,8 @@ type LineStatus = 'pending' | 'invoiced_unpaid' | 'paid' | 'dispatched' | 'rejec
 
 type OrderDetail = {
   id: string;
+  order_number: number | null;
+  fy: number | null;
   notes: string | null;
   payment_amount: number;
   payment_mode: string;
@@ -69,7 +71,7 @@ export default function OrderRequestDetail() {
     setLoading(true);
     const [orderRes, itemsRes] = await Promise.all([
       supabase.from('product_orders' as any)
-        .select('id, notes, payment_amount, payment_mode, payment_date, payment_utr_reference, payment_account_holder_name, payment_screenshot_url, payment_status, payment_review_note, schools(school_name)')
+        .select('id, order_number, fy, notes, payment_amount, payment_mode, payment_date, payment_utr_reference, payment_account_holder_name, payment_screenshot_url, payment_status, payment_review_note, schools(school_name)')
         .eq('id', id).single(),
       supabase.from('product_order_items' as any)
         .select('id, quantity, unit_price, line_status, rejected_reason, products(name, stock_quantity), invoices(invoice_number, fy)')
@@ -137,7 +139,14 @@ export default function OrderRequestDetail() {
           <ArrowLeft className="h-4 w-4" /> Back to Order Requests
         </button>
 
-        <h1 className="text-3xl font-bold mb-1">{order.schools?.school_name ?? '—'}</h1>
+        <div className="flex items-center gap-2 mb-1">
+          <h1 className="text-3xl font-bold">{order.schools?.school_name ?? '—'}</h1>
+          {order.order_number != null && order.fy != null && (
+            <span className="font-mono text-sm text-muted-foreground bg-neutral-100 px-2 py-1 rounded-md">
+              ORD/{order.fy}-{order.fy + 1}/{order.order_number}
+            </span>
+          )}
+        </div>
         <p className="text-sm text-muted-foreground mb-6">₹{order.payment_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })} · {order.payment_mode} · {new Date(order.payment_date).toLocaleDateString('en-IN')}</p>
 
         <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5 mb-6">

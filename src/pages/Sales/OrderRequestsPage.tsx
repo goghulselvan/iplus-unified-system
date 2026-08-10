@@ -12,12 +12,17 @@ type LineStatus = 'pending' | 'invoiced_unpaid' | 'paid' | 'dispatched' | 'rejec
 
 type OrderRow = {
   id: string;
+  order_number: number | null;
+  fy: number | null;
   payment_amount: number;
   payment_status: PaymentStatus;
   created_at: string;
   schools: { school_name: string } | null;
   product_order_items: { line_status: LineStatus }[];
 };
+
+const orderRef = (o: { order_number: number | null; fy: number | null }) =>
+  o.order_number != null && o.fy != null ? `ORD/${o.fy}-${o.fy + 1}/${o.order_number}` : '—';
 
 const PAGE_SIZE = 200;
 
@@ -68,7 +73,7 @@ export default function OrderRequestsPage() {
     setError(false);
     const { data, error: loadErr } = await supabase
       .from('product_orders' as any)
-      .select('id, payment_amount, payment_status, created_at, schools(school_name), product_order_items(line_status)')
+      .select('id, order_number, fy, payment_amount, payment_status, created_at, schools(school_name), product_order_items(line_status)')
       .order('created_at', { ascending: false })
       .limit(PAGE_SIZE);
     if (loadErr) {
@@ -107,6 +112,7 @@ export default function OrderRequestsPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>Order No.</TableHead>
                 <TableHead>School</TableHead>
                 <TableHead>Amount</TableHead>
                 <TableHead>Payment Status</TableHead>
@@ -116,14 +122,15 @@ export default function OrderRequestsPage() {
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">Loading…</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Loading…</TableCell></TableRow>
               ) : error ? (
-                <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">—</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">—</TableCell></TableRow>
               ) : filtered.length === 0 ? (
-                <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No order requests.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No order requests.</TableCell></TableRow>
               ) : (
                 filtered.map(o => (
                   <TableRow key={o.id} className="cursor-pointer hover:bg-neutral-50" onClick={() => navigate(`/sales/order-requests/${o.id}`)}>
+                    <TableCell className="font-mono text-sm">{orderRef(o)}</TableCell>
                     <TableCell className="font-medium">{o.schools?.school_name ?? '—'}</TableCell>
                     <TableCell>₹{o.payment_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</TableCell>
                     <TableCell>{paymentBadge(o.payment_status)}</TableCell>
