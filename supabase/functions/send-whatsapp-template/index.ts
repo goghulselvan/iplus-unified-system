@@ -45,16 +45,17 @@ function resolveVariable(
   customText: string | undefined,
   ctx: {
     school: any; project: any; workflow: any; studentCount: number;
-    thisPayment?: number | null; orderRef?: string | null; itemList?: string | null;
+    thisPayment?: number | null; orderRef?: string | null; itemList?: string | null; itemCount?: number | null;
   }
 ): string {
-  const { school, project, workflow, studentCount, thisPayment, orderRef, itemList } = ctx;
+  const { school, project, workflow, studentCount, thisPayment, orderRef, itemList, itemCount } = ctx;
   const inr = (n: unknown) => Number(n ?? 0).toLocaleString("en-IN");
   switch (source) {
     case "school_name": return school?.school_name || "";
     case "ss_no": return String(school?.ss_no ?? "");
     case "order_ref": return orderRef || "";
     case "item_list": return itemList || "";
+    case "item_count": return itemCount != null ? `${itemCount} Nos.` : "";
     case "contact_person": return school?.contact_person_name || "";
     case "mobile1": return school?.mobile1 || "";
     case "district": return school?.district || "";
@@ -182,6 +183,7 @@ Deno.serve(async (req) => {
   }
   let orderRef: string | null = null;
   let itemList: string | null = null;
+  let itemCount: number | null = null;
   if (orderId) {
     // Scoped to schoolId too — a caller can't reference another school's order.
     const { data: order } = await admin
@@ -219,10 +221,11 @@ Deno.serve(async (req) => {
         // outright ("invalid parameter") — Meta does not allow \n in a
         // substituted parameter value. Bullet-separated single line instead.
         itemList = lineItems.map((i) => `${shortItemName(i.item_name)} x${i.quantity}`).join(" • ");
+        itemCount = lineItems.reduce((s, i) => s + i.quantity, 0);
       }
     }
   }
-  const ctx = { school, project, workflow, studentCount: studentCount || 0, thisPayment, orderRef, itemList };
+  const ctx = { school, project, workflow, studentCount: studentCount || 0, thisPayment, orderRef, itemList, itemCount };
   const components: any[] = [];
 
   if (template.header_media_url && (template.template_type as string).includes("image")) {
