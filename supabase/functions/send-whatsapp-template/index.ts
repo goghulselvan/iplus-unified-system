@@ -215,10 +215,10 @@ Deno.serve(async (req) => {
         }
       }
       if (lineItems && lineItems.length > 0) {
-        // WhatsApp template body parameters have real restrictions on newlines
-        // (Meta strips/rejects runs of them) — one \n between items is within
-        // the allowed range, but this is worth confirming on a real send.
-        itemList = lineItems.map((i) => `${shortItemName(i.item_name)} x${i.quantity}`).join("\n");
+        // Confirmed live: WhatsApp template body parameters reject newlines
+        // outright ("invalid parameter") — Meta does not allow \n in a
+        // substituted parameter value. Bullet-separated single line instead.
+        itemList = lineItems.map((i) => `${shortItemName(i.item_name)} x${i.quantity}`).join(" • ");
       }
     }
   }
