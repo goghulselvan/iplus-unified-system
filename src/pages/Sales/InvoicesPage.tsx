@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Textarea } from '@/components/ui/textarea';
-import { Plus, Download, Pencil, Ban, Trash2, Search, Truck } from 'lucide-react';
+import { Plus, Download, Pencil, Ban, Trash2, Search, Truck, RotateCcw, CheckCircle2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
@@ -254,13 +254,28 @@ export default function InvoicesPage() {
                     <TableCell>{statusBadge(row.status)}</TableCell>
                     <TableCell className="text-right space-x-1">
                       <Button variant="ghost" size="sm" onClick={() => handleDownload(row.id)}><Download className="h-3.5 w-3.5" /></Button>
-                      {row.status !== 'void' && (
-                        <Button variant="ghost" size="sm" onClick={() => togglePaid(row)}>
-                          {row.status === 'paid' ? 'Mark Unpaid' : 'Mark Paid'}
-                        </Button>
+                      {row.status === 'unpaid' && (
+                        <Button variant="ghost" size="sm" onClick={() => togglePaid(row)}>Mark Paid</Button>
                       )}
                       {row.status === 'paid' && !row.dispatched_at && (
-                        <Button variant="ghost" size="sm" onClick={() => handleDispatch(row.id)}><Truck className="h-3.5 w-3.5 text-emerald-600" /></Button>
+                        <>
+                          <Button variant="ghost" size="sm" onClick={() => handleDispatch(row.id)} className="text-emerald-700">
+                            <Truck className="h-3.5 w-3.5 mr-1" /> Mark as Dispatched
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => togglePaid(row)} title="Mark Unpaid">
+                            <RotateCcw className="h-3.5 w-3.5 text-muted-foreground" />
+                          </Button>
+                        </>
+                      )}
+                      {row.status === 'paid' && row.dispatched_at && (
+                        <>
+                          <span className="inline-flex items-center gap-1 text-xs text-emerald-700 font-medium px-1">
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Dispatched {new Date(row.dispatched_at).toLocaleDateString('en-IN')}
+                          </span>
+                          <Button variant="ghost" size="sm" onClick={() => togglePaid(row)} title="Mark Unpaid">
+                            <RotateCcw className="h-3.5 w-3.5 text-muted-foreground" />
+                          </Button>
+                        </>
                       )}
                       {canManage && row.status !== 'void' && (
                         <>
