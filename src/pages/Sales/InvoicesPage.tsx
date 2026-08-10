@@ -40,6 +40,7 @@ export default function InvoicesPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [dispatchFilter, setDispatchFilter] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
 
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -66,6 +67,8 @@ export default function InvoicesPage() {
   const filtered = useMemo(() => {
     let rows = invoices;
     if (statusFilter !== 'all') rows = rows.filter(r => r.status === statusFilter);
+    if (dispatchFilter === 'waiting') rows = rows.filter(r => r.status === 'paid' && !r.dispatched_at);
+    if (dispatchFilter === 'dispatched') rows = rows.filter(r => !!r.dispatched_at);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       rows = rows.filter(r => String(r.invoice_number).includes(q) || r.buyer_name.toLowerCase().includes(q));
@@ -78,7 +81,7 @@ export default function InvoicesPage() {
       default: sorted.sort((a, b) => (b.fy - a.fy) || (b.invoice_number - a.invoice_number));
     }
     return sorted;
-  }, [invoices, statusFilter, search, sortBy]);
+  }, [invoices, statusFilter, dispatchFilter, search, sortBy]);
 
   const openNew = () => { setEditingInvoice(null); setDialogOpen(true); };
 
@@ -214,6 +217,14 @@ export default function InvoicesPage() {
               <SelectItem value="void">Void</SelectItem>
             </SelectContent>
           </Select>
+          <Select value={dispatchFilter} onValueChange={setDispatchFilter}>
+            <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Dispatch States</SelectItem>
+              <SelectItem value="waiting">Waiting to Dispatch</SelectItem>
+              <SelectItem value="dispatched">Dispatched</SelectItem>
+            </SelectContent>
+          </Select>
           <Select value={sortBy} onValueChange={setSortBy}>
             <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -259,7 +270,11 @@ export default function InvoicesPage() {
                       )}
                       {row.status === 'paid' && !row.dispatched_at && (
                         <>
-                          <Button variant="ghost" size="sm" onClick={() => handleDispatch(row.id)} className="text-emerald-700">
+                          <Button
+                            size="sm"
+                            onClick={() => handleDispatch(row.id)}
+                            className="rounded-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+                          >
                             <Truck className="h-3.5 w-3.5 mr-1" /> Mark as Dispatched
                           </Button>
                           <Button variant="ghost" size="sm" onClick={() => togglePaid(row)} title="Mark Unpaid">
