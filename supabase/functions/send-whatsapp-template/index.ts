@@ -19,6 +19,8 @@ const BodySchema = z.object({
   documentFilename: z.string().max(200).optional(),
   // The payment this message is about — enables this_payment* variable sources
   transactionId: z.string().uuid().optional(),
+  // The book order this message is about — enables the order_ref variable source
+  orderId: z.string().uuid().optional(),
 });
 
 function normalizeMobile(raw: string | null | undefined): string | null {
@@ -34,14 +36,15 @@ function resolveVariable(
   customText: string | undefined,
   ctx: {
     school: any; project: any; workflow: any; studentCount: number;
-    thisPayment?: number | null;
+    thisPayment?: number | null; orderRef?: string | null;
   }
 ): string {
-  const { school, project, workflow, studentCount, thisPayment } = ctx;
+  const { school, project, workflow, studentCount, thisPayment, orderRef } = ctx;
   const inr = (n: unknown) => Number(n ?? 0).toLocaleString("en-IN");
   switch (source) {
     case "school_name": return school?.school_name || "";
     case "ss_no": return String(school?.ss_no ?? "");
+    case "order_ref": return orderRef || "";
     case "contact_person": return school?.contact_person_name || "";
     case "mobile1": return school?.mobile1 || "";
     case "district": return school?.district || "";
@@ -120,7 +123,7 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ success: false, error: parsed.error.flatten() }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
-  const { schoolId, templateKey, mobileOverride, documentUrl, documentFilename, transactionId } = parsed.data;
+  const { schoolId, templateKey, mobileOverride, documentUrl, documentFilename, transactionId, orderId } = parsed.data;
 
   const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -167,7 +170,20 @@ Deno.serve(async (req) => {
       .maybeSingle();
     thisPayment = tx ? Number(tx.payment_amount) : null;
   }
-  const ctx = { school, project, workflow, studentCount: studentCount || 0, thisPayment };
+  let orderRef: string | null = null;
+  if (orderId) {
+    // Scoped to schoolId too — a caller can't reference another school's order.
+    const { data: order } = await admin
+      .from("product_orders")
+      .select("order_number, fy")
+      .eq("id", orderId)
+      .eq("school_id", schoolId)
+      .maybeSingle();
+    if (order?.order_number != null && order?.fy != null) {
+      orderRef = `${order.fy}-${order.fy + 1}-${order.order_number}`;
+    }
+  }
+  const ctx = { school, project, workflow, studentCount: studentCount || 0, thisPayment, orderRef };
   const components: any[] = [];
 
   if (template.header_media_url && (template.template_type as string).includes("image")) {

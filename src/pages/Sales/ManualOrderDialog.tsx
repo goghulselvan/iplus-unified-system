@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Trash2, Plus, Search, Upload } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
 
 type SchoolHit = {
   source: 'crm' | 'prospect';
@@ -47,6 +48,7 @@ interface Props {
 
 export default function ManualOrderDialog({ open, onOpenChange, onSaved }: Props) {
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const [schoolQuery, setSchoolQuery] = useState('');
   const [schoolHits, setSchoolHits] = useState<SchoolHit[]>([]);
@@ -153,8 +155,20 @@ export default function ManualOrderDialog({ open, onOpenChange, onSaved }: Props
 
     setSaving(false);
     if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
+
+    // Order-received confirmation — fire-and-forget, doesn't block the dialog closing.
+    const newOrderId = data as string;
+    supabase.functions.invoke('send-whatsapp-template', {
+      body: { schoolId: selectedSchool.id, templateKey: 'book_order_confirmation', orderId: newOrderId },
+    }).catch(console.error);
+    if (user?.id) {
+      supabase.functions.invoke('send-template-email', {
+        body: { schoolId: selectedSchool.id, templateType: 'book_order_confirmation', userId: user.id, orderId: newOrderId },
+      }).catch(console.error);
+    }
+
     toast({ title: 'Order request created' });
-    onSaved(data as string);
+    onSaved(newOrderId);
     onOpenChange(false);
   };
 

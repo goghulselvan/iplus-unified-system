@@ -106,6 +106,7 @@ interface SendEmailRequest {
   attachmentFilename?: string; // Filename shown for the attachment
   transactionId?: string;      // Optional: the payment this message is about — enables
                                // {this_payment}/{this_payment_date}/{payment_history} variables
+  orderId?: string;            // Optional: the book order this message is about — enables {order_ref}
 }
 
 serve(async (req: Request): Promise<Response> => {
@@ -114,7 +115,7 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    const { schoolId, templateType, userId, emailOverride, attachmentUrl, attachmentFilename, transactionId }: SendEmailRequest = await req.json();
+    const { schoolId, templateType, userId, emailOverride, attachmentUrl, attachmentFilename, transactionId, orderId }: SendEmailRequest = await req.json();
     
     console.log(`Processing email request - School: ${schoolId}, Template: ${templateType}, Email override: ${emailOverride}`);
 
@@ -195,10 +196,25 @@ serve(async (req: Request): Promise<Response> => {
       }
     }
 
+    let orderRef = "";
+    if (orderId) {
+      // Scoped to schoolId too — a caller can't reference another school's order.
+      const { data: order } = await supabase
+        .from("product_orders")
+        .select("order_number, fy")
+        .eq("id", orderId)
+        .eq("school_id", schoolId)
+        .maybeSingle();
+      if (order?.order_number != null && order?.fy != null) {
+        orderRef = `${order.fy}-${order.fy + 1}-${order.order_number}`;
+      }
+    }
+
     // Replace template variables
     const variables: Record<string, string> = {
       "{school_name}": school.school_name || "",
       "{ss_no}": school.ss_no?.toString() || "",
+      "{order_ref}": orderRef,
       "{contact_person}": school.contact_person_name || "",
       "{project_name}": school.olympiad_projects?.project_name || "",
       "{project_year}": school.olympiad_projects?.project_year?.toString() || "",
