@@ -84,6 +84,7 @@ const ProjectManagement = () => {
     if (!editingProject) return;
     const formData = new FormData(e.currentTarget);
     const year = parseInt(formData.get('project_year') as string);
+    const deadlineRaw = formData.get('registration_deadline') as string;
     try {
       setUploadingBrochure(true);
       let brochureUrl = editingProject.brochure_url;
@@ -95,6 +96,7 @@ const ProjectManagement = () => {
         project_name: formData.get('project_name') as string,
         project_year: year,
         brochure_url: brochureUrl ?? undefined,
+        registration_deadline: deadlineRaw ? new Date(`${deadlineRaw}T23:59:59+05:30`).toISOString() : undefined,
       });
       setEditingProject(null);
       setEditBrochureFile(null);
@@ -110,6 +112,7 @@ const ProjectManagement = () => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const year = parseInt(formData.get('project_year') as string);
+    const deadlineRaw = formData.get('registration_deadline') as string;
     try {
       setUploadingBrochure(true);
       let brochureUrl: string | undefined;
@@ -120,6 +123,7 @@ const ProjectManagement = () => {
         project_name: formData.get('project_name') as string,
         project_year: year,
         brochure_url: brochureUrl,
+        registration_deadline: deadlineRaw ? new Date(`${deadlineRaw}T23:59:59+05:30`).toISOString() : undefined,
       });
       setIsProjectDialogOpen(false);
       setCreateBrochureFile(null);
@@ -218,6 +222,17 @@ const ProjectManagement = () => {
                 />
               </div>
               <div>
+                <Label htmlFor="registration_deadline">Registration Deadline</Label>
+                <Input
+                  id="registration_deadline"
+                  name="registration_deadline"
+                  type="date"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Locks student submission on the portal after 11:59 PM IST on this date. Shown live on the portal's countdown badge.
+                </p>
+              </div>
+              <div>
                 <Label htmlFor="create_brochure">E-Brochure PDF (optional)</Label>
                 <div className="mt-1 flex items-center gap-3">
                   <label htmlFor="create_brochure" className="flex items-center gap-2 cursor-pointer border border-dashed border-input rounded-md px-4 py-2 text-sm text-muted-foreground hover:bg-muted/50 transition-colors">
@@ -270,6 +285,7 @@ const ProjectManagement = () => {
                   <TableHead>Status</TableHead>
                   <TableHead>Project Name</TableHead>
                   <TableHead>Year</TableHead>
+                  <TableHead>Reg. Deadline</TableHead>
                   <TableHead>Brochure</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead>Actions</TableHead>
@@ -293,6 +309,13 @@ const ProjectManagement = () => {
                     </TableCell>
                     <TableCell className="font-medium">{project.project_name}</TableCell>
                     <TableCell>{project.project_year}</TableCell>
+                    <TableCell>
+                      {project.registration_deadline ? (
+                        new Date(project.registration_deadline).toLocaleDateString()
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Not set</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       {project.brochure_url ? (
                         <a href={project.brochure_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-primary text-sm hover:underline">
@@ -339,7 +362,7 @@ const ProjectManagement = () => {
                 ))}
                 {!projects?.length && (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8">
+                    <TableCell colSpan={6} className="text-center py-8">
                       No projects found. Create your first project to get started.
                     </TableCell>
                   </TableRow>
@@ -507,6 +530,18 @@ const ProjectManagement = () => {
                   max="2030"
                   required
                 />
+              </div>
+              <div>
+                <Label htmlFor="edit_registration_deadline">Registration Deadline</Label>
+                <Input
+                  id="edit_registration_deadline"
+                  name="registration_deadline"
+                  type="date"
+                  defaultValue={editingProject.registration_deadline ? editingProject.registration_deadline.slice(0, 10) : ''}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Locks student submission on the portal after 11:59 PM IST on this date. Shown live on the portal's countdown badge.
+                </p>
               </div>
               <div>
                 <Label>E-Brochure PDF</Label>
