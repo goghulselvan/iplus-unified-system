@@ -87,7 +87,7 @@ export const SchoolCard: React.FC<SchoolCardProps> = ({ school, onDelete, showDe
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
           <div>
             <p className="text-sm font-medium">Address</p>
-            <p className="text-sm text-muted-foreground">{formatForDisplay(school.school_address)}</p>
+            <p className="text-sm text-muted-foreground">{formatForDisplay([school.address1, school.address2].filter(Boolean).join(', ') || school.school_address)}</p>
           </div>
           <div>
             <p className="text-sm font-medium">District</p>
