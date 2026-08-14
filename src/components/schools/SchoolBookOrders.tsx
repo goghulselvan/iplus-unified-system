@@ -16,6 +16,7 @@ type Order = {
   order_number: number | null;
   fy: number | null;
   created_at: string;
+  payment_amount: number | null;
   product_order_items: Item[];
 };
 
@@ -30,7 +31,7 @@ export default function SchoolBookOrders({ schoolId }: Props) {
   useEffect(() => {
     setLoading(true);
     supabase.from('product_orders' as any)
-      .select('id, order_number, fy, created_at, product_order_items(id, quantity, products(name), invoices(dispatched_at))')
+      .select('id, order_number, fy, created_at, payment_amount, product_order_items(id, quantity, products(name), invoices(dispatched_at))')
       .eq('school_id', schoolId)
       .order('created_at', { ascending: false })
       .then(({ data }) => { setOrders((data || []) as unknown as Order[]); setLoading(false); });
@@ -50,11 +51,18 @@ export default function SchoolBookOrders({ schoolId }: Props) {
           <div className="space-y-4">
             {orders.map(o => (
               <div key={o.id} className="border rounded-lg overflow-hidden">
-                <div className="bg-gray-50 px-4 py-2 font-mono text-sm font-medium">
-                  {o.order_number != null && o.fy != null ? `ORD/${o.fy}-${o.fy + 1}/${o.order_number}` : 'Order'}
-                  <span className="ml-2 text-xs text-muted-foreground font-sans">
-                    {new Date(o.created_at).toLocaleDateString('en-IN')}
+                <div className="bg-gray-50 px-4 py-2 font-mono text-sm font-medium flex items-center justify-between">
+                  <span>
+                    {o.order_number != null && o.fy != null ? `ORD/${o.fy}-${o.fy + 1}/${o.order_number}` : 'Order'}
+                    <span className="ml-2 text-xs text-muted-foreground font-sans">
+                      {new Date(o.created_at).toLocaleDateString('en-IN')}
+                    </span>
                   </span>
+                  {o.payment_amount != null && (
+                    <span className="text-xs font-sans font-semibold text-emerald-700">
+                      Payment Received: ₹{o.payment_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </span>
+                  )}
                 </div>
                 <table className="w-full text-sm">
                   <tbody>
