@@ -7,11 +7,15 @@ import { CheckCircle2, ExternalLink, RefreshCw } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { sendPaymentReceiptComms } from '@/utils/sendPaymentReceipt';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 interface PaymentSubmission {
   id: string;
   school_id: string;
   amount_paid: number;
+  verified_amount: number | null;
   payment_date: string;
   payment_mode: string;
   utr_reference: string | null;
@@ -27,6 +31,8 @@ export function PaymentQueue() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const [filter, setFilter] = useState<'pending' | 'acknowledged' | 'all'>('pending');
+  const [ackTarget, setAckTarget] = useState<PaymentSubmission | null>(null);
+  const [verifiedAmountInput, setVerifiedAmountInput] = useState('');
 
   const { data: submissions = [], isLoading, refetch } = useQuery({
     queryKey: ['admin-payment-queue', filter],
@@ -43,22 +49,22 @@ export function PaymentQueue() {
   });
 
   const acknowledgeMutation = useMutation({
-    mutationFn: async (submissionId: string) => {
+    mutationFn: async ({ submissionId, verifiedAmount }: { submissionId: string; verifiedAmount: number }) => {
       const { data, error } = await supabase.rpc('acknowledge_portal_payment', {
         p_submission_id: submissionId,
         p_admin_user_id: user!.id,
+        p_verified_amount: verifiedAmount,
       });
       if (error) throw error;
       return data as { success: boolean; payment_status: string; total_paid: number; expected: number; transaction_id?: string };
     },
-    onSuccess: (result, submissionId) => {
+    onSuccess: (result, { submissionId }) => {
       qc.invalidateQueries({ queryKey: ['admin-payment-queue'] });
       qc.invalidateQueries({ queryKey: ['nav-badge-counts'] });
       toast({
         title: 'Payment Acknowledged',
         description: `Status: ${result.payment_status === 'Received' ? '✓ Paid in full' : '⚠ Partial — awaiting balance'}`,
       });
-      // Auto-send email + WA with the receipt PDF attached
       const submission = submissions.find(s => s.id === submissionId);
       if (submission && result.transaction_id) {
         const templateKey = result.payment_status === 'Partial' ? 'payment_partial' : 'payment_received';
@@ -83,6 +89,8 @@ export function PaymentQueue() {
             }
           });
       }
+      setAckTarget(null);
+      setVerifiedAmountInput('');
     },
     onError: (err: Error) => {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
@@ -153,6 +161,11 @@ export function PaymentQueue() {
                   </td>
                   <td className="px-4 py-3 font-semibold">
                     ₹{Number(s.amount_paid).toLocaleString('en-IN')}
+                    {s.verified_amount != null && Number(s.verified_amount) !== Number(s.amount_paid) && (
+                      <div className="text-xs font-normal text-amber-600 mt-0.5">
+                        ⚠ Verified: ₹{Number(s.verified_amount).toLocaleString('en-IN')}
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">
                     {new Date(s.payment_date).toLocaleDateString('en-IN')}
@@ -205,8 +218,7 @@ export function PaymentQueue() {
                     {s.status === 'pending' && (
                       <Button
                         size="sm"
-                        onClick={() => acknowledgeMutation.mutate(s.id)}
-                        disabled={acknowledgeMutation.isPending}
+                        onClick={() => { setAckTarget(s); setVerifiedAmountInput(String(s.amount_paid)); }}
                         className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 h-8 text-xs"
                       >
                         <CheckCircle2 className="h-3.5 w-3.5" />
@@ -220,6 +232,45 @@ export function PaymentQueue() {
           </table>
         </div>
       )}
+
+      <Dialog open={!!ackTarget} onOpenChange={(open) => { if (!open) { setAckTarget(null); setVerifiedAmountInput(''); } }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Acknowledge Payment</DialogTitle></DialogHeader>
+          {ackTarget && (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                {ackTarget.schools?.school_name} declared ₹{Number(ackTarget.amount_paid).toLocaleString('en-IN')}.
+                Enter what the screenshot actually shows.
+              </p>
+              <div className="space-y-1.5">
+                <Label htmlFor="verified-amount">Verified Amount (₹)</Label>
+                <Input
+                  id="verified-amount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={verifiedAmountInput}
+                  onChange={(e) => setVerifiedAmountInput(e.target.value)}
+                />
+              </div>
+              {Number(verifiedAmountInput) !== Number(ackTarget.amount_paid) && verifiedAmountInput !== '' && (
+                <p className="text-sm bg-amber-50 text-amber-700 rounded-lg p-3">
+                  This differs from the declared amount (₹{Number(ackTarget.amount_paid).toLocaleString('en-IN')}) — the verified figure will be what counts toward this school's total.
+                </p>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setAckTarget(null); setVerifiedAmountInput(''); }}>Cancel</Button>
+            <Button
+              onClick={() => ackTarget && acknowledgeMutation.mutate({ submissionId: ackTarget.id, verifiedAmount: Number(verifiedAmountInput) })}
+              disabled={acknowledgeMutation.isPending || verifiedAmountInput === '' || Number(verifiedAmountInput) < 0}
+            >
+              Confirm & Acknowledge
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
