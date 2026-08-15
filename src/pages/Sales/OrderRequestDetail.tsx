@@ -7,6 +7,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { ArrowLeft, ZoomIn } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -21,6 +23,7 @@ type OrderDetail = {
   source: 'portal' | 'manual';
   notes: string | null;
   payment_amount: number;
+  verified_amount: number | null;
   payment_mode: string;
   payment_date: string;
   payment_utr_reference: string | null;
@@ -67,12 +70,22 @@ export default function OrderRequestDetail() {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [proofOpen, setProofOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmVerifiedAmount, setConfirmVerifiedAmount] = useState('');
+  const [updatePaymentOpen, setUpdatePaymentOpen] = useState(false);
+  const [updateAmount, setUpdateAmount] = useState('');
+  const [updateMode, setUpdateMode] = useState('');
+  const [updateDate, setUpdateDate] = useState('');
+  const [updateUtr, setUpdateUtr] = useState('');
+  const [updateHolder, setUpdateHolder] = useState('');
+  const [updateScreenshotUrl, setUpdateScreenshotUrl] = useState('');
+  const [updateNote, setUpdateNote] = useState('');
 
   const load = async () => {
     setLoading(true);
     const [orderRes, itemsRes] = await Promise.all([
       supabase.from('product_orders' as any)
-        .select('id, order_number, fy, source, notes, payment_amount, payment_mode, payment_date, payment_utr_reference, payment_account_holder_name, payment_screenshot_url, payment_status, payment_review_note, schools(school_name)')
+        .select('id, order_number, fy, source, notes, payment_amount, verified_amount, payment_mode, payment_date, payment_utr_reference, payment_account_holder_name, payment_screenshot_url, payment_status, payment_review_note, schools(school_name)')
         .eq('id', id).single(),
       supabase.from('product_order_items' as any)
         .select('id, quantity, unit_price, line_status, rejected_reason, products(name, stock_quantity), invoices(invoice_number, fy)')
@@ -95,10 +108,19 @@ export default function OrderRequestDetail() {
     });
   };
 
+  const openConfirmDialog = () => {
+    setConfirmVerifiedAmount(String(order!.payment_amount));
+    setConfirmOpen(true);
+  };
+
   const handleConfirm = async () => {
-    const { error } = await supabase.rpc('confirm_product_order_payment' as any, { p_order_id: id });
+    const { error } = await supabase.rpc('confirm_product_order_payment' as any, {
+      p_order_id: id,
+      p_verified_amount: Number(confirmVerifiedAmount),
+    });
     if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
     toast({ title: 'Order confirmed' });
+    setConfirmOpen(false);
     load();
   };
 
@@ -108,6 +130,35 @@ export default function OrderRequestDetail() {
     if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
     toast({ title: 'Resubmit requested' });
     setResubmitOpen(false); setResubmitReason('');
+    load();
+  };
+
+  const openUpdatePaymentDialog = () => {
+    if (!order) return;
+    setUpdateAmount(String(order.payment_amount));
+    setUpdateMode(order.payment_mode);
+    setUpdateDate(order.payment_date.slice(0, 10));
+    setUpdateUtr(order.payment_utr_reference ?? '');
+    setUpdateHolder(order.payment_account_holder_name ?? '');
+    setUpdateScreenshotUrl(order.payment_screenshot_url);
+    setUpdateNote('');
+    setUpdatePaymentOpen(true);
+  };
+
+  const handleUpdatePayment = async () => {
+    const { error } = await supabase.rpc('update_order_payment_details' as any, {
+      p_order_id: id,
+      p_payment_amount: Number(updateAmount),
+      p_payment_mode: updateMode,
+      p_payment_date: updateDate,
+      p_payment_utr_reference: updateUtr || null,
+      p_payment_account_holder_name: updateHolder || null,
+      p_payment_screenshot_url: updateScreenshotUrl,
+      p_note: updateNote.trim() || null,
+    });
+    if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
+    toast({ title: 'Payment details updated' });
+    setUpdatePaymentOpen(false);
     load();
   };
 
@@ -149,7 +200,12 @@ export default function OrderRequestDetail() {
           )}
           {order.source === 'manual' && <Badge variant="outline" className="text-xs bg-blue-50 text-blue-600 border-blue-100">Manual Order</Badge>}
         </div>
-        <p className="text-sm text-muted-foreground mb-6">₹{order.payment_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })} · {order.payment_mode} · {new Date(order.payment_date).toLocaleDateString('en-IN')}</p>
+        <p className="text-sm text-muted-foreground mb-6">
+          ₹{order.payment_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })} · {order.payment_mode} · {new Date(order.payment_date).toLocaleDateString('en-IN')}
+          {order.verified_amount != null && Number(order.verified_amount) !== Number(order.payment_amount) && (
+            <span className="ml-2 text-amber-600 font-medium">⚠ Verified: ₹{order.verified_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+          )}
+        </p>
 
         <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5 mb-6">
           <div className="flex items-center justify-between mb-3">
@@ -170,12 +226,15 @@ export default function OrderRequestDetail() {
             <div>Account Holder: {order.payment_account_holder_name || '—'}</div>
           </div>
           {order.payment_review_note && (
-            <div className="mt-3 text-sm bg-red-50 text-red-700 rounded-lg p-3">Resubmit reason: {order.payment_review_note}</div>
+            <div className={`mt-3 text-sm rounded-lg p-3 whitespace-pre-line ${order.payment_status === 'resubmit_requested' ? 'bg-red-50 text-red-700' : 'bg-neutral-50 text-neutral-700'}`}>
+              {order.payment_status === 'resubmit_requested' ? 'Resubmit reason: ' : 'Notes: '}{order.payment_review_note}
+            </div>
           )}
 
           {order.payment_status === 'pending' && (
             <div className="flex gap-2 mt-4">
-              <Button onClick={handleConfirm}>Confirm Order</Button>
+              <Button onClick={openConfirmDialog}>Confirm Order</Button>
+              <Button variant="outline" onClick={openUpdatePaymentDialog}>Update Payment</Button>
               <Button variant="outline" onClick={() => setResubmitOpen(true)}>Request Resubmit</Button>
             </div>
           )}
@@ -254,6 +313,82 @@ export default function OrderRequestDetail() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setResubmitOpen(false)}>Cancel</Button>
             <Button onClick={handleRequestResubmit} disabled={!resubmitReason.trim()}>Request Resubmit</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Confirm Order</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Declared amount: ₹{order.payment_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}. Enter what the screenshot actually shows.
+            </p>
+            <div className="space-y-1.5">
+              <Label htmlFor="confirm-verified-amount">Verified Amount (₹)</Label>
+              <Input
+                id="confirm-verified-amount"
+                type="number"
+                min="0"
+                step="0.01"
+                value={confirmVerifiedAmount}
+                onChange={(e) => setConfirmVerifiedAmount(e.target.value)}
+              />
+            </div>
+            {confirmVerifiedAmount !== '' && Number(confirmVerifiedAmount) !== Number(order.payment_amount) && (
+              <p className="text-sm bg-amber-50 text-amber-700 rounded-lg p-3">
+                This differs from the declared amount — the verified figure is what gets recorded against this order.
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmOpen(false)}>Cancel</Button>
+            <Button onClick={handleConfirm} disabled={confirmVerifiedAmount === '' || Number(confirmVerifiedAmount) < 0}>Confirm & Record</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={updatePaymentOpen} onOpenChange={setUpdatePaymentOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Update Payment Details</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Use this when more proof arrives (e.g. a second transfer covering a shortfall) before the order is confirmed.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="update-amount">Total Amount (₹)</Label>
+                <Input id="update-amount" type="number" min="0" step="0.01" value={updateAmount} onChange={(e) => setUpdateAmount(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="update-mode">Payment Mode</Label>
+                <Input id="update-mode" value={updateMode} onChange={(e) => setUpdateMode(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="update-date">Payment Date</Label>
+                <Input id="update-date" type="date" value={updateDate} onChange={(e) => setUpdateDate(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="update-utr">UTR / Reference</Label>
+                <Input id="update-utr" value={updateUtr} onChange={(e) => setUpdateUtr(e.target.value)} />
+              </div>
+              <div className="space-y-1.5 col-span-2">
+                <Label htmlFor="update-holder">Account Holder</Label>
+                <Input id="update-holder" value={updateHolder} onChange={(e) => setUpdateHolder(e.target.value)} />
+              </div>
+              <div className="space-y-1.5 col-span-2">
+                <Label htmlFor="update-screenshot">Payment Screenshot URL</Label>
+                <Input id="update-screenshot" value={updateScreenshotUrl} onChange={(e) => setUpdateScreenshotUrl(e.target.value)} />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="update-note">Note (optional, appended to the review note)</Label>
+              <Textarea id="update-note" value={updateNote} onChange={(e) => setUpdateNote(e.target.value)} placeholder="e.g. Second transfer of ₹2,000 confirmed via WhatsApp" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUpdatePaymentOpen(false)}>Cancel</Button>
+            <Button onClick={handleUpdatePayment} disabled={updateAmount === '' || Number(updateAmount) < 0 || !updateScreenshotUrl}>Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

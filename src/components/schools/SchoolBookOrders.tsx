@@ -17,6 +17,7 @@ type Order = {
   fy: number | null;
   created_at: string;
   payment_amount: number | null;
+  verified_amount: number | null;
   product_order_items: Item[];
 };
 
@@ -31,7 +32,7 @@ export default function SchoolBookOrders({ schoolId }: Props) {
   useEffect(() => {
     setLoading(true);
     supabase.from('product_orders' as any)
-      .select('id, order_number, fy, created_at, payment_amount, product_order_items(id, quantity, products(name), invoices(dispatched_at))')
+      .select('id, order_number, fy, created_at, payment_amount, verified_amount, product_order_items(id, quantity, products(name), invoices(dispatched_at))')
       .eq('school_id', schoolId)
       .order('created_at', { ascending: false })
       .then(({ data }) => { setOrders((data || []) as unknown as Order[]); setLoading(false); });
@@ -61,6 +62,9 @@ export default function SchoolBookOrders({ schoolId }: Props) {
                   {o.payment_amount != null && (
                     <span className="text-xs font-sans font-semibold text-emerald-700">
                       Payment Received: ₹{o.payment_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      {o.verified_amount != null && Number(o.verified_amount) !== Number(o.payment_amount) && (
+                        <span className="text-amber-600 ml-1.5">(⚠ Verified: ₹{o.verified_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })})</span>
+                      )}
                     </span>
                   )}
                 </div>
