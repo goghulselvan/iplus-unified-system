@@ -264,7 +264,7 @@ export function PaymentQueue() {
             <Button variant="outline" onClick={() => { setAckTarget(null); setVerifiedAmountInput(''); }}>Cancel</Button>
             <Button
               onClick={() => ackTarget && acknowledgeMutation.mutate({ submissionId: ackTarget.id, verifiedAmount: Number(verifiedAmountInput) })}
-              disabled={acknowledgeMutation.isPending || verifiedAmountInput === '' || Number(verifiedAmountInput) < 0}
+              disabled={acknowledgeMutation.isPending || verifiedAmountInput === '' || Number(verifiedAmountInput) <= 0}
             >
               Confirm & Acknowledge
             </Button>

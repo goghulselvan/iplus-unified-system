@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import SalesLayout from '@/components/sales/SalesLayout';
 import { Button } from '@/components/ui/button';
@@ -9,12 +9,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { ArrowLeft, ZoomIn } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ArrowLeft, ZoomIn, Upload } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
 type PaymentStatus = 'pending' | 'confirmed' | 'resubmit_requested';
 type LineStatus = 'pending' | 'invoiced_unpaid' | 'paid' | 'dispatched' | 'rejected';
+
+const PAYMENT_MODES = ['NEFT', 'IMPS', 'UPI', 'Cash', 'DD', 'Online Transfer'];
 
 type OrderDetail = {
   id: string;
@@ -73,13 +76,16 @@ export default function OrderRequestDetail() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmVerifiedAmount, setConfirmVerifiedAmount] = useState('');
   const [updatePaymentOpen, setUpdatePaymentOpen] = useState(false);
+  const [updatePaymentSaving, setUpdatePaymentSaving] = useState(false);
   const [updateAmount, setUpdateAmount] = useState('');
   const [updateMode, setUpdateMode] = useState('');
   const [updateDate, setUpdateDate] = useState('');
   const [updateUtr, setUpdateUtr] = useState('');
   const [updateHolder, setUpdateHolder] = useState('');
   const [updateScreenshotUrl, setUpdateScreenshotUrl] = useState('');
+  const [updateScreenshotFile, setUpdateScreenshotFile] = useState<File | null>(null);
   const [updateNote, setUpdateNote] = useState('');
+  const updateFileRef = useRef<HTMLInputElement>(null);
 
   const load = async () => {
     setLoading(true);
@@ -141,11 +147,34 @@ export default function OrderRequestDetail() {
     setUpdateUtr(order.payment_utr_reference ?? '');
     setUpdateHolder(order.payment_account_holder_name ?? '');
     setUpdateScreenshotUrl(order.payment_screenshot_url);
+    setUpdateScreenshotFile(null);
     setUpdateNote('');
     setUpdatePaymentOpen(true);
   };
 
   const handleUpdatePayment = async () => {
+    setUpdatePaymentSaving(true);
+
+    let screenshotUrl = updateScreenshotUrl;
+    if (updateScreenshotFile) {
+      const ext = updateScreenshotFile.name.split('.').pop();
+      const path = `${id}/${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from('payment-proofs').upload(path, updateScreenshotFile, { upsert: true });
+      if (upErr) {
+        setUpdatePaymentSaving(false);
+        toast({ title: 'Upload failed', description: upErr.message, variant: 'destructive' });
+        return;
+      }
+      const { data: signedData } = await supabase.storage.from('payment-proofs').createSignedUrl(path, 63072000);
+      if (!signedData?.signedUrl) {
+        setUpdatePaymentSaving(false);
+        toast({ title: 'Failed to prepare the uploaded file', variant: 'destructive' });
+        return;
+      }
+      screenshotUrl = signedData.signedUrl;
+      setUpdateScreenshotUrl(screenshotUrl);
+    }
+
     const { error } = await supabase.rpc('update_order_payment_details' as any, {
       p_order_id: id,
       p_payment_amount: Number(updateAmount),
@@ -153,9 +182,10 @@ export default function OrderRequestDetail() {
       p_payment_date: updateDate,
       p_payment_utr_reference: updateUtr || null,
       p_payment_account_holder_name: updateHolder || null,
-      p_payment_screenshot_url: updateScreenshotUrl,
+      p_payment_screenshot_url: screenshotUrl,
       p_note: updateNote.trim() || null,
     });
+    setUpdatePaymentSaving(false);
     if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
     toast({ title: 'Payment details updated' });
     setUpdatePaymentOpen(false);
@@ -183,6 +213,12 @@ export default function OrderRequestDetail() {
   if (loading || !order) {
     return <SalesLayout><div className="max-w-4xl mx-auto px-4 py-8 text-muted-foreground">Loading…</div></SalesLayout>;
   }
+
+  // Only pending line items are what Confirm is about to process — already-invoiced
+  // or rejected lines aren't part of what "the order's actual total" means here.
+  const computedOrderTotal = items
+    .filter(i => i.line_status === 'pending')
+    .reduce((sum, i) => sum + i.quantity * i.unit_price, 0);
 
   return (
     <SalesLayout>
@@ -340,10 +376,15 @@ export default function OrderRequestDetail() {
                 This differs from the declared amount — the verified figure is what gets recorded against this order.
               </p>
             )}
+            {confirmVerifiedAmount !== '' && Number(confirmVerifiedAmount) < computedOrderTotal && (
+              <p className="text-sm bg-amber-50 text-amber-700 rounded-lg p-3">
+                This is less than the order's actual total (₹{computedOrderTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}). The order will still be marked as fully paid — confirm this is intentional.
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmOpen(false)}>Cancel</Button>
-            <Button onClick={handleConfirm} disabled={confirmVerifiedAmount === '' || Number(confirmVerifiedAmount) < 0}>Confirm & Record</Button>
+            <Button onClick={handleConfirm} disabled={confirmVerifiedAmount === '' || Number(confirmVerifiedAmount) <= 0}>Confirm & Record</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -362,7 +403,10 @@ export default function OrderRequestDetail() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="update-mode">Payment Mode</Label>
-                <Input id="update-mode" value={updateMode} onChange={(e) => setUpdateMode(e.target.value)} />
+                <Select value={updateMode} onValueChange={setUpdateMode}>
+                  <SelectTrigger id="update-mode"><SelectValue /></SelectTrigger>
+                  <SelectContent>{PAYMENT_MODES.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+                </Select>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="update-date">Payment Date</Label>
@@ -377,8 +421,33 @@ export default function OrderRequestDetail() {
                 <Input id="update-holder" value={updateHolder} onChange={(e) => setUpdateHolder(e.target.value)} />
               </div>
               <div className="space-y-1.5 col-span-2">
-                <Label htmlFor="update-screenshot">Payment Screenshot URL</Label>
-                <Input id="update-screenshot" value={updateScreenshotUrl} onChange={(e) => setUpdateScreenshotUrl(e.target.value)} />
+                <Label>Payment Screenshot / Deposit Receipt</Label>
+                {order.payment_screenshot_url && (
+                  <a
+                    href={order.payment_screenshot_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-2 text-xs text-indigo-600 hover:underline mb-1.5"
+                  >
+                    <img src={order.payment_screenshot_url} alt="Current proof on file" className="h-10 w-10 object-cover rounded border border-neutral-200" />
+                    View current proof on file
+                  </a>
+                )}
+                <div
+                  onClick={() => updateFileRef.current?.click()}
+                  className={`w-full px-4 py-4 rounded-lg border-2 border-dashed text-center cursor-pointer transition-colors ${
+                    updateScreenshotFile ? 'border-indigo-300 bg-indigo-50' : 'border-gray-300 hover:border-indigo-300 hover:bg-indigo-50/50'
+                  }`}
+                >
+                  <Upload className={`h-5 w-5 mx-auto mb-1 ${updateScreenshotFile ? 'text-indigo-500' : 'text-muted-foreground'}`} />
+                  <p className="text-sm font-medium">
+                    {updateScreenshotFile ? updateScreenshotFile.name : 'Click to replace with a new screenshot (optional — leave as-is to keep the current proof)'}
+                  </p>
+                </div>
+                <input
+                  ref={updateFileRef} type="file" accept="image/*,.pdf" className="hidden"
+                  onChange={(e) => setUpdateScreenshotFile(e.target.files?.[0] ?? null)}
+                />
               </div>
             </div>
             <div className="space-y-1.5">
@@ -388,7 +457,12 @@ export default function OrderRequestDetail() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setUpdatePaymentOpen(false)}>Cancel</Button>
-            <Button onClick={handleUpdatePayment} disabled={updateAmount === '' || Number(updateAmount) < 0 || !updateScreenshotUrl}>Save</Button>
+            <Button
+              onClick={handleUpdatePayment}
+              disabled={updateAmount === '' || Number(updateAmount) < 0 || !updateScreenshotUrl || updatePaymentSaving}
+            >
+              {updatePaymentSaving ? 'Saving…' : 'Save'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

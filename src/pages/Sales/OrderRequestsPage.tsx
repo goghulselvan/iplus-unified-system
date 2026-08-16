@@ -19,6 +19,7 @@ type OrderRow = {
   fy: number | null;
   source: 'portal' | 'manual';
   payment_amount: number;
+  verified_amount: number | null;
   payment_status: PaymentStatus;
   created_at: string;
   schools: { school_name: string } | null;
@@ -78,7 +79,7 @@ export default function OrderRequestsPage() {
     setError(false);
     const { data, error: loadErr } = await supabase
       .from('product_orders' as any)
-      .select('id, order_number, fy, source, payment_amount, payment_status, created_at, schools(school_name), product_order_items(line_status)')
+      .select('id, order_number, fy, source, payment_amount, verified_amount, payment_status, created_at, schools(school_name), product_order_items(line_status)')
       .order('created_at', { ascending: false })
       .limit(PAGE_SIZE);
     if (loadErr) {
@@ -151,7 +152,14 @@ export default function OrderRequestsPage() {
                       </div>
                     </TableCell>
                     <TableCell className="font-medium">{o.schools?.school_name ?? '—'}</TableCell>
-                    <TableCell>₹{o.payment_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</TableCell>
+                    <TableCell>
+                      ₹{o.payment_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      {o.verified_amount != null && Number(o.verified_amount) !== Number(o.payment_amount) && (
+                        <div className="text-xs font-normal text-amber-600 mt-0.5">
+                          ⚠ Verified: ₹{Number(o.verified_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </div>
+                      )}
+                    </TableCell>
                     <TableCell>{paymentBadge(o.payment_status)}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{rollup(o.product_order_items)}</TableCell>
                     <TableCell>{new Date(o.created_at).toLocaleDateString('en-IN')}</TableCell>
