@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Eye, Trash2, Globe, Phone } from 'lucide-react';
 import { formatForDisplay } from '@/utils/dataHelpers';
+import { isAwaitingNameList } from '@/utils/paymentStatusDisplay';
 
 interface SchoolCardProps {
   school: School;
@@ -107,8 +108,8 @@ export const SchoolCard: React.FC<SchoolCardProps> = ({ school, onDelete, showDe
               </Badge>
             </span>
             <span>
-              Payment: <Badge variant={getPaymentStatusVariant(school.payment_status)}>
-                {school.payment_status}
+              Payment: <Badge variant={isAwaitingNameList(school) ? 'outline' : getPaymentStatusVariant(school.payment_status)}>
+                {isAwaitingNameList(school) ? 'Awaiting Name List' : school.payment_status}
               </Badge>
             </span>
             <span>

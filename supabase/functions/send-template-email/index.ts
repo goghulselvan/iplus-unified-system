@@ -167,6 +167,16 @@ serve(async (req: Request): Promise<Response> => {
       throw new ClientError(`Template not found: ${templateError?.message}`);
     }
 
+    // These templates report a payment amount pulled from the school's current
+    // running total (school.payment_received) — sending one before any payment
+    // is actually on file renders as "₹0 received", a real incident that
+    // happened via a manual template send. Block it at the source rather than
+    // trusting every caller to check first.
+    const PAYMENT_AMOUNT_TEMPLATE_TYPES = new Set(["payment_received", "payment_partial"]);
+    if (PAYMENT_AMOUNT_TEMPLATE_TYPES.has(templateType) && !(Number(school.payment_received) > 0)) {
+      throw new ClientError(`Cannot send '${template.template_name ?? templateType}': this school has no recorded payment yet (₹0). Record the payment via Add Payment first, then send this template.`);
+    }
+
     // Get student count for this school
     const { count: studentCount } = await supabase
       .from("student_registrations")

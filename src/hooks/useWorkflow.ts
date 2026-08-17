@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { School, WorkflowHistory, ActivityLog } from '@/types/database';
 import { useToast } from '@/hooks/use-toast';
+import { isAwaitingNameList, AWAITING_NAME_LIST_LABEL } from '@/utils/paymentStatusDisplay';
 
 export const useWorkflow = () => {
   const [loading, setLoading] = useState(false);
@@ -28,6 +29,9 @@ export const useWorkflow = () => {
       const stage = stages[i];
       const value = school[stage.key as keyof School];
       if (value && value !== 'Pending' && value !== 'No' && value !== 'Waiting' && value !== 'Not Sent' && value !== 'Physical Only') {
+        if (stage.key === 'payment_status' && isAwaitingNameList(school)) {
+          return AWAITING_NAME_LIST_LABEL;
+        }
         return `${stage.label}: ${value}`;
       }
     }

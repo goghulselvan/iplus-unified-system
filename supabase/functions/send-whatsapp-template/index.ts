@@ -165,6 +165,19 @@ Deno.serve(async (req) => {
       { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
+  // These templates report a payment amount pulled from the school's current
+  // running total (school.payment_received) — sending one before any payment
+  // is actually on file renders as "₹0 received", a real incident that
+  // happened via a manual template send. Block it at the source rather than
+  // trusting every caller to check first.
+  const PAYMENT_AMOUNT_TEMPLATES = new Set(["payment_received", "payment_partial", "payment_receipt", "payment_receipt_partial"]);
+  if (PAYMENT_AMOUNT_TEMPLATES.has(templateKey) && !(Number(school.payment_received) > 0)) {
+    return new Response(JSON.stringify({
+      success: false,
+      error: `Cannot send '${template.template_name}': this school has no recorded payment yet (₹0). Record the payment via Add Payment first, then send this template.`,
+    }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
   const recipient = normalizeMobile(mobileOverride || school.mobile2 || school.mobile1);
   if (!recipient) {
     return new Response(JSON.stringify({ success: false, error: "Invalid or missing recipient mobile number" }),
