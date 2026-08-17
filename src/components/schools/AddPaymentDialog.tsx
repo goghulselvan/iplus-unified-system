@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { Plus } from 'lucide-react';
+import { sendPaymentReceiptComms } from '@/utils/sendPaymentReceipt';
 
 interface AddPaymentDialogProps {
   schoolId: string;
@@ -52,7 +53,7 @@ export const AddPaymentDialog: React.FC<AddPaymentDialogProps> = ({
         return;
       }
 
-      const { error } = await supabase
+      const { data: inserted, error } = await supabase
         .from('payment_transactions')
         .insert({
           school_id: schoolId,
@@ -62,9 +63,11 @@ export const AddPaymentDialog: React.FC<AddPaymentDialogProps> = ({
           transaction_reference: formData.transaction_reference.trim(),
           notes: formData.notes || null,
           created_by: user.id
-        });
+        })
+        .select('id')
+        .single();
 
-      if (error) {
+      if (error || !inserted) {
         console.error('Error adding payment:', error);
         toast.error('Failed to add payment');
         return;
@@ -80,11 +83,32 @@ export const AddPaymentDialog: React.FC<AddPaymentDialogProps> = ({
         notes: ''
       });
       onPaymentAdded();
+
+      // Same receipt comms the Payment Queue's Acknowledge action sends — fire-and-forget
+      // so the dialog isn't blocked on 2-3 sequential edge function calls. The insert
+      // above already fired the DB trigger that recomputes payment_status synchronously,
+      // so this read is fresh.
+      sendReceiptForPayment(inserted.id, user.id);
     } catch (error) {
       console.error('Error in handleSubmit:', error);
       toast.error('Failed to add payment');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const sendReceiptForPayment = async (transactionId: string, userId: string) => {
+    const { data: schoolRow } = await supabase
+      .from('schools')
+      .select('payment_status')
+      .eq('id', schoolId)
+      .single();
+    const templateType = schoolRow?.payment_status === 'Partial' ? 'payment_partial' : 'payment_received';
+    const result = await sendPaymentReceiptComms({ schoolId, transactionId, templateType, userId });
+    if (result.errors.length) {
+      toast.error(`Receipt comms incomplete: ${result.errors.join(' · ')}`);
+    } else {
+      toast.success(`Receipt ${result.receiptNo ?? ''} sent to ${schoolName}`);
     }
   };
 
