@@ -73,25 +73,6 @@ export const EnhancedPaymentTracker: React.FC<EnhancedPaymentTrackerProps> = ({ 
     enabled: !!projectId,
   });
 
-  const { data: enrollmentCount = 0 } = useQuery({
-    queryKey: ['portal-enrollment-count', school.id, projectId],
-    queryFn: async () => {
-      const { data: students } = await supabase
-        .from('portal_registered_students')
-        .select('id')
-        .eq('school_id', school.id)
-        .eq('project_id', projectId!);
-      if (!students?.length) return 0;
-      const { count } = await supabase
-        .from('portal_student_enrollments')
-        .select('id', { count: 'exact', head: true })
-        .in('student_id', students.map(s => s.id));
-      return count ?? 0;
-    },
-    enabled: !!projectId,
-    staleTime: 2 * 60 * 1000,
-  });
-
   const { data: portalSubmissions = [], refetch: refetchPortalSubmissions } = useQuery({
     queryKey: ['portal-payment-submissions', school.id, projectId],
     queryFn: async () => {
@@ -126,6 +107,13 @@ export const EnhancedPaymentTracker: React.FC<EnhancedPaymentTrackerProps> = ({ 
   const isLoading = workflowLoading || txLoading;
   const ratePerEntry = (workflowData as any)?.per_entry_rate ?? DEFAULT_RATE;
   const concessionPerEntry = (workflowData as any)?.concession_per_entry ?? 0;
+  // Read the already-computed participant count straight off school_project_workflow
+  // (kept correct by recompute_school_payment_state) rather than re-deriving it
+  // client-side — the old re-derivation filtered portal_registered_students by
+  // school.current_project_id, which is null for any school not currently mid-registration
+  // (e.g. Test School SS0000), silently zeroing this out even though the real,
+  // RPC-computed expected amount on the school row was correct all along.
+  const enrollmentCount = (workflowData as any)?.total_participants ?? 0;
 
   const grossFee = enrollmentCount * ratePerEntry;
   const totalConcession = enrollmentCount * concessionPerEntry;
@@ -165,7 +153,6 @@ export const EnhancedPaymentTracker: React.FC<EnhancedPaymentTrackerProps> = ({ 
   const handlePaymentAdded = async () => {
     await supabase.rpc('recalculate_school_payment_totals', { p_school_id: school.id });
     qc.invalidateQueries({ queryKey: ['payment-transactions', school.id] });
-    qc.invalidateQueries({ queryKey: ['portal-enrollment-count', school.id] });
     qc.invalidateQueries({ queryKey: ['school-workflow', school.id] });
     onUpdate();
   };
