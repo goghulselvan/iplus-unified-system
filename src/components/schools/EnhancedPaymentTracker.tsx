@@ -151,7 +151,8 @@ export const EnhancedPaymentTracker: React.FC<EnhancedPaymentTrackerProps> = ({ 
   });
 
   const handlePaymentAdded = async () => {
-    await supabase.rpc('recalculate_school_payment_totals', { p_school_id: school.id });
+    // The payment_transactions insert already fired a DB trigger that recomputed
+    // school payment state synchronously — no separate RPC call needed here.
     qc.invalidateQueries({ queryKey: ['payment-transactions', school.id] });
     qc.invalidateQueries({ queryKey: ['school-workflow', school.id] });
     onUpdate();
