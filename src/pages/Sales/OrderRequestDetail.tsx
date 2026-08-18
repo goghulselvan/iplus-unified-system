@@ -309,16 +309,9 @@ export default function OrderRequestDetail() {
           <div className="flex items-center justify-between mb-3">
             <div className="font-semibold">Payment Proof</div>
           </div>
-          <button
-            type="button"
-            onClick={() => setProofOpen(true)}
-            className="group relative block max-w-sm mb-3"
-          >
-            <img src={order.payment_screenshot_url} alt="Payment proof" className="w-full rounded-lg border border-neutral-200 group-hover:opacity-90 transition-opacity" />
-            <span className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/10 rounded-lg transition-colors">
-              <ZoomIn className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 drop-shadow transition-opacity" />
-            </span>
-          </button>
+          <Button type="button" variant="outline" onClick={() => setProofOpen(true)} className="mb-3">
+            <ZoomIn className="h-4 w-4 mr-2" /> View Proof
+          </Button>
           <div className="text-sm text-muted-foreground grid grid-cols-2 gap-2">
             <div>UTR / Reference: {order.payment_utr_reference || '—'}</div>
             <div>Account Holder: {order.payment_account_holder_name || '—'}</div>
