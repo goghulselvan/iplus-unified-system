@@ -199,11 +199,19 @@ serve(async (req: Request): Promise<Response> => {
       throw new ClientError(`Cannot send '${template.template_name ?? templateType}': this school has no recorded payment yet (₹0). Record the payment via Add Payment first, then send this template.`);
     }
 
-    // Get student count for this school
-    const { count: studentCount } = await supabase
-      .from("student_registrations")
-      .select("*", { count: "exact", head: true })
-      .eq("school_id", schoolId);
+    // Get student count for this school. student_registrations is empty for every
+    // school (0 rows, confirmed live) — the current registration flow never writes
+    // to it. Real data lives in portal_registered_students/portal_student_enrollments,
+    // already rolled up into school_project_workflow.total_participants by the same
+    // triggers that keep payment status correct — read that instead of counting a
+    // dead table.
+    const { data: countRow } = await supabase
+      .from("school_project_workflow")
+      .select("total_participants")
+      .eq("school_id", schoolId)
+      .eq("project_id", templateProjectId)
+      .maybeSingle();
+    const studentCount = countRow?.total_participants ?? 0;
 
     // Per-payment breakdown: this payment + prior payments + running total.
     // Status is derived purely from the balance — there is no "final payment".

@@ -161,14 +161,16 @@ Deno.serve(async (req) => {
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
-  const [{ data: project }, { data: workflow }, { count: studentCount }, { data: template }] = await Promise.all([
+  const [{ data: project }, { data: workflow }, { data: template }] = await Promise.all([
     admin.from("olympiad_projects").select("*").eq("id", projectId).maybeSingle(),
     admin.from("school_project_workflow").select("*").eq("school_id", schoolId).eq("project_id", projectId).maybeSingle(),
-    admin.from("student_registrations").select("*", { count: "exact", head: true })
-      .eq("school_id", schoolId).eq("project_id", projectId),
     admin.from("whatsapp_templates").select("*")
       .eq("project_id", projectId).eq("template_key", templateKey).eq("is_active", true).maybeSingle(),
   ]);
+  // student_registrations is empty for every school (0 rows, confirmed live) — the
+  // current registration flow never writes to it. school_project_workflow.total_participants
+  // is already correctly maintained by the same triggers that keep payment status right.
+  const studentCount = workflow?.total_participants ?? 0;
 
   if (!template) {
     return new Response(JSON.stringify({ success: false, error: `No active template '${templateKey}' for this project` }),
