@@ -154,11 +154,33 @@ serve(async (req: Request): Promise<Response> => {
       throw new ClientError(`Invalid email after cleaning: ${emailOverride || school.email}`);
     }
 
+    // current_project_id is null for any school not currently mid-active-registration
+    // (a manual/offline school, or one being paid outside its registration window —
+    // Test School SS0000 hit this live) — .eq() against a JS null serializes to the
+    // literal string "null", which Postgres rejects for a uuid column instead of
+    // matching IS NULL. Fall back to the most-recently-updated workflow row, the same
+    // heuristic the payment-recompute trigger already uses when it can't rely on
+    // current_project_id either.
+    let templateProjectId = school.current_project_id;
+    if (!templateProjectId) {
+      const { data: recentWorkflow } = await supabase
+        .from("school_project_workflow")
+        .select("project_id")
+        .eq("school_id", schoolId)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      templateProjectId = recentWorkflow?.project_id ?? null;
+    }
+    if (!templateProjectId) {
+      throw new ClientError("Cannot determine which project's template to use — this school has no project association yet.");
+    }
+
     // Get active template for this project and type
     const { data: template, error: templateError } = await supabase
       .from("communication_templates")
       .select("*")
-      .eq("project_id", school.current_project_id)
+      .eq("project_id", templateProjectId)
       .eq("template_type", templateType)
       .eq("is_active", true)
       .single();

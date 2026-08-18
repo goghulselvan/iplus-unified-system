@@ -145,7 +145,17 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ success: false, error: "School not found" }),
       { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
-  const projectId = school.current_project_id;
+  // current_project_id is null for any school not currently mid-active-registration
+  // (a manual/offline school, or one being paid outside its registration window) —
+  // fall back to its most-recently-updated workflow row, the same heuristic the
+  // payment-recompute trigger uses when it can't rely on current_project_id either.
+  let projectId = school.current_project_id;
+  if (!projectId) {
+    const { data: recentWorkflow } = await admin
+      .from("school_project_workflow").select("project_id")
+      .eq("school_id", schoolId).order("updated_at", { ascending: false }).limit(1).maybeSingle();
+    projectId = recentWorkflow?.project_id ?? null;
+  }
   if (!projectId) {
     return new Response(JSON.stringify({ success: false, error: "School has no active project" }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
