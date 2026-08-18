@@ -31,7 +31,16 @@ const corsHeaders = {
 // "Logical Reasoning - iPlus Olympiads - Ignite Series - Class 1" -> "Logical Reasoning - Class 1"
 // Strips the brand/series boilerplate that's redundant once it's one row among several.
 function shortItemName(name: string): string {
-  return name.replace(/\s*-\s*iPlus Olympiads\s*-\s*(Ignite|Impact) Series\s*/i, " - ").replace(/\s+/g, " ").trim();
+  // Product names are "Subject - iPlus Olympiads - Ignite Series - Class N"
+  // (or "... - Impact Series" with nothing after). Drop the brand/series
+  // segments entirely rather than regex-replacing them with " - ", which
+  // left a stray double dash ("English - - Class 1") since the original
+  // name already has its own dash before "Class N".
+  return name
+    .split(/\s*-\s*/)
+    .filter((seg) => seg && !/^iPlus Olympiads$/i.test(seg) && !/^(Ignite|Impact) Series$/i.test(seg))
+    .join(" - ")
+    .trim();
 }
 
 // Clean email address (remove spaces, extra dots, etc.)
@@ -115,6 +124,8 @@ interface SendEmailRequest {
   orderId?: string;            // Optional: the book order this message is about — enables {order_ref}
   invoiceId?: string;          // Optional: the invoice this message is about — enables {order_ref}
                                // (resolved via the order the invoice's items came from) and {item_list}
+  reason?: string;             // Optional: free-text reason for this specific send (e.g. order
+                               // rejection reason) — enables {reason}
 }
 
 serve(async (req: Request): Promise<Response> => {
@@ -123,7 +134,7 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    const { schoolId, templateType, userId, emailOverride, attachmentUrl, attachmentFilename, transactionId, orderId, invoiceId }: SendEmailRequest = await req.json();
+    const { schoolId, templateType, userId, emailOverride, attachmentUrl, attachmentFilename, transactionId, orderId, invoiceId, reason }: SendEmailRequest = await req.json();
     
     console.log(`Processing email request - School: ${schoolId}, Template: ${templateType}, Email override: ${emailOverride}`);
 
@@ -315,6 +326,7 @@ serve(async (req: Request): Promise<Response> => {
         : `<p style="margin:0 0 12px;font-size:15px;color:#374151;line-height:1.8;">Kindly clear the balance due before the registration deadline. Contact our team at <a href="mailto:contact@iplusedu.in" style="color:#4f46e5;font-weight:600;">contact@iplusedu.in</a> or <a href="tel:+918111066556" style="color:#4f46e5;font-weight:600;">+91 81110 66556</a> to complete the payment.</p>`,
       "{district}": school.district || "",
       "{state}": school.state || "",
+      "{reason}": reason || "",
     };
 
     let emailBody = template.email_body;

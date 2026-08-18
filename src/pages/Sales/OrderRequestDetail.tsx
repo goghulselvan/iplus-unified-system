@@ -4,7 +4,7 @@ import SalesLayout from '@/components/sales/SalesLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
@@ -13,6 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ArrowLeft, ZoomIn, Upload } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
+import InvoiceItemsDialog from '@/components/sales/InvoiceItemsDialog';
 
 type PaymentStatus = 'pending' | 'confirmed' | 'resubmit_requested';
 type LineStatus = 'pending' | 'invoiced_unpaid' | 'paid' | 'dispatched' | 'rejected';
@@ -24,6 +26,7 @@ type OrderDetail = {
   order_number: number | null;
   fy: number | null;
   source: 'portal' | 'manual';
+  school_id: string;
   notes: string | null;
   payment_amount: number;
   verified_amount: number | null;
@@ -34,7 +37,7 @@ type OrderDetail = {
   payment_screenshot_url: string;
   payment_status: PaymentStatus;
   payment_review_note: string | null;
-  schools: { school_name: string } | null;
+  schools: { school_name: string; ss_no: string | null } | null;
 };
 
 type ItemRow = {
@@ -43,6 +46,7 @@ type ItemRow = {
   unit_price: number;
   line_status: LineStatus;
   rejected_reason: string | null;
+  invoice_id: string | null;
   products: { name: string; stock_quantity: number } | null;
   invoices: { invoice_number: number; fy: number } | null;
 };
@@ -63,6 +67,8 @@ export default function OrderRequestDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { profile, user } = useAuth();
+  const isSuperadmin = profile?.role === 'superadmin';
 
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [items, setItems] = useState<ItemRow[]>([]);
@@ -72,6 +78,10 @@ export default function OrderRequestDetail() {
   const [resubmitReason, setResubmitReason] = useState('');
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  const [rejectOrderOpen, setRejectOrderOpen] = useState(false);
+  const [rejectOrderReason, setRejectOrderReason] = useState('');
+  const [rejectOrderSaving, setRejectOrderSaving] = useState(false);
+  const [invoicePopupId, setInvoicePopupId] = useState<string | null>(null);
   const [proofOpen, setProofOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmVerifiedAmount, setConfirmVerifiedAmount] = useState('');
@@ -91,10 +101,10 @@ export default function OrderRequestDetail() {
     setLoading(true);
     const [orderRes, itemsRes] = await Promise.all([
       supabase.from('product_orders' as any)
-        .select('id, order_number, fy, source, notes, payment_amount, verified_amount, payment_mode, payment_date, payment_utr_reference, payment_account_holder_name, payment_screenshot_url, payment_status, payment_review_note, schools(school_name)')
+        .select('id, order_number, fy, source, school_id, notes, payment_amount, verified_amount, payment_mode, payment_date, payment_utr_reference, payment_account_holder_name, payment_screenshot_url, payment_status, payment_review_note, schools(school_name, ss_no)')
         .eq('id', id).single(),
       supabase.from('product_order_items' as any)
-        .select('id, quantity, unit_price, line_status, rejected_reason, products(name, stock_quantity), invoices(invoice_number, fy)')
+        .select('id, quantity, unit_price, line_status, rejected_reason, invoice_id, products(name, stock_quantity), invoices(invoice_number, fy)')
         .eq('order_id', id),
     ]);
     if (orderRes.error) toast({ title: 'Error', description: orderRes.error.message, variant: 'destructive' });
@@ -112,6 +122,18 @@ export default function OrderRequestDetail() {
       if (next.has(itemId)) next.delete(itemId); else next.add(itemId);
       return next;
     });
+  };
+
+  // "Selectable" mirrors exactly what a row checkbox allows: pending lines that
+  // aren't over current stock (those render disabled, so Select All must skip them too).
+  const selectableIds = items
+    .filter(i => i.line_status === 'pending' && !(i.products && i.quantity > i.products.stock_quantity))
+    .map(i => i.id);
+  const allSelected = selectableIds.length > 0 && selectableIds.every(itemId => selected.has(itemId));
+  const someSelected = selectableIds.some(itemId => selected.has(itemId));
+
+  const toggleSelectAll = () => {
+    setSelected(allSelected ? new Set() : new Set(selectableIds));
   };
 
   const openConfirmDialog = () => {
@@ -210,6 +232,41 @@ export default function OrderRequestDetail() {
     load();
   };
 
+  const handleRejectEntireOrder = async () => {
+    if (!rejectOrderReason.trim()) return;
+    setRejectOrderSaving(true);
+    const { error } = await supabase.rpc('reject_entire_order' as any, { p_order_id: id, p_reason: rejectOrderReason.trim() });
+    if (error) {
+      setRejectOrderSaving(false);
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      return;
+    }
+    toast({ title: 'Order rejected' });
+
+    // Notification — fire-and-forget, doesn't block the rejection itself.
+    // functions.invoke() resolves (doesn't reject) on a non-2xx response, so a
+    // plain .catch() never sees a handled failure like the WA template still
+    // being inactive pending Meta approval — must check the resolved error too.
+    const reasonText = rejectOrderReason.trim();
+    supabase.functions.invoke('send-whatsapp-template', {
+      body: { schoolId: order!.school_id, templateKey: 'book_order_rejected', orderId: id, reason: reasonText },
+    }).then(({ error: waError }) => {
+      if (waError) toast({ title: 'Rejected, but WhatsApp notification failed', description: waError.message, variant: 'destructive' });
+    }).catch(console.error);
+    if (user?.id) {
+      supabase.functions.invoke('send-template-email', {
+        body: { schoolId: order!.school_id, templateType: 'book_order_rejected', userId: user.id, orderId: id, reason: reasonText },
+      }).then(({ error: emailError }) => {
+        if (emailError) toast({ title: 'Rejected, but email notification failed', description: emailError.message, variant: 'destructive' });
+      }).catch(console.error);
+    }
+
+    setRejectOrderSaving(false);
+    setRejectOrderOpen(false);
+    setRejectOrderReason('');
+    load();
+  };
+
   if (loading || !order) {
     return <SalesLayout><div className="max-w-4xl mx-auto px-4 py-8 text-muted-foreground">Loading…</div></SalesLayout>;
   }
@@ -229,6 +286,11 @@ export default function OrderRequestDetail() {
 
         <div className="flex items-center gap-2 mb-1">
           <h1 className="text-3xl font-bold">{order.schools?.school_name ?? '—'}</h1>
+          {order.schools?.ss_no && (
+            <span className="font-mono text-sm text-muted-foreground bg-neutral-100 px-2 py-1 rounded-md">
+              SS {order.schools.ss_no}
+            </span>
+          )}
           {order.order_number != null && order.fy != null && (
             <span className="font-mono text-sm text-muted-foreground bg-neutral-100 px-2 py-1 rounded-md">
               ORD/{order.fy}-{order.fy + 1}/{order.order_number}
@@ -261,6 +323,11 @@ export default function OrderRequestDetail() {
             <div>UTR / Reference: {order.payment_utr_reference || '—'}</div>
             <div>Account Holder: {order.payment_account_holder_name || '—'}</div>
           </div>
+          {order.notes && (
+            <div className="mt-3 text-sm rounded-lg p-3 whitespace-pre-line bg-neutral-50 text-neutral-700">
+              Order Notes: {order.notes}
+            </div>
+          )}
           {order.payment_review_note && (
             <div className={`mt-3 text-sm rounded-lg p-3 whitespace-pre-line ${order.payment_status === 'resubmit_requested' ? 'bg-red-50 text-red-700' : 'bg-neutral-50 text-neutral-700'}`}>
               {order.payment_status === 'resubmit_requested' ? 'Resubmit reason: ' : 'Notes: '}{order.payment_review_note}
@@ -283,7 +350,17 @@ export default function OrderRequestDetail() {
           <Table>
             <TableHeader>
               <TableRow>
-                {order.payment_status === 'confirmed' && <TableHead className="w-10"></TableHead>}
+                {order.payment_status === 'confirmed' && (
+                  <TableHead className="w-10">
+                    {selectableIds.length > 0 && (
+                      <Checkbox
+                        checked={allSelected ? true : someSelected ? 'indeterminate' : false}
+                        onCheckedChange={toggleSelectAll}
+                        aria-label="Select all pending items"
+                      />
+                    )}
+                  </TableHead>
+                )}
                 <TableHead>Product</TableHead>
                 <TableHead>Qty</TableHead>
                 <TableHead>Stock</TableHead>
@@ -318,10 +395,29 @@ export default function OrderRequestDetail() {
                       <div className="text-xs text-muted-foreground mt-1">{i.rejected_reason}</div>
                     )}
                   </TableCell>
-                  <TableCell>{i.invoices ? `INV/${i.invoices.fy}-${i.invoices.fy + 1}/${i.invoices.invoice_number}` : '—'}</TableCell>
+                  <TableCell>
+                    {i.invoices && i.invoice_id ? (
+                      <button
+                        type="button"
+                        onClick={() => setInvoicePopupId(i.invoice_id)}
+                        className="text-indigo-600 hover:underline font-mono text-sm"
+                      >
+                        INV/{i.invoices.fy}-{i.invoices.fy + 1}/{i.invoices.invoice_number}
+                      </button>
+                    ) : '—'}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
+            {items.length > 0 && (
+              <TableFooter>
+                <TableRow className="bg-neutral-50 font-semibold hover:bg-neutral-50">
+                  <TableCell colSpan={order.payment_status === 'confirmed' ? 2 : 1}>Total Items</TableCell>
+                  <TableCell>{items.reduce((sum, i) => sum + i.quantity, 0)}</TableCell>
+                  <TableCell colSpan={4} />
+                </TableRow>
+              </TableFooter>
+            )}
           </Table>
         </div>
 
@@ -331,7 +427,32 @@ export default function OrderRequestDetail() {
             <Button variant="outline" onClick={() => setRejectOpen(true)} disabled={selected.size === 0}>Reject Selected</Button>
           </div>
         )}
+
+        {isSuperadmin && items.some(i => i.line_status === 'pending') && (
+          <div className="mt-4">
+            <Button variant="destructive" onClick={() => setRejectOrderOpen(true)}>Reject Entire Order</Button>
+            <p className="text-xs text-muted-foreground mt-1.5">Rejects every pending item on this order at once (e.g. the school miscounted) and notifies the school by WhatsApp + email. Superadmin only.</p>
+          </div>
+        )}
       </div>
+
+      <InvoiceItemsDialog invoiceId={invoicePopupId} onOpenChange={(open) => !open && setInvoicePopupId(null)} />
+
+      <Dialog open={rejectOrderOpen} onOpenChange={setRejectOrderOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Reject Entire Order</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This rejects every pending item on this order and notifies {order.schools?.school_name ?? 'the school'} by WhatsApp and email with the reason below. Already-invoiced or dispatched items are not affected.
+          </p>
+          <Textarea value={rejectOrderReason} onChange={e => setRejectOrderReason(e.target.value)} placeholder="Reason (shown to the school)" />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectOrderOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleRejectEntireOrder} disabled={!rejectOrderReason.trim() || rejectOrderSaving}>
+              {rejectOrderSaving ? 'Rejecting…' : 'Reject Order'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={proofOpen} onOpenChange={setProofOpen}>
         <DialogContent className="max-w-3xl p-2">

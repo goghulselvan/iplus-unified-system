@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import InvoiceDialog, { EditingInvoice } from './InvoiceDialog';
 import BuyerContactDialog from './BuyerContactDialog';
+import InvoiceItemsDialog from '@/components/sales/InvoiceItemsDialog';
 import { generateInvoice } from '@/utils/invoiceGenerator';
 
 type InvoiceRow = {
@@ -28,6 +29,7 @@ type InvoiceRow = {
   grand_total: number;
   created_at: string;
   dispatched_at: string | null;
+  schools: { ss_no: string | null } | null;
 };
 
 const PAGE_SIZE = 200;
@@ -50,12 +52,13 @@ export default function InvoicesPage() {
   const [voidReason, setVoidReason] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<InvoiceRow | null>(null);
   const [contactSchoolId, setContactSchoolId] = useState<string | null>(null);
+  const [invoicePopupId, setInvoicePopupId] = useState<string | null>(null);
 
   const loadInvoices = async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from('invoices' as any)
-      .select('id, invoice_number, fy, buyer_name, school_id, prospect_school_id, payment_method, status, grand_total, created_at, dispatched_at')
+      .select('id, invoice_number, fy, buyer_name, school_id, prospect_school_id, payment_method, status, grand_total, created_at, dispatched_at, schools(ss_no)')
       .order('fy', { ascending: false })
       .order('invoice_number', { ascending: false })
       .limit(PAGE_SIZE);
@@ -281,7 +284,11 @@ export default function InvoicesPage() {
               ) : (
                 filtered.map(row => (
                   <TableRow key={row.id}>
-                    <TableCell className="font-medium">INV/{row.fy}-{row.fy + 1}/{row.invoice_number}</TableCell>
+                    <TableCell className="font-medium">
+                      <button type="button" onClick={() => setInvoicePopupId(row.id)} className="text-indigo-600 hover:underline font-mono">
+                        INV/{row.fy}-{row.fy + 1}/{row.invoice_number}
+                      </button>
+                    </TableCell>
                     <TableCell>{new Date(row.created_at).toLocaleDateString('en-IN')}</TableCell>
                     <TableCell>
                       {row.school_id ? (
@@ -294,6 +301,9 @@ export default function InvoicesPage() {
                         </button>
                       ) : (
                         row.buyer_name
+                      )}
+                      {row.schools?.ss_no && (
+                        <span className="block font-mono text-xs text-muted-foreground">SS {row.schools.ss_no}</span>
                       )}
                     </TableCell>
                     <TableCell>{row.payment_method}</TableCell>
@@ -349,6 +359,8 @@ export default function InvoicesPage() {
       <InvoiceDialog open={dialogOpen} onOpenChange={setDialogOpen} editingInvoice={editingInvoice} onSaved={handleSaved} />
 
       <BuyerContactDialog open={!!contactSchoolId} onOpenChange={open => !open && setContactSchoolId(null)} schoolId={contactSchoolId} />
+
+      <InvoiceItemsDialog invoiceId={invoicePopupId} onOpenChange={open => !open && setInvoicePopupId(null)} />
 
       <Dialog open={!!voidTarget} onOpenChange={open => { if (!open) { setVoidTarget(null); setVoidReason(''); } }}>
         <DialogContent className="max-w-sm">

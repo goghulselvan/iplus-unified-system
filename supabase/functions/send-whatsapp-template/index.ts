@@ -24,12 +24,24 @@ const BodySchema = z.object({
   // The invoice this message is about — enables order_ref (resolved via the
   // order the invoice's items came from) and item_list variable sources
   invoiceId: z.string().uuid().optional(),
+  // Free-text reason for this specific send (e.g. order rejection reason) —
+  // enables the reason variable source
+  reason: z.string().max(500).optional(),
 });
 
 // "Logical Reasoning - iPlus Olympiads - Ignite Series - Class 1" -> "Logical Reasoning - Class 1"
 // Strips the brand/series boilerplate that's redundant once it's one line among several.
 function shortItemName(name: string): string {
-  return name.replace(/\s*-\s*iPlus Olympiads\s*-\s*(Ignite|Impact) Series\s*/i, " - ").replace(/\s+/g, " ").trim();
+  // Product names are "Subject - iPlus Olympiads - Ignite Series - Class N"
+  // (or "... - Impact Series" with nothing after). Drop the brand/series
+  // segments entirely rather than regex-replacing them with " - ", which
+  // left a stray double dash ("English - - Class 1") since the original
+  // name already has its own dash before "Class N".
+  return name
+    .split(/\s*-\s*/)
+    .filter((seg) => seg && !/^iPlus Olympiads$/i.test(seg) && !/^(Ignite|Impact) Series$/i.test(seg))
+    .join(" - ")
+    .trim();
 }
 
 function normalizeMobile(raw: string | null | undefined): string | null {
@@ -45,10 +57,10 @@ function resolveVariable(
   customText: string | undefined,
   ctx: {
     school: any; project: any; workflow: any; studentCount: number;
-    thisPayment?: number | null; orderRef?: string | null; itemList?: string | null; itemCount?: number | null;
+    thisPayment?: number | null; orderRef?: string | null; itemList?: string | null; itemCount?: number | null; reason?: string | null;
   }
 ): string {
-  const { school, project, workflow, studentCount, thisPayment, orderRef, itemList, itemCount } = ctx;
+  const { school, project, workflow, studentCount, thisPayment, orderRef, itemList, itemCount, reason } = ctx;
   const inr = (n: unknown) => Number(n ?? 0).toLocaleString("en-IN");
   switch (source) {
     case "school_name": return school?.school_name || "";
@@ -56,6 +68,10 @@ function resolveVariable(
     case "order_ref": return orderRef || "";
     case "item_list": return itemList || "";
     case "item_count": return itemCount != null ? `${itemCount} Nos.` : "";
+    // WhatsApp template body parameters reject newlines outright ("invalid
+    // parameter") — collapse any whitespace/newlines from a free-text reason
+    // into single spaces before it reaches the AskEVA payload.
+    case "reason": return (reason || "").replace(/\s+/g, " ").trim();
     case "contact_person": return school?.contact_person_name || "";
     case "mobile1": return school?.mobile1 || "";
     case "district": return school?.district || "";
@@ -134,7 +150,7 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ success: false, error: parsed.error.flatten() }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
-  const { schoolId, templateKey, mobileOverride, documentUrl, documentFilename, transactionId, orderId, invoiceId } = parsed.data;
+  const { schoolId, templateKey, mobileOverride, documentUrl, documentFilename, transactionId, orderId, invoiceId, reason } = parsed.data;
 
   const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -250,7 +266,7 @@ Deno.serve(async (req) => {
       }
     }
   }
-  const ctx = { school, project, workflow, studentCount: studentCount || 0, thisPayment, orderRef, itemList, itemCount };
+  const ctx = { school, project, workflow, studentCount: studentCount || 0, thisPayment, orderRef, itemList, itemCount, reason };
   const components: any[] = [];
 
   if (template.header_media_url && (template.template_type as string).includes("image")) {

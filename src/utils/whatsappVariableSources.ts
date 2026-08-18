@@ -26,6 +26,7 @@ export const WHATSAPP_VARIABLE_SOURCES: VariableSource[] = [
   { key: "order_ref", label: "Book Order Number", description: "product_orders order_number/fy, formatted as {fy}-{fy+1}-{order_number} — needs orderId or invoiceId passed to the send" },
   { key: "item_list", label: "Book Order Items (full list)", description: "bullet-separated item x qty for the invoice — needs invoiceId passed to the send. WhatsApp params can't contain newlines, so long orders read as one dense line — item_count is usually the better fit for WhatsApp." },
   { key: "item_count", label: "Book Order Item Count", description: "total quantity across the invoice, formatted as \"N Nos.\" — needs invoiceId passed to the send" },
+  { key: "reason", label: "Reason", description: "free-text reason passed by the caller for this specific send (e.g. order rejection reason) — needs reason passed to the send" },
   { key: "custom", label: "Custom Text", description: "Free text entered by admin" },
 ];
 

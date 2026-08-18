@@ -22,7 +22,7 @@ type OrderRow = {
   verified_amount: number | null;
   payment_status: PaymentStatus;
   created_at: string;
-  schools: { school_name: string } | null;
+  schools: { school_name: string; ss_no: string | null } | null;
   product_order_items: { line_status: LineStatus }[];
 };
 
@@ -72,6 +72,7 @@ export default function OrderRequestsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [sourceFilter, setSourceFilter] = useState('all');
   const [manualOpen, setManualOpen] = useState(false);
 
   const load = async () => {
@@ -79,7 +80,7 @@ export default function OrderRequestsPage() {
     setError(false);
     const { data, error: loadErr } = await supabase
       .from('product_orders' as any)
-      .select('id, order_number, fy, source, payment_amount, verified_amount, payment_status, created_at, schools(school_name), product_order_items(line_status)')
+      .select('id, order_number, fy, source, payment_amount, verified_amount, payment_status, created_at, schools(school_name, ss_no), product_order_items(line_status)')
       .order('created_at', { ascending: false })
       .limit(PAGE_SIZE);
     if (loadErr) {
@@ -93,10 +94,12 @@ export default function OrderRequestsPage() {
 
   useEffect(() => { load(); }, []);
 
-  const filtered = useMemo(
-    () => statusFilter === 'all' ? orders : orders.filter(o => o.payment_status === statusFilter),
-    [orders, statusFilter]
-  );
+  const filtered = useMemo(() => {
+    let rows = orders;
+    if (statusFilter !== 'all') rows = rows.filter(o => o.payment_status === statusFilter);
+    if (sourceFilter !== 'all') rows = rows.filter(o => o.source === sourceFilter);
+    return rows;
+  }, [orders, statusFilter, sourceFilter]);
 
   return (
     <SalesLayout>
@@ -104,6 +107,14 @@ export default function OrderRequestsPage() {
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-3xl font-bold">Order Requests</h1>
           <div className="flex items-center gap-3">
+            <Select value={sourceFilter} onValueChange={setSourceFilter}>
+              <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Manual & Portal</SelectItem>
+                <SelectItem value="manual">Manual Only</SelectItem>
+                <SelectItem value="portal">Portal Only</SelectItem>
+              </SelectContent>
+            </Select>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -151,7 +162,12 @@ export default function OrderRequestsPage() {
                         {o.source === 'manual' && <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-600 border-blue-100">Manual</Badge>}
                       </div>
                     </TableCell>
-                    <TableCell className="font-medium">{o.schools?.school_name ?? '—'}</TableCell>
+                    <TableCell className="font-medium">
+                      {o.schools?.school_name ?? '—'}
+                      {o.schools?.ss_no && (
+                        <span className="ml-1.5 font-mono text-xs font-normal text-muted-foreground">SS {o.schools.ss_no}</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       ₹{o.payment_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       {o.verified_amount != null && Number(o.verified_amount) !== Number(o.payment_amount) && (
