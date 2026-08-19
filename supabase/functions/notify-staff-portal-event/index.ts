@@ -17,7 +17,7 @@ serve(async (req: Request): Promise<Response> => {
     );
     const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
 
-    const { event_type, school_name, school_id, amount } = await req.json();
+    const { event_type, school_name, school_id, amount, failed_count, total_count } = await req.json();
 
     // Fetch superadmin + coordinator profile IDs
     const { data: staffProfiles } = await supabase
@@ -69,6 +69,14 @@ serve(async (req: Request): Promise<Response> => {
       html = `
         <p>Hello,</p>
         <p><strong>${school_name}</strong> has selected an exam slot via the school portal.</p>
+        <p style="color:#6366f1;font-size:12px">iPlus CRM — automated notification</p>
+      `;
+    } else if (event_type === "registration_number_failed") {
+      subject = `[Portal] Registration Number Failed — ${school_name}`;
+      html = `
+        <p>Hello,</p>
+        <p><strong>${failed_count} of ${total_count}</strong> student${total_count === 1 ? "" : "s"} from <strong>${school_name}</strong> could not be assigned a registration number automatically — most likely a district missing from <code>district_codes</code>.</p>
+        <p>Check <code>select * from portal_student_enrollments where submitted_at is not null and registration_number is null</code>, fix the underlying reference data, then call <code>retry_registration_numbers(...)</code> on the affected rows (safe to re-run — already-numbered rows are skipped).</p>
         <p style="color:#6366f1;font-size:12px">iPlus CRM — automated notification</p>
       `;
     } else {

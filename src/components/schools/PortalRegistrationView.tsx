@@ -44,6 +44,29 @@ function parseClassCode(raw: string): string | null {
   return CLASS_LABEL_TO_CODE[upper] ?? null;
 }
 
+// Safety net for the 2026-08-19 silent-registration-number-failure class of bug —
+// the DB trigger that assigns numbers swallows any failure as an invisible
+// Postgres warning with no retry. Call this right after every enrollment insert
+// (or after a class correction) so a failure surfaces immediately instead of
+// sitting unnoticed for weeks. Idempotent — safe even if some ids already have a
+// number.
+async function verifyRegistrationNumbers(enrollmentIds: string[]): Promise<{ failed: number; total: number }> {
+  if (enrollmentIds.length === 0) return { failed: 0, total: 0 };
+  const { data, error } = await supabase.rpc('retry_registration_numbers' as any, { p_enrollment_ids: enrollmentIds });
+  if (error) return { failed: enrollmentIds.length, total: enrollmentIds.length };
+  const rows = (data || []) as { success: boolean }[];
+  return { failed: rows.filter(r => !r.success).length, total: rows.length };
+}
+
+function warnIfRegistrationNumbersFailed(failed: number, total: number) {
+  if (failed === 0) return;
+  toast({
+    title: `${failed} of ${total} student${total === 1 ? '' : 's'} missing a roll number`,
+    description: 'The registration number couldn\'t be generated automatically — likely a missing district code. Contact the dev team; the fix will apply retroactively once the underlying issue is resolved.',
+    variant: 'destructive',
+  });
+}
+
 
 interface BulkUploadProps {
   schoolId: string;
@@ -138,6 +161,8 @@ function BulkUpload({ schoolId, subjects, onSuccess }: BulkUploadProps) {
       const ENROLL_BATCH = 500;
       const projectId = activeProject?.id ?? '';
       setProgress({ done: 0, total: rows.length });
+      let regFailed = 0;
+      let regTotal = 0;
 
       for (let i = 0; i < rows.length; i += STUDENT_BATCH) {
         const chunk = rows.slice(i, i + STUDENT_BATCH);
@@ -161,16 +186,21 @@ function BulkUpload({ schoolId, subjects, onSuccess }: BulkUploadProps) {
           r.olympiads.map(code => ({ student_id: inserted[idx].id, olympiad_code: code, submitted_at: enrollAt }))
         );
         for (let j = 0; j < enrollments.length; j += ENROLL_BATCH) {
-          const { error: ee } = await supabase
+          const { data: insertedEnrollments, error: ee } = await supabase
             .from('portal_student_enrollments')
-            .insert(enrollments.slice(j, j + ENROLL_BATCH));
+            .insert(enrollments.slice(j, j + ENROLL_BATCH))
+            .select('id');
           if (ee) throw ee;
+          const { failed, total } = await verifyRegistrationNumbers((insertedEnrollments ?? []).map(e => e.id));
+          regFailed += failed;
+          regTotal += total;
         }
 
         setProgress({ done: Math.min(i + chunk.length, rows.length), total: rows.length });
       }
 
       toast({ title: 'Bulk upload complete', description: `${rows.length} student${rows.length !== 1 ? 's' : ''} added successfully.` });
+      warnIfRegistrationNumbersFailed(regFailed, regTotal);
       setFile(null);
       if (fileRef.current) fileRef.current.value = '';
       setOpen(false);
@@ -314,7 +344,7 @@ function StaffAddStudentPanel({ schoolId, projectId, subjects, onAdded }: StaffA
         .single();
       if (se) throw se;
 
-      const { error: ee } = await supabase
+      const { data: insertedEnrollments, error: ee } = await supabase
         .from('portal_student_enrollments')
         .insert(
           selectedOlympiads.map(code => ({
@@ -322,10 +352,13 @@ function StaffAddStudentPanel({ schoolId, projectId, subjects, onAdded }: StaffA
             olympiad_code: code,
             submitted_at: new Date().toISOString(),
           }))
-        );
+        )
+        .select('id');
       if (ee) throw ee;
 
+      const { failed, total } = await verifyRegistrationNumbers((insertedEnrollments ?? []).map(e => e.id));
       toast({ title: 'Student added', description: `${name.trim().toUpperCase()} registered successfully.` });
+      warnIfRegistrationNumbersFailed(failed, total);
       setName('');
       setCls('');
       setSelectedOlympiads([]);
@@ -518,6 +551,8 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
     }) => {
       const classChanged = cls !== originalClass;
       const nameChanged = name !== originalName;
+      let regFailed = 0;
+      let regTotal = 0;
 
       if (classChanged) {
         // DB function updates class_code AND touches submitted_at on all enrollments → trigger regenerates numbers
@@ -526,6 +561,14 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
           p_new_class_code: cls,
         });
         if (error) throw error;
+
+        const { data: studentEnrollments } = await supabase
+          .from('portal_student_enrollments')
+          .select('id')
+          .eq('student_id', id);
+        const verified = await verifyRegistrationNumbers((studentEnrollments ?? []).map(e => e.id));
+        regFailed += verified.failed;
+        regTotal += verified.total;
       }
 
       if (nameChanged && !classChanged) {
@@ -552,13 +595,16 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
       }
       if (toAdd.length) {
         // submitted_at = now() so the trigger fires and generates registration numbers
-        const { error } = await supabase.from('portal_student_enrollments').insert(
+        const { data: insertedEnrollments, error } = await supabase.from('portal_student_enrollments').insert(
           toAdd.map((code) => ({ student_id: id, olympiad_code: code, submitted_at: new Date().toISOString() }))
-        );
+        ).select('id');
         if (error) throw error;
+        const verified = await verifyRegistrationNumbers((insertedEnrollments ?? []).map(e => e.id));
+        regFailed += verified.failed;
+        regTotal += verified.total;
       }
 
-      return { classChanged };
+      return { classChanged, regFailed, regTotal };
     },
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ['crm-portal-students'] });
@@ -568,6 +614,7 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
       toast({
         title: result.classChanged ? 'Class corrected — registration numbers regenerated' : 'Student updated',
       });
+      warnIfRegistrationNumbersFailed(result.regFailed, result.regTotal);
     },
     onError: (error: Error) => {
       toast({ title: 'Update failed', description: error.message, variant: 'destructive' });
