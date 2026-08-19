@@ -154,8 +154,11 @@ function BulkUpload({ schoolId, subjects, onSuccess }: BulkUploadProps) {
           throw new Error('Insert count mismatch — aborting to avoid mis-mapped enrollments.');
         }
 
+        // submitted_at = now() so the trigger fires and generates registration
+        // numbers — same as the single Add Student and Add Subjects paths below.
+        const enrollAt = new Date().toISOString();
         const enrollments = chunk.flatMap((r, idx) =>
-          r.olympiads.map(code => ({ student_id: inserted[idx].id, olympiad_code: code }))
+          r.olympiads.map(code => ({ student_id: inserted[idx].id, olympiad_code: code, submitted_at: enrollAt }))
         );
         for (let j = 0; j < enrollments.length; j += ENROLL_BATCH) {
           const { error: ee } = await supabase
