@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Trash2, Plus, Check, X, Pencil, Save, Upload, Download, ChevronDown, ChevronUp, ClipboardList } from 'lucide-react';
+import { Trash2, Plus, Check, X, Pencil, Save, Upload, Download, FileText, ChevronDown, ChevronUp, ClipboardList } from 'lucide-react';
+import { generateStudentNamelistPdf } from '@/utils/studentNamelistPdfGenerator';
 import { toast, useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { useActiveProject, useOlympiadSubjects, OlympiadSubject } from '@/hooks/useOlympiadProjects';
@@ -459,6 +460,16 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
   const [sortField, setSortField] = useState<'name' | 'class'>('class');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [downloadingNamelist, setDownloadingNamelist] = useState(false);
+
+  const { data: schoolInfo } = useQuery({
+    queryKey: ['crm-school-namelist-info', schoolId],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('schools').select('school_name, ss_no').eq('id', schoolId).single();
+      if (error) throw error;
+      return data as { school_name: string; ss_no: number | null };
+    },
+  });
 
   const { data: students = [], isLoading } = useQuery({
     queryKey: ['crm-portal-students', schoolId, activeProject?.id],
@@ -662,6 +673,50 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
     URL.revokeObjectURL(url);
   }
 
+  // Same generator + layout as the school portal's own "Export PDF" — lets
+  // staff hand the identical branded namelist to schools without portal
+  // access (manually-managed schools), not just self-served ones.
+  async function downloadNamelistPDF() {
+    if (!students.length || !schoolInfo) return;
+    setDownloadingNamelist(true);
+    try {
+      const rows = students.flatMap((s) =>
+        s.enrollments.map((code) => ({
+          name: s.student_name,
+          classCode: s.class_code,
+          subject: code,
+          registrationNumber: s.regNumbers[code] ?? null,
+        }))
+      );
+      // 6-digit state+district+school block — same derivation as the portal's
+      // usePortalSchoolCode(), read off any student's own registration number
+      // rather than the bare school_codes.school_code (that's a different,
+      // shorter per-project sequence number, not what's shown to schools).
+      const sampleRegNo = rows.find((r) => r.registrationNumber)?.registrationNumber;
+      const schoolCode = sampleRegNo
+        ? (() => {
+            const parts = sampleRegNo.split('-');
+            return parts.length === 6 ? parts[1] + parts[2] + parts[3] : null;
+          })()
+        : null;
+
+      const bytes = await generateStudentNamelistPdf({
+        schoolName: schoolInfo.school_name,
+        ssNo: schoolInfo.ss_no,
+        schoolCode,
+        rows,
+      });
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Student_Namelist_${schoolInfo.school_name.replace(/[^a-z0-9]+/gi, '_')}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setDownloadingNamelist(false);
+    }
+  }
+
   function toggleSort(field: 'name' | 'class') {
     if (sortField === field) setSortOrder(o => o === 'asc' ? 'desc' : 'asc');
     else { setSortField(field); setSortOrder('asc'); }
@@ -815,6 +870,10 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
               <Button variant="outline" size="sm" onClick={exportCSV}>
                 <Download className="h-3.5 w-3.5 mr-1" />
                 Export CSV
+              </Button>
+              <Button variant="outline" size="sm" onClick={downloadNamelistPDF} disabled={!students.length || downloadingNamelist}>
+                <FileText className="h-3.5 w-3.5 mr-1" />
+                {downloadingNamelist ? 'Generating…' : 'Namelist PDF'}
               </Button>
               <Button
                 variant={sortField === 'name' ? 'secondary' : 'ghost'}
