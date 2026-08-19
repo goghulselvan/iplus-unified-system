@@ -34,12 +34,22 @@ function extractRoll(regNo: string | null): string {
 
 const INDIGO = { r: 79 / 255, g: 70 / 255, b: 229 / 255 };
 const VIOLET = { r: 124 / 255, g: 58 / 255, b: 237 / 255 };
+const INDIGO_TEXT = rgb(INDIGO.r, INDIGO.g, INDIGO.b);
 const TEXT_DARK = rgb(0.10, 0.10, 0.18);
 const MUTED = rgb(0.42, 0.45, 0.51);
 const CARD_BORDER = rgb(0.87, 0.85, 0.95);
 const ROW_SHADE = rgb(0.97, 0.97, 0.99);
-const CLASS_BAND = rgb(0.90, 0.89, 0.97);
-const SUBJECT_BAND = rgb(0.98, 0.75, 0.14);
+const CLASS_BAND = rgb(0.94, 0.94, 0.98);
+// Subtle palette — soft tints with colored text/borders rather than solid
+// saturated fills, so the document reads as calm and printable, not a wall
+// of bright blocks (2026-08-19 feedback: original indigo/gold fills were
+// "very bright and bold").
+const SCHOOL_BANNER_BG = rgb(0.96, 0.96, 0.99);
+const SCHOOL_BANNER_BORDER = rgb(0.80, 0.79, 0.94);
+const TABLE_HEADER_BG = rgb(0.94, 0.93, 0.98);
+const SUBJECT_BAND_BG = rgb(0.99, 0.96, 0.87);
+const SUBJECT_BAND_BORDER = rgb(0.87, 0.72, 0.35);
+const SUBJECT_TEXT = rgb(0.52, 0.38, 0.07);
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
 const W = 595.28, H = 841.89; // A4 portrait
@@ -101,45 +111,45 @@ export async function generateStudentNamelistPdf({ schoolName, ssNo, schoolCode,
     const title = 'Student Namelist';
     const titleSize = 20;
     const titleW = fontBold.widthOfTextAtSize(title, titleSize);
-    page.drawText(title, { x: W - MARGIN - titleW, y: y - 6, size: titleSize, font: fontBold, color: rgb(INDIGO.r, INDIGO.g, INDIGO.b) });
+    page.drawText(title, { x: W - MARGIN - titleW, y: y - 6, size: titleSize, font: fontBold, color: INDIGO_TEXT });
     const dateLine = `Generated ${generatedOn}`;
     const dateW = font.widthOfTextAtSize(dateLine, 9);
     page.drawText(dateLine, { x: W - MARGIN - dateW, y: y - 22, size: 9, font, color: MUTED });
     y -= logoH + 6;
 
     const bannerH = 54;
-    page.drawRectangle({ x: MARGIN, y: y - bannerH, width: TABLE_W, height: bannerH, color: rgb(INDIGO.r, INDIGO.g, INDIGO.b) });
-    page.drawText(fullSchoolName, { x: MARGIN + 16, y: y - bannerH / 2 + 4, size: 13, font: fontBold, color: rgb(1, 1, 1) });
+    page.drawRectangle({ x: MARGIN, y: y - bannerH, width: TABLE_W, height: bannerH, color: SCHOOL_BANNER_BG, borderColor: SCHOOL_BANNER_BORDER, borderWidth: 1 });
+    page.drawText(fullSchoolName, { x: MARGIN + 16, y: y - bannerH / 2 + 4, size: 13, font: fontBold, color: TEXT_DARK });
     const codeText = schoolCode || '—';
-    const codeSize = 30;
+    const codeSize = 28;
     const codeW = fontBold.widthOfTextAtSize(codeText, codeSize);
     const codeLabel = 'SCHOOL CODE';
     const codeLabelW = font.widthOfTextAtSize(codeLabel, 9);
     const codeRight = MARGIN + TABLE_W - 16;
-    page.drawText(codeLabel, { x: codeRight - codeLabelW, y: y - 15, size: 9, font: fontBold, color: rgb(0.85, 0.83, 0.98) });
-    page.drawText(codeText, { x: codeRight - codeW, y: y - bannerH + 12, size: codeSize, font: fontBold, color: rgb(1, 1, 1) });
+    page.drawText(codeLabel, { x: codeRight - codeLabelW, y: y - 15, size: 9, font: fontBold, color: MUTED });
+    page.drawText(codeText, { x: codeRight - codeW, y: y - bannerH + 12, size: codeSize, font: fontBold, color: INDIGO_TEXT });
     y -= bannerH + 14;
     return y;
   }
 
   function drawSubjectBand(page: PDFPage, y: number, subj: string, continued: boolean): number {
-    page.drawRectangle({ x: MARGIN, y: y - SUBJECT_BAND_H, width: TABLE_W, height: SUBJECT_BAND_H, color: SUBJECT_BAND });
+    page.drawRectangle({ x: MARGIN, y: y - SUBJECT_BAND_H, width: TABLE_W, height: SUBJECT_BAND_H, color: SUBJECT_BAND_BG, borderColor: SUBJECT_BAND_BORDER, borderWidth: 1 });
     const label = `${SUBJECT_FULL[subj] ?? subj} (${subj})${continued ? ' — continued' : ''}`;
-    page.drawText(label, { x: MARGIN + 12, y: y - SUBJECT_BAND_H + 10, size: 12.5, font: fontBold, color: rgb(0.25, 0.16, 0.02) });
+    page.drawText(label, { x: MARGIN + 12, y: y - SUBJECT_BAND_H + 10, size: 12.5, font: fontBold, color: SUBJECT_TEXT });
     return y - SUBJECT_BAND_H - 10;
   }
 
   function drawTableHeader(page: PDFPage, y: number): number {
-    page.drawRectangle({ x: MARGIN, y: y - HEADER_ROW_H, width: TABLE_W, height: HEADER_ROW_H, color: rgb(INDIGO.r, INDIGO.g, INDIGO.b) });
+    page.drawRectangle({ x: MARGIN, y: y - HEADER_ROW_H, width: TABLE_W, height: HEADER_ROW_H, color: TABLE_HEADER_BG });
     for (const col of COLS) {
-      page.drawText(col.label, { x: col.x + 8, y: y - HEADER_ROW_H + 7, size: 9.5, font: fontBold, color: rgb(1, 1, 1) });
+      page.drawText(col.label, { x: col.x + 8, y: y - HEADER_ROW_H + 7, size: 9.5, font: fontBold, color: TEXT_DARK });
     }
     return y - HEADER_ROW_H;
   }
 
   function drawClassBand(page: PDFPage, y: number, classLabel: string, continued: boolean): number {
     page.drawRectangle({ x: MARGIN, y: y - CLASS_BAND_H, width: TABLE_W, height: CLASS_BAND_H, color: CLASS_BAND });
-    page.drawText(`Class ${classLabel}${continued ? ' (contd.)' : ''}`, { x: MARGIN + 8, y: y - CLASS_BAND_H + 6, size: 10, font: fontBold, color: rgb(INDIGO.r, INDIGO.g, INDIGO.b) });
+    page.drawText(`Class ${classLabel}${continued ? ' (contd.)' : ''}`, { x: MARGIN + 8, y: y - CLASS_BAND_H + 6, size: 10, font: fontBold, color: INDIGO_TEXT });
     return y - CLASS_BAND_H;
   }
 
@@ -182,7 +192,7 @@ export async function generateStudentNamelistPdf({ schoolName, ssNo, schoolCode,
         page.drawText(String(sno), { x: COLS[0].x + 8, y: y - ROW_H + 6, size: 9, font, color: TEXT_DARK });
         page.drawText(student.name, { x: COLS[1].x + 8, y: y - ROW_H + 6, size: 9, font, color: TEXT_DARK });
         const roll = extractRoll(student.registrationNumber);
-        page.drawText(roll, { x: COLS[2].x + 8, y: y - ROW_H + 6, size: 10.5, font: fontBold, color: rgb(INDIGO.r, INDIGO.g, INDIGO.b) });
+        page.drawText(roll, { x: COLS[2].x + 8, y: y - ROW_H + 6, size: 10.5, font: fontBold, color: INDIGO_TEXT });
         y -= ROW_H;
         sno++;
       }
