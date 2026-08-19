@@ -29,10 +29,15 @@ export default function InvoiceItemsDialog({
       });
   }, [invoiceId]);
 
+  const totalQty = items.reduce((sum, it) => sum + it.quantity, 0);
+
   return (
     <Dialog open={!!invoiceId} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader><DialogTitle>Invoiced Items</DialogTitle></DialogHeader>
+        {!loading && items.length > 0 && (
+          <p className="text-sm text-muted-foreground -mt-2">Total Quantity: <span className="font-semibold text-foreground">{totalQty}</span></p>
+        )}
         <Table>
           <TableHeader>
             <TableRow>
