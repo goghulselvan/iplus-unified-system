@@ -83,6 +83,13 @@ export default function InvoicesPage() {
       case 'oldest': sorted.sort((a, b) => (a.fy - b.fy) || (a.invoice_number - b.invoice_number)); break;
       case 'amount_desc': sorted.sort((a, b) => b.grand_total - a.grand_total); break;
       case 'amount_asc': sorted.sort((a, b) => a.grand_total - b.grand_total); break;
+      case 'dispatch_status':
+        sorted.sort((a, b) => {
+          const aDispatched = a.dispatched_at ? 1 : 0;
+          const bDispatched = b.dispatched_at ? 1 : 0;
+          return aDispatched - bDispatched || (b.fy - a.fy) || (b.invoice_number - a.invoice_number);
+        });
+        break;
       default: sorted.sort((a, b) => (b.fy - a.fy) || (b.invoice_number - a.invoice_number));
     }
     return sorted;
@@ -257,6 +264,7 @@ export default function InvoicesPage() {
             <SelectContent>
               <SelectItem value="newest">Newest First</SelectItem>
               <SelectItem value="oldest">Oldest First</SelectItem>
+              <SelectItem value="dispatch_status">Pending Dispatch First</SelectItem>
               <SelectItem value="amount_desc">Amount High→Low</SelectItem>
               <SelectItem value="amount_asc">Amount Low→High</SelectItem>
             </SelectContent>
