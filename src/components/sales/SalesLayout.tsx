@@ -9,7 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { LogOut, ArrowLeft, ChevronDown, LayoutDashboard, Package, FileText, Truck, ClipboardList, PackageMinus, ArrowUpDown, BarChart3, FileBarChart, PackageSearch } from 'lucide-react';
+import { LogOut, ArrowLeft, ChevronDown, LayoutDashboard, Package, FileText, Truck, ClipboardList, PackageMinus, ArrowUpDown, BarChart3, FileBarChart, PackageSearch, TrendingUp } from 'lucide-react';
 
 const standaloneNav = [
   { label: 'Dashboard', href: '/sales/dashboard', icon: LayoutDashboard },
@@ -70,6 +70,7 @@ const navGroups = [
     items: [
       { label: 'Stock Report', href: '/sales/stock-report', icon: BarChart3 },
       { label: 'Purchase Report', href: '/sales/purchase-report', icon: FileBarChart },
+      { label: 'Sales Analytics', href: '/sales/analytics', icon: TrendingUp },
     ],
   },
 ];
