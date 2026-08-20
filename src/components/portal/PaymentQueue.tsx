@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CheckCircle2, ExternalLink, RefreshCw } from 'lucide-react';
+import { CheckCircle2, ExternalLink, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { sendPaymentReceiptComms } from '@/utils/sendPaymentReceipt';
@@ -28,11 +28,13 @@ interface PaymentSubmission {
 }
 
 export function PaymentQueue() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
+  const isSuperadmin = profile?.role === 'superadmin';
   const qc = useQueryClient();
   const [filter, setFilter] = useState<'pending' | 'acknowledged' | 'all'>('pending');
   const [ackTarget, setAckTarget] = useState<PaymentSubmission | null>(null);
   const [verifiedAmountInput, setVerifiedAmountInput] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<PaymentSubmission | null>(null);
 
   const { data: submissions = [], isLoading, refetch } = useQuery({
     queryKey: ['admin-payment-queue', filter],
@@ -91,6 +93,21 @@ export function PaymentQueue() {
       }
       setAckTarget(null);
       setVerifiedAmountInput('');
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (submissionId: string) => {
+      const { error } = await supabase.rpc('delete_pending_payment_submission', { p_submission_id: submissionId });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-payment-queue'] });
+      toast({ title: 'Payment submission deleted' });
+      setDeleteTarget(null);
     },
     onError: (err: Error) => {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
@@ -215,16 +232,29 @@ export function PaymentQueue() {
                     </Badge>
                   </td>
                   <td className="px-4 py-3">
-                    {s.status === 'pending' && (
-                      <Button
-                        size="sm"
-                        onClick={() => { setAckTarget(s); setVerifiedAmountInput(String(s.amount_paid)); }}
-                        className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 h-8 text-xs"
-                      >
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                        Acknowledge
-                      </Button>
-                    )}
+                    <div className="flex items-center gap-1.5">
+                      {s.status === 'pending' && (
+                        <Button
+                          size="sm"
+                          onClick={() => { setAckTarget(s); setVerifiedAmountInput(String(s.amount_paid)); }}
+                          className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 h-8 text-xs"
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          Acknowledge
+                        </Button>
+                      )}
+                      {isSuperadmin && s.status === 'pending' && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setDeleteTarget(s)}
+                          className="flex items-center gap-1.5 h-8 text-xs text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Delete
+                        </Button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -267,6 +297,29 @@ export function PaymentQueue() {
               disabled={acknowledgeMutation.isPending || verifiedAmountInput === '' || Number(verifiedAmountInput) <= 0}
             >
               Confirm & Acknowledge
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Delete Payment Submission</DialogTitle></DialogHeader>
+          {deleteTarget && (
+            <p className="text-sm text-muted-foreground">
+              This permanently deletes {deleteTarget.schools?.school_name ?? 'this school'}'s ₹{Number(deleteTarget.amount_paid).toLocaleString('en-IN')}
+              {' '}payment submission (submitted {new Date(deleteTarget.created_at).toLocaleDateString('en-IN')}) — use this for a wrong/duplicate proof
+              that was never acknowledged. It hasn't been counted toward the school's payment total, so nothing else needs to change.
+            </p>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
             </Button>
           </DialogFooter>
         </DialogContent>
