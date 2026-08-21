@@ -26,6 +26,7 @@ export type Product = {
   unit: string;
   minimum_stock_level: number;
   expiry_date: string | null;
+  expected_restock_date: string | null;
   location: string | null;
   barcode: string | null;
   image_url: string | null;

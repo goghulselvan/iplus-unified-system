@@ -18,7 +18,7 @@ const CUSTOM = '__custom__';
 const emptyForm = {
   name: '', hsn_code: '', gst_rate: '18', unit_price: '', stock_quantity: '',
   category_id: '', sku: '', item_type: 'saleable', unit: 'pcs',
-  minimum_stock_level: '5', expiry_date: '', location: '', barcode: '', image_url: '',
+  minimum_stock_level: '5', expiry_date: '', expected_restock_date: '', location: '', barcode: '', image_url: '',
   series: '', subject: '', class_number: '',
 };
 
@@ -119,6 +119,7 @@ export default function ProductDialog({
       unit: editing.unit,
       minimum_stock_level: String(editing.minimum_stock_level),
       expiry_date: editing.expiry_date ?? '',
+      expected_restock_date: editing.expected_restock_date ?? '',
       location: editing.location ?? '',
       barcode: editing.barcode ?? '',
       image_url: editing.image_url ?? '',
@@ -161,6 +162,7 @@ export default function ProductDialog({
       unit: form.unit.trim() || 'pcs',
       minimum_stock_level: Number(form.minimum_stock_level) || 0,
       expiry_date: form.expiry_date || null,
+      expected_restock_date: form.expected_restock_date || null,
       location: form.location.trim() || null,
       barcode: form.barcode.trim() || null,
       image_url: form.image_url.trim() || null,
@@ -250,6 +252,10 @@ export default function ProductDialog({
           <div>
             <Label htmlFor="p-expiry">Expiry Date</Label>
             <Input id="p-expiry" type="date" value={form.expiry_date} onChange={e => setForm(f => ({ ...f, expiry_date: e.target.value }))} />
+          </div>
+          <div>
+            <Label htmlFor="p-restock">Expected Restock Date <span className="text-muted-foreground font-normal">(shown to schools when out of stock)</span></Label>
+            <Input id="p-restock" type="date" value={form.expected_restock_date} onChange={e => setForm(f => ({ ...f, expected_restock_date: e.target.value }))} />
           </div>
           <div>
             <Label htmlFor="p-location">Storage Location</Label>
