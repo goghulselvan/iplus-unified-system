@@ -306,11 +306,19 @@ export function PaymentQueue() {
         <DialogContent>
           <DialogHeader><DialogTitle>Delete Payment Submission</DialogTitle></DialogHeader>
           {deleteTarget && (
-            <p className="text-sm text-muted-foreground">
-              This permanently deletes {deleteTarget.schools?.school_name ?? 'this school'}'s ₹{Number(deleteTarget.amount_paid).toLocaleString('en-IN')}
-              {' '}payment submission (submitted {new Date(deleteTarget.created_at).toLocaleDateString('en-IN')}) — use this for a wrong/duplicate proof
-              that was never acknowledged. It hasn't been counted toward the school's payment total, so nothing else needs to change.
-            </p>
+            <div className="space-y-3">
+              <p className="text-sm font-bold text-foreground">Are you sure you want to delete this payment?</p>
+              <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-sm space-y-1">
+                <p><span className="font-bold">School Name:</span> {deleteTarget.schools?.school_name ?? '—'}</p>
+                <p><span className="font-bold">Payment Amount:</span> ₹{Number(deleteTarget.amount_paid).toLocaleString('en-IN')}</p>
+                <p><span className="font-bold">Date:</span> {new Date(deleteTarget.created_at).toLocaleDateString('en-IN')}</p>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Use this only for a wrong/duplicate proof that was never acknowledged — it hasn't been
+                counted toward the school's payment total, so nothing else needs to change. This action
+                is permanent and recorded in the payment deletion log.
+              </p>
+            </div>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
