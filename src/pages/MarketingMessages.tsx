@@ -44,10 +44,12 @@ interface School {
   mobile1: string | null;
   registration_status: string | null;
   payment_status: string | null;
+  portal_registered: boolean | null;
 }
 
 const REG_STATUSES = ["Pending", "Confirmed", "In Progress"] as const;
 const PAY_STATUSES = ["Pending", "Partial", "Received"] as const;
+const SOURCE_OPTIONS = ["Portal", "Manual"] as const;
 
 export default function MarketingMessages() {
   const { toast } = useToast();
@@ -69,6 +71,7 @@ export default function MarketingMessages() {
   const [districtOptions, setDistrictOptions] = useState<string[]>([]);
   const [regStatuses, setRegStatuses] = useState<string[]>([]);
   const [payStatuses, setPayStatuses] = useState<string[]>([]);
+  const [sources, setSources] = useState<string[]>([]);
   const [requireContact, setRequireContact] = useState(true);
   const [matched, setMatched] = useState<School[]>([]);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -133,7 +136,7 @@ export default function MarketingMessages() {
     setPreviewLoading(true);
     let q = supabase
       .from("school_project_workflow")
-      .select("schools(id,school_name,state,district,email,mobile1,registration_status,payment_status)")
+      .select("schools(id,school_name,state,district,email,mobile1,registration_status,payment_status,portal_registered)")
       .eq("project_id", projectId);
 
     if (regStatuses.length) q = q.in("registration_status", regStatuses);
@@ -143,6 +146,10 @@ export default function MarketingMessages() {
     let schools = (data ?? []).map((r: any) => r.schools).filter(Boolean) as School[];
     if (states.length) schools = schools.filter(s => states.includes(s.state ?? ""));
     if (districts.length) schools = schools.filter(s => districts.includes(s.district));
+    if (sources.length === 1) {
+      const wantPortal = sources.includes("Portal");
+      schools = schools.filter(s => !!s.portal_registered === wantPortal);
+    }
 
     // Filter by contact availability
     if (requireContact) {
@@ -564,6 +571,26 @@ export default function MarketingMessages() {
                     <div key={s} className="flex items-center gap-2">
                       <Checkbox id={`ps-${s}`} checked={payStatuses.includes(s)} onCheckedChange={() => toggle(payStatuses, s, setPayStatuses)} />
                       <label htmlFor={`ps-${s}`} className="text-sm cursor-pointer">{s}</label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Registration Channel: Portal vs Manual */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="text-sm font-semibold">Registration Channel</Label>
+                  <div className="space-x-1">
+                    <button onClick={() => setSources([...SOURCE_OPTIONS])} className="text-xs text-indigo-600 hover:underline font-medium">All</button>
+                    <span className="text-xs text-muted-foreground">•</span>
+                    <button onClick={() => setSources([])} className="text-xs text-indigo-600 hover:underline font-medium">Clear</button>
+                  </div>
+                </div>
+                <div className="space-y-1.5 border rounded-lg p-2 bg-white">
+                  {SOURCE_OPTIONS.map(s => (
+                    <div key={s} className="flex items-center gap-2">
+                      <Checkbox id={`src-${s}`} checked={sources.includes(s)} onCheckedChange={() => toggle(sources, s, setSources)} />
+                      <label htmlFor={`src-${s}`} className="text-sm cursor-pointer">{s === "Portal" ? "Portal-registered" : "Manually added"}</label>
                     </div>
                   ))}
                 </div>
