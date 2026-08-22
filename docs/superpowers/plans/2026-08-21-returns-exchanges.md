@@ -448,7 +448,7 @@ git commit -m "Add confirm_return_received RPC"
 ### Task 4: Credit application on Manual Order Requests
 
 **Files:**
-- Create: `supabase/migrations/20260821d_credit_note_manual_order_integration.sql`
+- Create: `supabase/migrations/20260821f_credit_note_manual_order_integration.sql`
 
 **Interfaces:**
 - Consumes: `credit_notes_with_balance` (Task 1), existing `create_manual_product_order` (current body in `supabase/migrations/20260813_allow_out_of_stock_manual_orders.sql`) and `approve_order_items` (current body in `supabase/migrations/20260807e_book_order_requests_fulfillment_rpcs.sql`).
@@ -658,6 +658,14 @@ BEGIN
   SET invoice_id = v_invoice_id, line_status = 'invoiced_unpaid'
   WHERE id = ANY(p_item_ids);
 
+  -- Payment was already verified before approval was possible — mark the
+  -- invoice paid immediately. Runs after the UPDATE above so the trigger's
+  -- cascade (invoiced_unpaid -> paid) finds the items it needs to flip.
+  -- (Restored from the live function — supabase/migrations/20260810_approve_order_items_auto_mark_paid.sql
+  -- added this after this plan's original reference copy of approve_order_items was read;
+  -- omitting it here would have silently regressed a real, already-shipped fix.)
+  PERFORM mark_invoice_paid(v_invoice_id, true);
+
   IF v_credit_note_id IS NOT NULL AND NOT v_credit_already_applied THEN
     -- Re-validate the credit note's balance here, at the moment it's actually
     -- spent — not just at order-creation time. Two different manual orders can
@@ -692,7 +700,7 @@ $$;
 
 - [ ] **Step 3: Apply the migration**
 
-Via `mcp__supabase__apply_migration`, `name: "20260821d_credit_note_manual_order_integration"`.
+Via `mcp__supabase__apply_migration`, `name: "20260821f_credit_note_manual_order_integration"`.
 
 - [ ] **Step 4: Re-run verification — full loop with a real credit note**
 
@@ -730,7 +738,7 @@ Run via `mcp__supabase__execute_sql`, substituting real ids. Expected: order cre
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/20260821d_credit_note_manual_order_integration.sql
+git add supabase/migrations/20260821f_credit_note_manual_order_integration.sql
 git commit -m "Wire credit note application into Manual Order Requests and approval"
 ```
 
