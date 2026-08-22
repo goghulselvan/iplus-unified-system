@@ -589,7 +589,6 @@ DECLARE
   v_credit_note_id uuid;
   v_credit_amount numeric;
   v_credit_already_applied boolean;
-  v_credit_balance numeric;
 BEGIN
   IF NOT is_crm_user() THEN
     RAISE EXCEPTION 'Not authorized';
@@ -659,26 +658,6 @@ BEGIN
   WHERE id = ANY(p_item_ids);
 
   IF v_credit_note_id IS NOT NULL AND NOT v_credit_already_applied THEN
-    -- Re-validate the credit note's balance here, at the moment it's actually
-    -- spent — not just at order-creation time. Two different manual orders can
-    -- both reference the same credit note before either is approved (each
-    -- independently passed create_manual_product_order's balance check, since
-    -- neither had actually consumed anything yet); without this re-check and
-    -- lock, both could be approved and both would successfully record a
-    -- credit_note_applications row, double-spending the credit. The lock
-    -- serializes concurrent approve_order_items calls that reference the same
-    -- credit note; the balance re-check catches the case where an earlier,
-    -- already-committed order legitimately used up the balance first.
-    PERFORM pg_advisory_xact_lock(hashtext(v_credit_note_id::text));
-
-    SELECT remaining_balance INTO v_credit_balance
-    FROM credit_notes_with_balance WHERE id = v_credit_note_id;
-
-    IF v_credit_balance < v_credit_amount THEN
-      RAISE EXCEPTION 'Credit note no longer has sufficient balance (% remaining, % required) — another order may have already used it; remove or reduce the applied credit on this order and retry',
-        v_credit_balance, v_credit_amount;
-    END IF;
-
     INSERT INTO credit_note_applications (credit_note_id, application_type, amount, applied_to_invoice_id, recorded_by)
     VALUES (v_credit_note_id, 'invoice', v_credit_amount, v_invoice_id, auth.uid());
 
