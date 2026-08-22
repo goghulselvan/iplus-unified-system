@@ -57,6 +57,7 @@ import PurchaseOrderDetail from "./pages/Sales/PurchaseOrderDetail";
 import ItemIssuePage from "./pages/Sales/ItemIssuePage";
 import StockReportPage from "./pages/Sales/StockReportPage";
 import PurchaseReportPage from "./pages/Sales/PurchaseReportPage";
+import ReturnsPage from '@/pages/Sales/ReturnsPage';
 import SalesAnalyticsPage from "./pages/Sales/SalesAnalyticsPage";
 import DashboardPage from "./pages/Sales/DashboardPage";
 import OrderRequestsPage from "./pages/Sales/OrderRequestsPage";
@@ -383,6 +384,7 @@ const AppContent = () => {
         <Route path="/sales/item-issue" element={<ProtectedRoute><ItemIssuePage /></ProtectedRoute>} />
         <Route path="/sales/stock-report" element={<ProtectedRoute><StockReportPage /></ProtectedRoute>} />
         <Route path="/sales/purchase-report" element={<ProtectedRoute><PurchaseReportPage /></ProtectedRoute>} />
+        <Route path="/sales/returns" element={<ProtectedRoute><ReturnsPage /></ProtectedRoute>} />
         <Route path="/sales/analytics" element={<ProtectedRoute><SalesAnalyticsPage /></ProtectedRoute>} />
          <Route path="*" element={<NotFound />} />
         </Routes>
