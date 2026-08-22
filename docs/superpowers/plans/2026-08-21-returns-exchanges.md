@@ -1755,12 +1755,12 @@ Add an effect that looks up the school's open credit whenever a school is select
 
 - [ ] **Step 2: Compute net amount due and relax the save/screenshot requirement**
 
-Replace the existing `canSave` definition:
+Replace the existing `canSave` definition (this worktree's actual committed version includes a client-side stock cap on each line — preserve it verbatim, this task doesn't touch stock validation):
 
 ```tsx
   const canSave = !!selectedSchool
     && lineItems.length > 0
-    && lineItems.every(l => l.product_id && l.quantity > 0)
+    && lineItems.every(l => l.product_id && l.quantity > 0 && l.quantity <= (productFor(l.product_id)?.stock_quantity ?? 0))
     && amount.trim() && parseFloat(amount) > 0
     && payDate && payMode && !!file;
 ```
@@ -1773,18 +1773,18 @@ with:
 
   const canSave = !!selectedSchool
     && lineItems.length > 0
-    && lineItems.every(l => l.product_id && l.quantity > 0)
+    && lineItems.every(l => l.product_id && l.quantity > 0 && l.quantity <= (productFor(l.product_id)?.stock_quantity ?? 0))
     && payDate && payMode
     && (netDue === 0 ? true : (amount.trim() && parseFloat(amount) > 0 && !!file));
 ```
 
 - [ ] **Step 3: Send the credit params and skip the upload when net-zero**
 
-Replace the start of `handleSave` (the `if (!canSave...)` guard through the upload block):
+Replace the start of `handleSave` (the `if (!canSave...)` guard through the upload block) — note the real guard includes `|| !file`, which the replacement deliberately drops (file becomes conditionally required, handled inside the new `if (netDue > 0)` block below):
 
 ```tsx
   const handleSave = async () => {
-    if (!canSave || !selectedSchool) {
+    if (!canSave || !selectedSchool || !file) {
       toast({ title: 'Fill in all required fields', variant: 'destructive' });
       return;
     }
@@ -1876,36 +1876,62 @@ with:
 
 - [ ] **Step 4: Show the credit balance and apply-credit input in the form**
 
-In the JSX, immediately before the payment-amount `<Input>` field (the block rendering `<Label>Amount Paid</Label>` or equivalent — the existing amount field just above the payment-mode select), add:
+The real current JSX (verified against this worktree's actual file, not assumed) has a "Payment Details" section shaped like this:
 
 ```tsx
-          {availableCredit && (
-            <div className="border rounded-md p-3 bg-emerald-50 space-y-2">
-              <p className="text-sm font-medium text-emerald-800">
-                This school has ₹{availableCredit.remaining_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })} open credit.
-              </p>
+          <div className="border-t pt-4">
+            <p className="text-sm font-semibold mb-3">Payment Details (as sent by the school)</p>
+            <div className="grid grid-cols-2 gap-3 mb-3">
               <div>
-                <Label>Apply credit</Label>
-                <Input type="number" min={0} max={Math.min(availableCredit.remaining_balance, cartTotal)} step="0.01"
-                  value={applyCredit} onChange={e => setApplyCredit(e.target.value)} placeholder="0.00" />
+                <Label>Amount Received (₹)</Label>
+                <Input type="number" min="1" step="0.01" value={amount}
+                  onChange={e => setAmount(e.target.value)}
+                  placeholder={cartTotal ? String(cartTotal) : ''} />
               </div>
-              <p className="text-sm text-muted-foreground">
-                Net amount due: <span className="font-semibold text-foreground">₹{netDue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-              </p>
-            </div>
-          )}
 ```
 
-Immediately after that (or after the existing amount field if `availableCredit` is null), make the existing Amount Paid input and file upload conditionally required in their labels — find the amount field's `<Label>` (reads something like `<Label>Amount Paid</Label>`) and change it to:
+Insert the credit banner immediately after the `<p className="text-sm font-semibold mb-3">Payment Details (as sent by the school)</p>` line and before the `<div className="grid grid-cols-2 gap-3 mb-3">` line:
 
 ```tsx
-          <Label>Amount Paid{netDue === 0 ? ' (fully covered by credit)' : ''}</Label>
+            {availableCredit && (
+              <div className="border rounded-md p-3 bg-emerald-50 space-y-2 mb-3">
+                <p className="text-sm font-medium text-emerald-800">
+                  This school has ₹{availableCredit.remaining_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })} open credit.
+                </p>
+                <div>
+                  <Label>Apply credit</Label>
+                  <Input type="number" min={0} max={Math.min(availableCredit.remaining_balance, cartTotal)} step="0.01"
+                    value={applyCredit} onChange={e => setApplyCredit(e.target.value)} placeholder="0.00" />
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Net amount due: <span className="font-semibold text-foreground">₹{netDue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </p>
+              </div>
+            )}
 ```
 
-And find the payment-screenshot upload section's label (reads something like `<Label>Payment Screenshot</Label>`) and change it to:
+Then relabel the two existing fields conditionally. Replace:
 
 ```tsx
-          <Label>Payment Screenshot{netDue === 0 ? ' (not required — fully covered by credit)' : ''}</Label>
+                <Label>Amount Received (₹)</Label>
+```
+
+with:
+
+```tsx
+                <Label>Amount Received (₹){netDue === 0 ? ' (fully covered by credit)' : ''}</Label>
+```
+
+And replace:
+
+```tsx
+            <Label>Payment Screenshot / Deposit Receipt</Label>
+```
+
+with:
+
+```tsx
+            <Label>Payment Screenshot / Deposit Receipt{netDue === 0 ? ' (not required — fully covered by credit)' : ''}</Label>
 ```
 
 - [ ] **Step 5: Run `tsc --noEmit` and confirm no new errors**
