@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -18,6 +18,10 @@ export default function ConfirmReturnReceiptDialog({ open, onOpenChange, returnI
   const { toast } = useToast();
   const [condition, setCondition] = useState<'resellable' | 'damaged' | ''>('');
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (open) { setCondition(''); }
+  }, [open, returnId]);
 
   const handleConfirm = async () => {
     if (!returnId || !condition) return;
