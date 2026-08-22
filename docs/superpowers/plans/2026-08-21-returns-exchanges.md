@@ -793,6 +793,13 @@ BEGIN
     RAISE EXCEPTION 'Refund mode is required';
   END IF;
 
+  -- Same advisory-lock domain as Task 4's approve_order_items (hashtext of the
+  -- credit note id) — serializes this refund not just against a concurrent
+  -- second refund on the same note, but against a concurrent order-approval
+  -- spending the same note too, closing the read-then-check-then-write race
+  -- this exact bug class already needed fixing twice elsewhere in this plan.
+  PERFORM pg_advisory_xact_lock(hashtext(p_credit_note_id::text));
+
   SELECT remaining_balance INTO v_balance
   FROM credit_notes_with_balance WHERE id = p_credit_note_id;
   IF v_balance IS NULL THEN
