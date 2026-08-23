@@ -28,6 +28,7 @@ import AccountsDashboardPage from "./pages/Accounts/AccountsDashboardPage";
 import AccountsPaymentsPage from "./pages/Accounts/AccountsPaymentsPage";
 import AccountsSupplierPaymentsPage from "./pages/Accounts/AccountsSupplierPaymentsPage";
 import AccountsOutstandingPage from "./pages/Accounts/AccountsOutstandingPage";
+import AccountsDeletedPaymentsPage from "./pages/Accounts/AccountsDeletedPaymentsPage";
 import CommunicationTemplates from "./pages/CommunicationTemplates";
 import WhatsAppTemplates from "./pages/WhatsAppTemplates";
 import ExportModule from "./pages/ExportModule";
@@ -316,6 +317,7 @@ const AppContent = () => {
          <Route path="/accounts/payments" element={<ProtectedRoute accountantOnly><AccountsPaymentsPage /></ProtectedRoute>} />
          <Route path="/accounts/supplier-payments" element={<ProtectedRoute accountantOnly><AccountsSupplierPaymentsPage /></ProtectedRoute>} />
          <Route path="/accounts/outstanding" element={<ProtectedRoute accountantOnly><AccountsOutstandingPage /></ProtectedRoute>} />
+         <Route path="/accounts/deleted-payments" element={<ProtectedRoute accountantOnly><AccountsDeletedPaymentsPage /></ProtectedRoute>} />
          <Route
            path="/communication-templates" 
            element={
