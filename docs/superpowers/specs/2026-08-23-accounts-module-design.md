@@ -142,9 +142,15 @@ be an unneeded abstraction over a table that's already exactly the right shape.
 Two independent sources, shown as two sections on one page (not merged into one table — a school
 owing a registration balance and a school with an unpaid book-order invoice are different kinds of
 debt with different resolution paths):
-- **Registration outstanding**: `schools` where `payment_status NOT IN ('Received', 'Overpaid')`,
-  showing `outstanding_balance`.
-- **Book-order outstanding**: `invoices.status NOT IN ('paid', 'void')`. Checked live data directly:
+- **Registration outstanding**: `schools` where `payment_status IN ('Pending', 'Partial')` (the DB
+  enum has exactly 4 values — `Pending`/`Received`/`Partial`/`Overpaid`, confirmed live via
+  `pg_enum` — so this is the precise complement of `Received`/`Overpaid`; querying it as a positive
+  `IN` list rather than PostgREST's `not(...,'in',...)` also sidesteps that filter's fiddly
+  list-quoting syntax, which has no existing precedent anywhere else in this codebase), showing
+  `outstanding_balance`.
+- **Book-order outstanding**: `invoices.status = 'unpaid'` — the `invoices_status_check` constraint
+  confirms `status` only ever takes `unpaid`/`paid`/`void`, so this is exact, not an approximation.
+  Checked live data directly:
   every `product_order_items.line_status` today is `paid`, `dispatched`, or `rejected` — no
   `pending`/`invoiced_unpaid` rows exist, and `invoices.status` is only ever `paid` or `void` in
   practice, because `approve_order_items` auto-marks the invoice paid at creation (book orders
