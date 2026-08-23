@@ -24,6 +24,7 @@ import SecurityMonitoring from "./pages/SecurityMonitoring";
 import BoardManagementPage from "./pages/BoardManagement";
 import Admin from "./pages/Admin";
 import AccountantDashboard from "./pages/AccountantDashboard";
+import AccountsDashboardPage from "./pages/Accounts/AccountsDashboardPage";
 import CommunicationTemplates from "./pages/CommunicationTemplates";
 import WhatsAppTemplates from "./pages/WhatsAppTemplates";
 import ExportModule from "./pages/ExportModule";
@@ -299,15 +300,17 @@ const AppContent = () => {
              </ProtectedRoute>
            } 
          />
-         <Route 
-           path="/accountant" 
+         <Route
+           path="/accountant"
            element={
              <ProtectedRoute accountantOnly>
                <AccountantDashboard />
              </ProtectedRoute>
-           } 
+           }
          />
-         <Route 
+         <Route path="/accounts" element={<ProtectedRoute accountantOnly><Navigate to="/accounts/dashboard" replace /></ProtectedRoute>} />
+         <Route path="/accounts/dashboard" element={<ProtectedRoute accountantOnly><AccountsDashboardPage /></ProtectedRoute>} />
+         <Route
            path="/communication-templates" 
            element={
              <ProtectedRoute adminOnly>

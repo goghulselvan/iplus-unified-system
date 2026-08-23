@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
-import { LogOut, Users, Building2, ArrowRight, MapPin, ShoppingCart } from 'lucide-react';
+import { LogOut, Users, Building2, ArrowRight, MapPin, ShoppingCart, Landmark } from 'lucide-react';
 
 const ModuleSelect = () => {
   const navigate = useNavigate();
@@ -30,7 +30,7 @@ const ModuleSelect = () => {
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome back, {profile?.username}</h1>
         <p className="text-gray-500 mb-12">Select a module to continue</p>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-4xl">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 w-full max-w-5xl">
           {/* Prospect Schools tile */}
           <button
             onClick={() => navigate('/prospect')}
@@ -75,6 +75,23 @@ const ModuleSelect = () => {
             <h2 className="text-xl font-bold mb-1">Sales</h2>
             <p className="text-sm text-white/80">Products · Invoicing · GST Billing</p>
           </button>
+
+          {/* Accounts tile */}
+          {(profile?.role === 'accountant' || profile?.role === 'superadmin') && (
+            <button
+              onClick={() => navigate('/accounts')}
+              className="group rounded-2xl p-8 text-left text-white shadow-md hover:shadow-2xl hover:scale-[1.02] transition-all duration-200 bg-gradient-to-br from-emerald-600 via-teal-500 to-cyan-400"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <div className="p-3 bg-white/15 backdrop-blur-sm rounded-xl ring-1 ring-white/20">
+                  <Landmark className="h-7 w-7 text-white" />
+                </div>
+                <ArrowRight className="h-5 w-5 text-white/60 group-hover:text-white group-hover:translate-x-1 transition-all" />
+              </div>
+              <h2 className="text-xl font-bold mb-1">Accounts</h2>
+              <p className="text-sm text-white/80">Payments · Refunds · Credit Notes · Outstanding</p>
+            </button>
+          )}
         </div>
       </div>
     </div>
