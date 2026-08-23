@@ -53,40 +53,32 @@ separately).
 No new business data is created by this feature — every number already exists somewhere in
 `payment_transactions`, `product_orders`, `inventory_supplier_payments`, `credit_notes_with_balance`,
 `credit_note_applications`, `deleted_payments`, or `schools`. This module is:
-1. One new precisely-scoped role-check helper (existing `is_accountant_or_above()` is a footgun for
-   this — see below).
-2. One new normalizing view for the unified Payments-In ledger.
-3. New pages that read the above (and existing tables/views) — no new RPCs, since nothing here
-   writes.
+1. One new normalizing view for the unified Payments-In ledger.
+2. New pages that read that view (and existing tables/views) — no new RPCs, since nothing here
+   writes, and no new DB-level role helper (see below for why).
 
-### The `is_accountant_or_above()` naming trap
+### Where the accountant+superadmin-only restriction actually lives — and where it can't
 
-`is_accountant_or_above()` already exists in this database — but despite the name, it returns true
-for `manager` too (`role IN ('accountant', 'manager', 'superadmin')`). The Sales module's real
-money-gated RPCs (`invoices_update`, `confirm_return_received`, `issue_credit_refund`, etc.)
-deliberately avoid it and inline `role IN ('superadmin', 'accountant')` instead — the codebase's
-established, correct precedent, confirmed by reading every one of those RPCs directly. This module
-needs the same accountant+superadmin-only (no manager) gate in several places, so rather than
-inline the same three-role check repeatedly or accidentally reach for the misleadingly-named
-existing helper, add one new precisely-named function:
+Checked directly, this needs a correction from an earlier draft of this design: a DB-level role
+gate on the new view would not do what it sounds like. `accounts_payments_in` must be declared
+`WITH (security_invoker = true)` (mandatory — a prior feature in this codebase shipped a summary
+view without it and it silently bypassed RLS; not repeating that). With `security_invoker = true`,
+the view runs under the *querying user's* existing rights on the underlying tables — it cannot be
+made stricter than what `payment_transactions`, `product_orders`, and `schools` already allow.
+Checked those directly: `payment_transactions` SELECT is already `is_accountant_or_above()`
+(accountant **and manager** — not accountant-only), `product_orders`/`schools` SELECT are
+`is_crm_user()` (any staff). A manager can already read every row this view would expose, today,
+by querying those tables directly or via existing pages (School Payment tab, Sales Invoices) — so a
+new role-restrictive policy on this view specifically would be bypassable in one query and would
+not close any real gap, just add non-functional-looking SQL.
 
-```sql
-CREATE OR REPLACE FUNCTION public.is_accountant_or_superadmin()
- RETURNS boolean
- LANGUAGE sql
- STABLE SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
-  SELECT EXISTS (
-    SELECT 1 FROM profiles WHERE user_id = auth.uid() AND role IN ('accountant', 'superadmin')
-  );
-$function$;
-```
-
-Used in the RLS policies on the new view below and on `deleted_payments`'s existing policy is
-untouched (it already correctly uses `is_crm_user()` — any staff — which this module doesn't need
-to narrow, since restricting *page access* is enough; the underlying table staying broadly readable
-by any CRM query is pre-existing behavior, not something this feature should tighten unasked).
+The restriction you actually asked for — accountant + superadmin can use this module, manager
+cannot — is a **UI/navigation** boundary, not a data-visibility one, and it's fully achieved by the
+existing `ProtectedRoute accountantOnly` (already does exactly `role === 'accountant' || role ===
+'superadmin'`, confirmed by reading `ProtectedRoute.tsx` directly) wrapping every `/accounts/*`
+route. This matches how `/accountant` itself already works today — there is no DB-level
+`accountant`-only policy on `payment_transactions` beyond what's already there, only the route gate.
+No new DB role-check function is needed for this module.
 
 ### Unified Payments-In view
 
@@ -134,11 +126,9 @@ double-count. Book-order payments have no separate installment/transaction table
 `product_orders` row is one payment event — so filtering to `payment_status = 'confirmed'` is the
 complete and correct set with no dedup risk.
 
-`security_invoker = true` is mandatory — a prior feature in this codebase (the inventory rebuild)
-shipped a summary view without it and it silently bypassed RLS. Same class of mistake this repo has
-already made once; not repeating it.
-
-RLS: `is_accountant_or_superadmin()` SELECT-only, no write policy (nothing ever writes to a view).
+`security_invoker = true` is set for the reason explained above — it's what makes this view's access
+correctly track the base tables' real RLS instead of silently bypassing it, not what restricts it to
+accountant+superadmin (nothing does, at the DB level — see above).
 
 ### Supplier Payments — no new view needed
 
@@ -206,10 +196,12 @@ with retry → empty state with a clear message, no raw error text ever surfaced
 ## Testing
 
 No automated test suite exists in this codebase (established convention, same as Returns &
-Exchanges). Verification plan: `tsc --noEmit` clean; direct query against
-`accounts_payments_in`/the new role helper on the live linked database to confirm row counts and
-role-gating actually work (a manager session should get zero rows / a redirect, an accountant
-session should see everything); live browser click-through by Goghul before merge (this environment
+Exchanges). Verification plan: `tsc --noEmit` clean; direct query against `accounts_payments_in` on
+the live linked database to confirm row counts/shape are correct (matches a manual sum of
+`payment_transactions` + confirmed `product_orders` for a known school); confirm `ProtectedRoute
+accountantOnly` actually redirects a manager profile away from every new route (this is the real
+access boundary, per the correction above — not a DB-level check); live browser click-through by
+Goghul before merge (this environment
 has no CRM login).
 
 ## Out of scope (explicitly not building)
