@@ -9,7 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { LogOut, ArrowLeft, ChevronDown, LayoutDashboard, Package, FileText, Truck, ClipboardList, PackageMinus, ArrowUpDown, BarChart3, FileBarChart, PackageSearch, TrendingUp } from 'lucide-react';
+import { LogOut, ArrowLeft, ChevronDown, LayoutDashboard, Package, FileText, Truck, ClipboardList, PackageMinus, ArrowUpDown, BarChart3, FileBarChart, PackageSearch, TrendingUp, RotateCcw, Wallet } from 'lucide-react';
 
 const standaloneNav = [
   { label: 'Dashboard', href: '/sales/dashboard', icon: LayoutDashboard },
@@ -50,6 +50,18 @@ function useOrderRequestsBadge() {
   });
 }
 
+function useReturnsBadge() {
+  return useQuery({
+    queryKey: ['sales-returns-badge'],
+    queryFn: async () => {
+      const { count } = await supabase.from('product_returns' as any).select('*', { count: 'exact', head: true }).eq('status', 'requested');
+      return count ?? 0;
+    },
+    refetchInterval: 30_000,
+    staleTime: 0,
+  });
+}
+
 const navGroups = [
   {
     label: 'Procurement',
@@ -73,6 +85,13 @@ const navGroups = [
       { label: 'Sales Analytics', href: '/sales/analytics', icon: TrendingUp },
     ],
   },
+  {
+    label: 'Returns',
+    items: [
+      { label: 'Returns', href: '/sales/returns', icon: RotateCcw },
+      { label: 'Credit Notes', href: '/sales/credit-notes', icon: Wallet },
+    ],
+  },
 ];
 
 const SalesLayout = ({ children }: { children: React.ReactNode }) => {
@@ -80,6 +99,7 @@ const SalesLayout = ({ children }: { children: React.ReactNode }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { data: orderRequestsBadge = 0 } = useOrderRequestsBadge();
+  const { data: returnsBadge = 0 } = useReturnsBadge();
 
   const linkClass = (active: boolean) =>
     `flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
@@ -132,6 +152,11 @@ const SalesLayout = ({ children }: { children: React.ReactNode }) => {
                             >
                               <Icon className="h-3.5 w-3.5" />
                               {label}
+                              {href === '/sales/returns' && returnsBadge > 0 && (
+                                <span className="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-blue-600 text-white text-[10px] font-bold leading-none">
+                                  {returnsBadge > 99 ? '99+' : returnsBadge}
+                                </span>
+                              )}
                             </Link>
                           </DropdownMenuItem>
                         ))}

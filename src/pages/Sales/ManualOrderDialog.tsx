@@ -59,6 +59,9 @@ export default function ManualOrderDialog({ open, onOpenChange, onSaved }: Props
   const [products, setProducts] = useState<Product[]>([]);
   const [lineItems, setLineItems] = useState<LineItemForm[]>([emptyLine()]);
 
+  const [availableCredit, setAvailableCredit] = useState<{ id: string; remaining_balance: number } | null>(null);
+  const [applyCredit, setApplyCredit] = useState('');
+
   const [amount, setAmount] = useState('');
   const [payDate, setPayDate] = useState(new Date().toISOString().split('T')[0]);
   const [payMode, setPayMode] = useState('NEFT');
@@ -81,6 +84,21 @@ export default function ManualOrderDialog({ open, onOpenChange, onSaved }: Props
     setAmount(''); setPayDate(new Date().toISOString().split('T')[0]); setPayMode('NEFT');
     setUtr(''); setAccountHolderName(''); setNotes(''); setFile(null);
   }, [open]);
+
+  useEffect(() => {
+    if (!selectedSchool) { setAvailableCredit(null); setApplyCredit(''); return; }
+    supabase.from('credit_notes_with_balance' as any)
+      .select('id, remaining_balance')
+      .eq('school_id', selectedSchool.id)
+      .gt('remaining_balance', 0)
+      .order('remaining_balance', { ascending: false })
+      .limit(1)
+      .then(({ data }) => {
+        const row = (data?.[0] ?? null) as unknown as { id: string; remaining_balance: number } | null;
+        setAvailableCredit(row);
+        setApplyCredit('');
+      });
+  }, [selectedSchool?.id]);
 
   const searchSchools = async (q: string) => {
     setSchoolQuery(q);
@@ -111,46 +129,55 @@ export default function ManualOrderDialog({ open, onOpenChange, onSaved }: Props
     return s + (p ? p.unit_price * l.quantity : 0);
   }, 0);
 
+  const creditToApply = availableCredit ? Math.max(0, Math.min(parseFloat(applyCredit) || 0, availableCredit.remaining_balance, cartTotal)) : 0;
+  const netDue = Math.max(cartTotal - creditToApply, 0);
+
   const canSave = !!selectedSchool
     && lineItems.length > 0
     && lineItems.every(l => l.product_id && l.quantity > 0 && l.quantity <= (productFor(l.product_id)?.stock_quantity ?? 0))
-    && amount.trim() && parseFloat(amount) > 0
-    && payDate && payMode && !!file;
+    && payDate && payMode
+    && (netDue === 0 ? true : (amount.trim() && parseFloat(amount) > 0 && !!file));
 
   const handleSave = async () => {
-    if (!canSave || !selectedSchool || !file) {
+    if (!canSave || !selectedSchool) {
       toast({ title: 'Fill in all required fields', variant: 'destructive' });
       return;
     }
     setSaving(true);
 
-    const ext = file.name.split('.').pop();
-    const path = `${selectedSchool.id}/${Date.now()}.${ext}`;
-    const { error: upErr } = await supabase.storage.from('payment-proofs').upload(path, file, { upsert: true });
-    if (upErr) {
-      setSaving(false);
-      toast({ title: 'Upload failed', description: upErr.message, variant: 'destructive' });
-      return;
-    }
-    const { data: signedData } = await supabase.storage.from('payment-proofs').createSignedUrl(path, 63072000);
-    const screenshotUrl = signedData?.signedUrl ?? null;
-    if (!screenshotUrl) {
-      setSaving(false);
-      toast({ title: 'Failed to prepare the uploaded file', variant: 'destructive' });
-      return;
+    let screenshotUrl: string | null = null;
+    if (netDue > 0) {
+      if (!file) { setSaving(false); toast({ title: 'Payment proof is required', variant: 'destructive' }); return; }
+      const ext = file.name.split('.').pop();
+      const path = `${selectedSchool.id}/${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from('payment-proofs').upload(path, file, { upsert: true });
+      if (upErr) {
+        setSaving(false);
+        toast({ title: 'Upload failed', description: upErr.message, variant: 'destructive' });
+        return;
+      }
+      const { data: signedData } = await supabase.storage.from('payment-proofs').createSignedUrl(path, 63072000);
+      screenshotUrl = signedData?.signedUrl ?? null;
+      if (!screenshotUrl) {
+        setSaving(false);
+        toast({ title: 'Failed to prepare the uploaded file', variant: 'destructive' });
+        return;
+      }
     }
 
     const items = lineItems.map(l => ({ product_id: l.product_id, quantity: l.quantity }));
     const { data, error } = await supabase.rpc('create_manual_product_order' as any, {
       p_school_id: selectedSchool.id,
       p_items: items,
-      p_payment_amount: parseFloat(amount),
+      p_payment_amount: netDue === 0 ? 0 : parseFloat(amount),
       p_payment_mode: payMode,
       p_payment_date: payDate,
       p_payment_utr_reference: utr.trim() || null,
       p_payment_account_holder_name: accountHolderName.trim() || null,
       p_payment_screenshot_url: screenshotUrl,
       p_notes: notes.trim() || null,
+      p_credit_note_id: creditToApply > 0 ? availableCredit?.id ?? null : null,
+      p_credit_amount: creditToApply > 0 ? creditToApply : null,
     });
 
     setSaving(false);
@@ -290,9 +317,24 @@ export default function ManualOrderDialog({ open, onOpenChange, onSaved }: Props
 
           <div className="border-t pt-4">
             <p className="text-sm font-semibold mb-3">Payment Details (as sent by the school)</p>
+            {availableCredit && (
+              <div className="border rounded-md p-3 bg-emerald-50 space-y-2 mb-3">
+                <p className="text-sm font-medium text-emerald-800">
+                  This school has ₹{availableCredit.remaining_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })} open credit.
+                </p>
+                <div>
+                  <Label>Apply credit</Label>
+                  <Input type="number" min={0} max={Math.min(availableCredit.remaining_balance, cartTotal)} step="0.01"
+                    value={applyCredit} onChange={e => setApplyCredit(e.target.value)} placeholder="0.00" />
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Net amount due: <span className="font-semibold text-foreground">₹{netDue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </p>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3 mb-3">
               <div>
-                <Label>Amount Received (₹)</Label>
+                <Label>Amount Received (₹){netDue === 0 ? ' (fully covered by credit)' : ''}</Label>
                 <Input type="number" min="1" step="0.01" value={amount}
                   onChange={e => setAmount(e.target.value)}
                   placeholder={cartTotal ? String(cartTotal) : ''} />
@@ -322,7 +364,7 @@ export default function ManualOrderDialog({ open, onOpenChange, onSaved }: Props
               </div>
             </div>
 
-            <Label>Payment Screenshot / Deposit Receipt</Label>
+            <Label>Payment Screenshot / Deposit Receipt{netDue === 0 ? ' (not required — fully covered by credit)' : ''}</Label>
             <div
               onClick={() => fileRef.current?.click()}
               className={`w-full px-4 py-4 rounded-lg border-2 border-dashed text-center cursor-pointer transition-colors ${

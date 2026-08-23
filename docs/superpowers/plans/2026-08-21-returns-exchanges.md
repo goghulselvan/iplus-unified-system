@@ -448,7 +448,7 @@ git commit -m "Add confirm_return_received RPC"
 ### Task 4: Credit application on Manual Order Requests
 
 **Files:**
-- Create: `supabase/migrations/20260821d_credit_note_manual_order_integration.sql`
+- Create: `supabase/migrations/20260821f_credit_note_manual_order_integration.sql`
 
 **Interfaces:**
 - Consumes: `credit_notes_with_balance` (Task 1), existing `create_manual_product_order` (current body in `supabase/migrations/20260813_allow_out_of_stock_manual_orders.sql`) and `approve_order_items` (current body in `supabase/migrations/20260807e_book_order_requests_fulfillment_rpcs.sql`).
@@ -589,6 +589,7 @@ DECLARE
   v_credit_note_id uuid;
   v_credit_amount numeric;
   v_credit_already_applied boolean;
+  v_credit_balance numeric;
 BEGIN
   IF NOT is_crm_user() THEN
     RAISE EXCEPTION 'Not authorized';
@@ -657,7 +658,35 @@ BEGIN
   SET invoice_id = v_invoice_id, line_status = 'invoiced_unpaid'
   WHERE id = ANY(p_item_ids);
 
+  -- Payment was already verified before approval was possible — mark the
+  -- invoice paid immediately. Runs after the UPDATE above so the trigger's
+  -- cascade (invoiced_unpaid -> paid) finds the items it needs to flip.
+  -- (Restored from the live function — supabase/migrations/20260810_approve_order_items_auto_mark_paid.sql
+  -- added this after this plan's original reference copy of approve_order_items was read;
+  -- omitting it here would have silently regressed a real, already-shipped fix.)
+  PERFORM mark_invoice_paid(v_invoice_id, true);
+
   IF v_credit_note_id IS NOT NULL AND NOT v_credit_already_applied THEN
+    -- Re-validate the credit note's balance here, at the moment it's actually
+    -- spent — not just at order-creation time. Two different manual orders can
+    -- both reference the same credit note before either is approved (each
+    -- independently passed create_manual_product_order's balance check, since
+    -- neither had actually consumed anything yet); without this re-check and
+    -- lock, both could be approved and both would successfully record a
+    -- credit_note_applications row, double-spending the credit. The lock
+    -- serializes concurrent approve_order_items calls that reference the same
+    -- credit note; the balance re-check catches the case where an earlier,
+    -- already-committed order legitimately used up the balance first.
+    PERFORM pg_advisory_xact_lock(hashtext(v_credit_note_id::text));
+
+    SELECT remaining_balance INTO v_credit_balance
+    FROM credit_notes_with_balance WHERE id = v_credit_note_id;
+
+    IF v_credit_balance < v_credit_amount THEN
+      RAISE EXCEPTION 'Credit note no longer has sufficient balance (% remaining, % required) — another order may have already used it; remove or reduce the applied credit on this order and retry',
+        v_credit_balance, v_credit_amount;
+    END IF;
+
     INSERT INTO credit_note_applications (credit_note_id, application_type, amount, applied_to_invoice_id, recorded_by)
     VALUES (v_credit_note_id, 'invoice', v_credit_amount, v_invoice_id, auth.uid());
 
@@ -671,7 +700,7 @@ $$;
 
 - [ ] **Step 3: Apply the migration**
 
-Via `mcp__supabase__apply_migration`, `name: "20260821d_credit_note_manual_order_integration"`.
+Via `mcp__supabase__apply_migration`, `name: "20260821f_credit_note_manual_order_integration"`.
 
 - [ ] **Step 4: Re-run verification — full loop with a real credit note**
 
@@ -709,7 +738,7 @@ Run via `mcp__supabase__execute_sql`, substituting real ids. Expected: order cre
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/20260821d_credit_note_manual_order_integration.sql
+git add supabase/migrations/20260821f_credit_note_manual_order_integration.sql
 git commit -m "Wire credit note application into Manual Order Requests and approval"
 ```
 
@@ -763,6 +792,13 @@ BEGIN
   IF p_refund_mode IS NULL OR trim(p_refund_mode) = '' THEN
     RAISE EXCEPTION 'Refund mode is required';
   END IF;
+
+  -- Same advisory-lock domain as Task 4's approve_order_items (hashtext of the
+  -- credit note id) — serializes this refund not just against a concurrent
+  -- second refund on the same note, but against a concurrent order-approval
+  -- spending the same note too, closing the read-then-check-then-write race
+  -- this exact bug class already needed fixing twice elsewhere in this plan.
+  PERFORM pg_advisory_xact_lock(hashtext(p_credit_note_id::text));
 
   SELECT remaining_balance INTO v_balance
   FROM credit_notes_with_balance WHERE id = p_credit_note_id;
@@ -1719,12 +1755,12 @@ Add an effect that looks up the school's open credit whenever a school is select
 
 - [ ] **Step 2: Compute net amount due and relax the save/screenshot requirement**
 
-Replace the existing `canSave` definition:
+Replace the existing `canSave` definition (this worktree's actual committed version includes a client-side stock cap on each line — preserve it verbatim, this task doesn't touch stock validation):
 
 ```tsx
   const canSave = !!selectedSchool
     && lineItems.length > 0
-    && lineItems.every(l => l.product_id && l.quantity > 0)
+    && lineItems.every(l => l.product_id && l.quantity > 0 && l.quantity <= (productFor(l.product_id)?.stock_quantity ?? 0))
     && amount.trim() && parseFloat(amount) > 0
     && payDate && payMode && !!file;
 ```
@@ -1737,18 +1773,18 @@ with:
 
   const canSave = !!selectedSchool
     && lineItems.length > 0
-    && lineItems.every(l => l.product_id && l.quantity > 0)
+    && lineItems.every(l => l.product_id && l.quantity > 0 && l.quantity <= (productFor(l.product_id)?.stock_quantity ?? 0))
     && payDate && payMode
     && (netDue === 0 ? true : (amount.trim() && parseFloat(amount) > 0 && !!file));
 ```
 
 - [ ] **Step 3: Send the credit params and skip the upload when net-zero**
 
-Replace the start of `handleSave` (the `if (!canSave...)` guard through the upload block):
+Replace the start of `handleSave` (the `if (!canSave...)` guard through the upload block) — note the real guard includes `|| !file`, which the replacement deliberately drops (file becomes conditionally required, handled inside the new `if (netDue > 0)` block below):
 
 ```tsx
   const handleSave = async () => {
-    if (!canSave || !selectedSchool) {
+    if (!canSave || !selectedSchool || !file) {
       toast({ title: 'Fill in all required fields', variant: 'destructive' });
       return;
     }
@@ -1840,36 +1876,62 @@ with:
 
 - [ ] **Step 4: Show the credit balance and apply-credit input in the form**
 
-In the JSX, immediately before the payment-amount `<Input>` field (the block rendering `<Label>Amount Paid</Label>` or equivalent — the existing amount field just above the payment-mode select), add:
+The real current JSX (verified against this worktree's actual file, not assumed) has a "Payment Details" section shaped like this:
 
 ```tsx
-          {availableCredit && (
-            <div className="border rounded-md p-3 bg-emerald-50 space-y-2">
-              <p className="text-sm font-medium text-emerald-800">
-                This school has ₹{availableCredit.remaining_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })} open credit.
-              </p>
+          <div className="border-t pt-4">
+            <p className="text-sm font-semibold mb-3">Payment Details (as sent by the school)</p>
+            <div className="grid grid-cols-2 gap-3 mb-3">
               <div>
-                <Label>Apply credit</Label>
-                <Input type="number" min={0} max={Math.min(availableCredit.remaining_balance, cartTotal)} step="0.01"
-                  value={applyCredit} onChange={e => setApplyCredit(e.target.value)} placeholder="0.00" />
+                <Label>Amount Received (₹)</Label>
+                <Input type="number" min="1" step="0.01" value={amount}
+                  onChange={e => setAmount(e.target.value)}
+                  placeholder={cartTotal ? String(cartTotal) : ''} />
               </div>
-              <p className="text-sm text-muted-foreground">
-                Net amount due: <span className="font-semibold text-foreground">₹{netDue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-              </p>
-            </div>
-          )}
 ```
 
-Immediately after that (or after the existing amount field if `availableCredit` is null), make the existing Amount Paid input and file upload conditionally required in their labels — find the amount field's `<Label>` (reads something like `<Label>Amount Paid</Label>`) and change it to:
+Insert the credit banner immediately after the `<p className="text-sm font-semibold mb-3">Payment Details (as sent by the school)</p>` line and before the `<div className="grid grid-cols-2 gap-3 mb-3">` line:
 
 ```tsx
-          <Label>Amount Paid{netDue === 0 ? ' (fully covered by credit)' : ''}</Label>
+            {availableCredit && (
+              <div className="border rounded-md p-3 bg-emerald-50 space-y-2 mb-3">
+                <p className="text-sm font-medium text-emerald-800">
+                  This school has ₹{availableCredit.remaining_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })} open credit.
+                </p>
+                <div>
+                  <Label>Apply credit</Label>
+                  <Input type="number" min={0} max={Math.min(availableCredit.remaining_balance, cartTotal)} step="0.01"
+                    value={applyCredit} onChange={e => setApplyCredit(e.target.value)} placeholder="0.00" />
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Net amount due: <span className="font-semibold text-foreground">₹{netDue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </p>
+              </div>
+            )}
 ```
 
-And find the payment-screenshot upload section's label (reads something like `<Label>Payment Screenshot</Label>`) and change it to:
+Then relabel the two existing fields conditionally. Replace:
 
 ```tsx
-          <Label>Payment Screenshot{netDue === 0 ? ' (not required — fully covered by credit)' : ''}</Label>
+                <Label>Amount Received (₹)</Label>
+```
+
+with:
+
+```tsx
+                <Label>Amount Received (₹){netDue === 0 ? ' (fully covered by credit)' : ''}</Label>
+```
+
+And replace:
+
+```tsx
+            <Label>Payment Screenshot / Deposit Receipt</Label>
+```
+
+with:
+
+```tsx
+            <Label>Payment Screenshot / Deposit Receipt{netDue === 0 ? ' (not required — fully covered by credit)' : ''}</Label>
 ```
 
 - [ ] **Step 5: Run `tsc --noEmit` and confirm no new errors**
