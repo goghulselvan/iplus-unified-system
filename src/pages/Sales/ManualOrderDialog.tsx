@@ -169,7 +169,7 @@ export default function ManualOrderDialog({ open, onOpenChange, onSaved }: Props
     const { data, error } = await supabase.rpc('create_manual_product_order' as any, {
       p_school_id: selectedSchool.id,
       p_items: items,
-      p_payment_amount: netDue,
+      p_payment_amount: netDue === 0 ? 0 : parseFloat(amount),
       p_payment_mode: payMode,
       p_payment_date: payDate,
       p_payment_utr_reference: utr.trim() || null,
