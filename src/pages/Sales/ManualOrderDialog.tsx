@@ -129,7 +129,7 @@ export default function ManualOrderDialog({ open, onOpenChange, onSaved }: Props
     return s + (p ? p.unit_price * l.quantity : 0);
   }, 0);
 
-  const creditToApply = availableCredit ? Math.min(parseFloat(applyCredit) || 0, availableCredit.remaining_balance, cartTotal) : 0;
+  const creditToApply = availableCredit ? Math.max(0, Math.min(parseFloat(applyCredit) || 0, availableCredit.remaining_balance, cartTotal)) : 0;
   const netDue = Math.max(cartTotal - creditToApply, 0);
 
   const canSave = !!selectedSchool
