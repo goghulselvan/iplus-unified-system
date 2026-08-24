@@ -134,7 +134,7 @@ export default function ManualOrderDialog({ open, onOpenChange, onSaved }: Props
 
   const canSave = !!selectedSchool
     && lineItems.length > 0
-    && lineItems.every(l => l.product_id && l.quantity > 0 && l.quantity <= (productFor(l.product_id)?.stock_quantity ?? 0))
+    && lineItems.every(l => l.product_id && l.quantity > 0)
     && payDate && payMode
     && (netDue === 0 ? true : (amount.trim() && parseFloat(amount) > 0 && !!file));
 
@@ -277,18 +277,23 @@ export default function ManualOrderDialog({ open, onOpenChange, onSaved }: Props
                           <SelectTrigger className="h-8"><SelectValue placeholder="Pick a product…" /></SelectTrigger>
                           <SelectContent>
                             {products.map(prod => (
-                              <SelectItem key={prod.id} value={prod.id} disabled={prod.stock_quantity <= 0}>
+                              <SelectItem key={prod.id} value={prod.id}>
                                 {prod.name} {prod.stock_quantity <= 0 ? '(Out of Stock)' : ''}
                               </SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
+                        {overStock && (
+                          <p className="text-[11px] text-amber-600 mt-0.5">
+                            Only {p!.stock_quantity} in stock — this line will wait as a backorder until restocked.
+                          </p>
+                        )}
                       </td>
                       <td className="px-2 py-1.5">{p ? `₹${p.unit_price.toLocaleString('en-IN')}` : '—'}</td>
-                      <td className={`px-2 py-1.5 ${overStock ? 'text-red-600 font-medium' : ''}`}>{p?.stock_quantity ?? '—'}</td>
+                      <td className={`px-2 py-1.5 ${overStock ? 'text-amber-600 font-medium' : ''}`}>{p?.stock_quantity ?? '—'}</td>
                       <td className="px-2 py-1.5">
                         <Input
-                          className={`h-8 ${overStock ? 'border-red-400' : ''}`}
+                          className={`h-8 ${overStock ? 'border-amber-400' : ''}`}
                           type="number" min="1" step="1" value={l.quantity}
                           onChange={e => updateRow(idx, { quantity: Math.max(1, Math.round(Number(e.target.value) || 1)) })}
                         />
