@@ -6,19 +6,21 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import ConfirmReturnReceiptDialog from '@/components/sales/ConfirmReturnReceiptDialog';
+import IssueCreditDialog from '@/components/sales/IssueCreditDialog';
+import MarkReturnReceivedDialog from '@/components/sales/MarkReturnReceivedDialog';
 
 type ReturnRow = {
   id: string;
   quantity: number;
   reason_category: string;
   reason_note: string | null;
-  status: 'requested' | 'received';
+  status: 'requested' | 'credit_issued' | 'received';
   condition_on_receipt: 'resellable' | 'damaged' | null;
   requested_at: string;
   actual_product: { name: string } | null;
   invoice_line_items: {
     item_name: string;
+    unit_price: number;
     invoices: { invoice_number: number | null; fy: number | null; schools: { school_name: string; ss_no: number | null } | null } | null;
   } | null;
 };
@@ -35,6 +37,7 @@ export default function ReturnsPage() {
   const canManage = profile?.role === 'superadmin' || profile?.role === 'accountant';
   const [rows, setRows] = useState<ReturnRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [creditTarget, setCreditTarget] = useState<{ returnId: string; schoolName: string; itemName: string; quantity: number; amount: number } | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<{ id: string; itemName: string } | null>(null);
 
   const load = () => {
@@ -44,7 +47,7 @@ export default function ReturnsPage() {
       .select(`
         id, quantity, reason_category, reason_note, status, condition_on_receipt, requested_at,
         actual_product:products!product_returns_actual_product_id_fkey ( name ),
-        invoice_line_items ( item_name, invoices ( invoice_number, fy, schools ( school_name, ss_no ) ) )
+        invoice_line_items ( item_name, unit_price, invoices ( invoice_number, fy, schools ( school_name, ss_no ) ) )
       `)
       .order('requested_at', { ascending: false })
       .then(({ data }) => {
@@ -56,6 +59,7 @@ export default function ReturnsPage() {
   useEffect(() => { load(); }, []);
 
   const requested = rows.filter(r => r.status === 'requested');
+  const awaitingReturn = rows.filter(r => r.status === 'credit_issued');
   const received = rows.filter(r => r.status === 'received');
 
   const invoiceLabel = (r: ReturnRow) => {
@@ -68,7 +72,7 @@ export default function ReturnsPage() {
     return school ? `${school.school_name}${school.ss_no != null ? ` (SS #${school.ss_no})` : ''}` : '—';
   };
 
-  const renderRows = (list: ReturnRow[], showAction: boolean) => (
+  const renderRows = (list: ReturnRow[], action: 'issue-credit' | 'mark-received' | 'none') => (
     <Table>
       <TableHeader>
         <TableRow>
@@ -77,8 +81,8 @@ export default function ReturnsPage() {
           <TableHead>Qty</TableHead>
           <TableHead>Reason</TableHead>
           <TableHead>Invoice</TableHead>
-          {!showAction && <TableHead>Condition</TableHead>}
-          {showAction && <TableHead></TableHead>}
+          {action === 'none' && <TableHead>Condition</TableHead>}
+          {action !== 'none' && <TableHead></TableHead>}
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -99,12 +103,27 @@ export default function ReturnsPage() {
               <TableCell>{r.quantity}</TableCell>
               <TableCell><Badge variant="outline">{REASON_LABELS[r.reason_category] ?? r.reason_category}</Badge></TableCell>
               <TableCell>{invoiceLabel(r)}</TableCell>
-              {!showAction && <TableCell className="capitalize">{r.condition_on_receipt}</TableCell>}
-              {showAction && (
+              {action === 'none' && <TableCell className="capitalize">{r.condition_on_receipt}</TableCell>}
+              {action === 'issue-credit' && (
+                <TableCell>
+                  {canManage && (
+                    <Button size="sm" onClick={() => setCreditTarget({
+                      returnId: r.id,
+                      schoolName: schoolLabel(r),
+                      itemName: r.invoice_line_items?.item_name ?? 'item',
+                      quantity: r.quantity,
+                      amount: (r.invoice_line_items?.unit_price ?? 0) * r.quantity,
+                    })}>
+                      Issue Credit
+                    </Button>
+                  )}
+                </TableCell>
+              )}
+              {action === 'mark-received' && (
                 <TableCell>
                   {canManage && (
                     <Button size="sm" onClick={() => setConfirmTarget({ id: r.id, itemName: r.invoice_line_items?.item_name ?? 'item' })}>
-                      Confirm Receipt
+                      Mark Received
                     </Button>
                   )}
                 </TableCell>
@@ -123,13 +142,21 @@ export default function ReturnsPage() {
         <Tabs defaultValue="requested">
           <TabsList>
             <TabsTrigger value="requested">Requested ({requested.length})</TabsTrigger>
+            <TabsTrigger value="awaiting">Awaiting Return ({awaitingReturn.length})</TabsTrigger>
             <TabsTrigger value="received">Received ({received.length})</TabsTrigger>
           </TabsList>
-          <TabsContent value="requested">{renderRows(requested, true)}</TabsContent>
-          <TabsContent value="received">{renderRows(received, false)}</TabsContent>
+          <TabsContent value="requested">{renderRows(requested, 'issue-credit')}</TabsContent>
+          <TabsContent value="awaiting">{renderRows(awaitingReturn, 'mark-received')}</TabsContent>
+          <TabsContent value="received">{renderRows(received, 'none')}</TabsContent>
         </Tabs>
       </div>
-      <ConfirmReturnReceiptDialog
+      <IssueCreditDialog
+        open={!!creditTarget}
+        onOpenChange={(o) => { if (!o) setCreditTarget(null); }}
+        target={creditTarget}
+        onIssued={load}
+      />
+      <MarkReturnReceivedDialog
         open={!!confirmTarget}
         onOpenChange={(o) => { if (!o) setConfirmTarget(null); }}
         returnId={confirmTarget?.id ?? null}

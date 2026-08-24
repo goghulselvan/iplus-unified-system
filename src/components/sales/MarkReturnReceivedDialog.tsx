@@ -14,7 +14,7 @@ interface Props {
   onConfirmed: () => void;
 }
 
-export default function ConfirmReturnReceiptDialog({ open, onOpenChange, returnId, itemName, onConfirmed }: Props) {
+export default function MarkReturnReceivedDialog({ open, onOpenChange, returnId, itemName, onConfirmed }: Props) {
   const { toast } = useToast();
   const [condition, setCondition] = useState<'resellable' | 'damaged' | ''>('');
   const [saving, setSaving] = useState(false);
@@ -26,13 +26,13 @@ export default function ConfirmReturnReceiptDialog({ open, onOpenChange, returnI
   const handleConfirm = async () => {
     if (!returnId || !condition) return;
     setSaving(true);
-    const { error } = await supabase.rpc('confirm_return_received' as any, {
+    const { error } = await supabase.rpc('mark_return_received' as any, {
       p_return_id: returnId,
       p_condition: condition,
     });
     setSaving(false);
     if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
-    toast({ title: 'Return received, credit note issued' });
+    toast({ title: 'Return received, stock updated' });
     setCondition('');
     onConfirmed();
     onOpenChange(false);
