@@ -76,32 +76,37 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setSession(session);
         setUser(session?.user ?? null);
         
-        // Handle profile fetching with better error handling
+        // Handle profile fetching with better error handling. loading must not
+        // flip to false until the profile fetch actually resolves — doing so
+        // earlier (the previous setTimeout(fn, 0) deferral let setLoading(false)
+        // fire before this promise settled) left a real window where
+        // ProtectedRoute saw loading:false with profile still null, which reads
+        // as "wrong role" and bounces an accountant off every accountantOnly
+        // route on a fresh page load/refresh.
+        const finishLoading = () => {
+          if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
+            setLoading(false);
+          }
+        };
+
         if (session?.user && event !== 'SIGNED_OUT') {
-          setTimeout(() => {
-            if (!mounted) return;
-            
-            supabase
-              .from('profiles')
-              .select('*')
-              .eq('user_id', session.user.id)
-              .maybeSingle()
-              .then(({ data: profileData, error }) => {
-                if (!mounted) return;
-                if (error) {
-                  console.error('Profile fetch error:', error);
-                  return;
-                }
+          supabase
+            .from('profiles')
+            .select('*')
+            .eq('user_id', session.user.id)
+            .maybeSingle()
+            .then(({ data: profileData, error }) => {
+              if (!mounted) return;
+              if (error) {
+                console.error('Profile fetch error:', error);
+              } else {
                 setProfile(profileData as Profile);
-              });
-          }, 0);
+              }
+              finishLoading();
+            });
         } else {
           setProfile(null);
-        }
-        
-        // Only set loading to false after handling the session
-        if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
-          setLoading(false);
+          finishLoading();
         }
       }
     );
