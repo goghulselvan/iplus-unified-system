@@ -16,6 +16,7 @@ type ReturnRow = {
   status: 'requested' | 'received';
   condition_on_receipt: 'resellable' | 'damaged' | null;
   requested_at: string;
+  actual_product: { name: string } | null;
   invoice_line_items: {
     item_name: string;
     invoices: { invoice_number: number | null; fy: number | null; schools: { school_name: string; ss_no: number | null } | null } | null;
@@ -42,6 +43,7 @@ export default function ReturnsPage() {
       .from('product_returns' as any)
       .select(`
         id, quantity, reason_category, reason_note, status, condition_on_receipt, requested_at,
+        actual_product:products!product_returns_actual_product_id_fkey ( name ),
         invoice_line_items ( item_name, invoices ( invoice_number, fy, schools ( school_name, ss_no ) ) )
       `)
       .order('requested_at', { ascending: false })
@@ -88,7 +90,12 @@ export default function ReturnsPage() {
           list.map(r => (
             <TableRow key={r.id}>
               <TableCell>{schoolLabel(r)}</TableCell>
-              <TableCell>{r.invoice_line_items?.item_name ?? '—'}</TableCell>
+              <TableCell>
+                {r.invoice_line_items?.item_name ?? '—'}
+                {r.actual_product && (
+                  <p className="text-xs text-amber-600 mt-0.5">Shipped instead: {r.actual_product.name}</p>
+                )}
+              </TableCell>
               <TableCell>{r.quantity}</TableCell>
               <TableCell><Badge variant="outline">{REASON_LABELS[r.reason_category] ?? r.reason_category}</Badge></TableCell>
               <TableCell>{invoiceLabel(r)}</TableCell>
