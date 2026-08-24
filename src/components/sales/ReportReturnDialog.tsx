@@ -78,7 +78,12 @@ export default function ReportReturnDialog({ open, onOpenChange, lineItem, onRep
           </div>
           <div>
             <Label>Reason</Label>
-            <Select value={reason} onValueChange={setReason}>
+            <Select value={reason} onValueChange={(newReason) => {
+              setReason(newReason);
+              if (newReason !== 'wrong_item_shipped') {
+                setActualProductId('');
+              }
+            }}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 {REASON_OPTIONS.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
