@@ -28,10 +28,18 @@ export default function ReportReturnDialog({ open, onOpenChange, lineItem, onRep
   const [reason, setReason] = useState('wrong_item_shipped');
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
+  const [products, setProducts] = useState<{ id: string; name: string }[]>([]);
+  const [actualProductId, setActualProductId] = useState<string>('');
 
   useEffect(() => {
-    if (open) { setQuantity('1'); setReason('wrong_item_shipped'); setNote(''); }
+    if (open) { setQuantity('1'); setReason('wrong_item_shipped'); setNote(''); setActualProductId(''); }
   }, [open, lineItem?.id]);
+
+  useEffect(() => {
+    if (!open) return;
+    supabase.from('products').select('id, name').eq('is_active', true).order('name')
+      .then(({ data }) => setProducts(data ?? []));
+  }, [open]);
 
   const qtyNum = parseInt(quantity, 10);
   const canSave = !!lineItem && qtyNum > 0 && qtyNum <= lineItem.maxReturnable;
@@ -44,6 +52,7 @@ export default function ReportReturnDialog({ open, onOpenChange, lineItem, onRep
       p_quantity: qtyNum,
       p_reason_category: reason,
       p_reason_note: note.trim() || null,
+      p_actual_product_id: actualProductId || null,
     });
     setSaving(false);
     if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
@@ -69,13 +78,33 @@ export default function ReportReturnDialog({ open, onOpenChange, lineItem, onRep
           </div>
           <div>
             <Label>Reason</Label>
-            <Select value={reason} onValueChange={setReason}>
+            <Select value={reason} onValueChange={(newReason) => {
+              setReason(newReason);
+              if (newReason !== 'wrong_item_shipped') {
+                setActualProductId('');
+              }
+            }}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 {REASON_OPTIONS.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
+          {reason === 'wrong_item_shipped' && (
+            <div>
+              <Label>What was actually sent instead? <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              <Select value={actualProductId} onValueChange={setActualProductId}>
+                <SelectTrigger><SelectValue placeholder="Select if known…" /></SelectTrigger>
+                <SelectContent>
+                  {products.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">
+                Leave blank if you don't know yet — the return can still be reported, but stock will only
+                correct for the invoiced item unless you specify what actually shipped.
+              </p>
+            </div>
+          )}
           <div>
             <Label>Note (optional)</Label>
             <Textarea value={note} onChange={e => setNote(e.target.value)} rows={2} />
