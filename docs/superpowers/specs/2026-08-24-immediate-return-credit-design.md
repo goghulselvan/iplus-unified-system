@@ -35,6 +35,19 @@ given away a replacement book and a spendable credit with nothing recovered. Thi
 business decision (get correct books to schools fast > protect against the rare non-return), not
 an oversight — flagged here so it's a visible, on-the-record trade-off, not a silent one.
 
+## Operating rule, confirmed with Goghul: this credit is never spent on its own correction
+
+The wrong-item-shipped plan's final whole-branch review found that using the *existing* Manual
+Order + Apply Credit mechanism to send a replacement book double-decrements that book's stock (its
+original decrement, from the mistaken invoice, is never restored). The confirmed resolution:
+replacement shipments for a `wrong_item_shipped` correction always go out by re-dispatching the
+**original invoice** (`mark_invoice_dispatched`, no new order) — never via a new Manual Order Request
+paid with the just-issued credit. That means the credit note this feature issues immediately is
+**never** the thing that pays for its own correction's replacement — it's a genuine surplus for the
+school (a future order, or a cash refund), issued as a goodwill/trust gesture so the school isn't
+left waiting, not as the payment mechanism for getting them the right book. `IssueCreditDialog.tsx`'s
+copy should say this plainly, so staff don't reach for Manual Order + Apply Credit out of habit.
+
 ## Mechanism
 
 ### Status model: three states instead of two

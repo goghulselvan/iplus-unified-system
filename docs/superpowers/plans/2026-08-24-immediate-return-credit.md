@@ -322,7 +322,10 @@ export default function IssueCreditDialog({ open, onOpenChange, target, onIssued
           <DialogTitle>Issue Credit{target ? ` — ${target.schoolName}` : ''}</DialogTitle>
           <DialogDescription>
             This mints a credit note immediately — the school doesn't need to wait for the
-            returned book to physically arrive back.
+            returned book to physically arrive back. If this return needs a replacement book sent
+            out, re-dispatch the original invoice for it — don't create a new Manual Order paid
+            with this credit, that double-counts stock. Treat this credit as a separate surplus for
+            the school (a future order, or a cash refund).
           </DialogDescription>
         </DialogHeader>
         {target && (
