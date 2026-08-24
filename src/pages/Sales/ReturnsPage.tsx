@@ -72,7 +72,7 @@ export default function ReturnsPage() {
     return school ? `${school.school_name}${school.ss_no != null ? ` (SS #${school.ss_no})` : ''}` : '—';
   };
 
-  const renderRows = (list: ReturnRow[], action: 'issue-credit' | 'mark-received' | 'none') => (
+  const renderRows = (list: ReturnRow[], opts: { issueCredit?: boolean; markReceived?: boolean; showCondition?: boolean }) => (
     <Table>
       <TableHeader>
         <TableRow>
@@ -81,8 +81,8 @@ export default function ReturnsPage() {
           <TableHead>Qty</TableHead>
           <TableHead>Reason</TableHead>
           <TableHead>Invoice</TableHead>
-          {action === 'none' && <TableHead>Condition</TableHead>}
-          {action !== 'none' && <TableHead></TableHead>}
+          {opts.showCondition && <TableHead>Condition</TableHead>}
+          {(opts.issueCredit || opts.markReceived) && <TableHead></TableHead>}
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -103,28 +103,29 @@ export default function ReturnsPage() {
               <TableCell>{r.quantity}</TableCell>
               <TableCell><Badge variant="outline">{REASON_LABELS[r.reason_category] ?? r.reason_category}</Badge></TableCell>
               <TableCell>{invoiceLabel(r)}</TableCell>
-              {action === 'none' && <TableCell className="capitalize">{r.condition_on_receipt}</TableCell>}
-              {action === 'issue-credit' && (
+              {opts.showCondition && <TableCell className="capitalize">{r.condition_on_receipt}</TableCell>}
+              {(opts.issueCredit || opts.markReceived) && (
                 <TableCell>
                   {canManage && (
-                    <Button size="sm" onClick={() => setCreditTarget({
-                      returnId: r.id,
-                      schoolName: schoolLabel(r),
-                      itemName: r.invoice_line_items?.item_name ?? 'item',
-                      quantity: r.quantity,
-                      amount: (r.invoice_line_items?.unit_price ?? 0) * r.quantity,
-                    })}>
-                      Issue Credit
-                    </Button>
-                  )}
-                </TableCell>
-              )}
-              {action === 'mark-received' && (
-                <TableCell>
-                  {canManage && (
-                    <Button size="sm" onClick={() => setConfirmTarget({ id: r.id, itemName: r.invoice_line_items?.item_name ?? 'item' })}>
-                      Mark Received
-                    </Button>
+                    <div className="flex gap-2">
+                      {opts.issueCredit && (
+                        <Button size="sm" onClick={() => setCreditTarget({
+                          returnId: r.id,
+                          schoolName: schoolLabel(r),
+                          itemName: r.invoice_line_items?.item_name ?? 'item',
+                          quantity: r.quantity,
+                          amount: (r.invoice_line_items?.unit_price ?? 0) * r.quantity,
+                        })}>
+                          Issue Credit
+                        </Button>
+                      )}
+                      {opts.markReceived && (
+                        <Button size="sm" variant={opts.issueCredit ? 'outline' : 'default'}
+                          onClick={() => setConfirmTarget({ id: r.id, itemName: r.invoice_line_items?.item_name ?? 'item' })}>
+                          Mark Received
+                        </Button>
+                      )}
+                    </div>
                   )}
                 </TableCell>
               )}
@@ -145,9 +146,9 @@ export default function ReturnsPage() {
             <TabsTrigger value="awaiting">Awaiting Return ({awaitingReturn.length})</TabsTrigger>
             <TabsTrigger value="received">Received ({received.length})</TabsTrigger>
           </TabsList>
-          <TabsContent value="requested">{renderRows(requested, 'issue-credit')}</TabsContent>
-          <TabsContent value="awaiting">{renderRows(awaitingReturn, 'mark-received')}</TabsContent>
-          <TabsContent value="received">{renderRows(received, 'none')}</TabsContent>
+          <TabsContent value="requested">{renderRows(requested, { issueCredit: true, markReceived: true })}</TabsContent>
+          <TabsContent value="awaiting">{renderRows(awaitingReturn, { markReceived: true })}</TabsContent>
+          <TabsContent value="received">{renderRows(received, { showCondition: true })}</TabsContent>
         </Tabs>
       </div>
       <IssueCreditDialog
