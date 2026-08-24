@@ -95,13 +95,26 @@ The existing NULL-product guard (added 2026-08-23 for custom/no-catalog invoice 
 applies to `v_product_id` — unaffected, since `v_restock_product_id` only falls back to it when
 `actual_product_id` is NULL.
 
-### Getting the correct item to the school — no new mechanism needed
+### Getting the correct item to the school — operating rule, not just a technical note
 
 The correct product's own stock was already decremented once, at original invoice-creation time
 (`create_invoice`), on the assumption it had shipped. It hadn't — but once the real corrective
-shipment goes out, that number becomes true retroactively, with no further stock action needed.
-The only remaining step is marking the invoice **Dispatched**, which already exists
-(`mark_invoice_dispatched`, purely a timestamp, no stock effect) — nothing new to build here.
+shipment goes out **under the original invoice**, that number becomes true retroactively, with no
+further stock action needed. The only remaining step is marking the invoice **Dispatched**, which
+already exists (`mark_invoice_dispatched`, purely a timestamp, no stock effect).
+
+**This is the only correct path — caught by the final whole-branch review, not by any task-level
+check.** This module already has a separate, earlier-built mechanism (`create_manual_product_order`
++ `approve_order_items`, from the 2026-08-21 returns-exchanges plan) for applying an open credit
+note to a brand-new Manual Order Request. Using *that* mechanism to send the replacement instead of
+just re-dispatching the original invoice creates a **second** invoice for the invoiced product,
+decrementing its stock again — since the original invoice's decrement was never restored (it was
+erroneous the moment it was made, since the product never actually shipped the first time), the
+invoiced product ends up double-decremented for one physical unit that only ever left the building
+once. **Staff must not use the Manual Order + Apply Credit flow to send the replacement for a
+`wrong_item_shipped` correction** — re-dispatch the original invoice instead. Any credit note issued
+for this reason category should be treated as a genuine surplus for the school (future order or cash
+refund), not as payment toward the same correction's replacement shipment.
 
 ## UI
 
