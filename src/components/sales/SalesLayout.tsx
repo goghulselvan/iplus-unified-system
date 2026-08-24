@@ -54,7 +54,7 @@ function useReturnsBadge() {
   return useQuery({
     queryKey: ['sales-returns-badge'],
     queryFn: async () => {
-      const { count } = await supabase.from('product_returns' as any).select('*', { count: 'exact', head: true }).eq('status', 'requested');
+      const { count } = await supabase.from('product_returns' as any).select('*', { count: 'exact', head: true }).in('status', ['requested', 'credit_issued']);
       return count ?? 0;
     },
     refetchInterval: 30_000,
