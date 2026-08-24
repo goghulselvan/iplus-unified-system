@@ -31,7 +31,7 @@ export default function AccountsDashboardPage() {
       ] = await Promise.all([
         supabase.from('accounts_payments_in' as any).select('amount'),
         supabase.from('inventory_supplier_payments').select('amount'),
-        supabase.from('schools').select('outstanding_balance').in('payment_status', ['Pending', 'Partial']),
+        supabase.from('schools').select('outstanding_balance').in('payment_status', ['Pending', 'Partial']).gt('outstanding_balance', 0),
         supabase.from('credit_notes_with_balance' as any).select('remaining_balance'),
         supabase.from('portal_payment_submissions').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
         supabase.from('product_orders').select('*', { count: 'exact', head: true }).eq('payment_status', 'pending'),
@@ -61,7 +61,7 @@ export default function AccountsDashboardPage() {
   }, []);
 
   const cards = metrics ? [
-    { title: 'Total Collected', value: metrics.totalCollected, icon: Wallet, tone: 'text-emerald-600' },
+    { title: 'Total Collected (All-Time)', value: metrics.totalCollected, icon: Wallet, tone: 'text-emerald-600' },
     { title: 'Total Paid to Suppliers', value: metrics.totalPaidToSuppliers, icon: TrendingDown, tone: 'text-red-600' },
     { title: 'Net Position', value: metrics.totalCollected - metrics.totalPaidToSuppliers, icon: TrendingUp, tone: 'text-blue-600' },
     { title: 'Outstanding from Schools', value: metrics.outstandingFromSchools, icon: AlertCircle, tone: 'text-orange-600' },

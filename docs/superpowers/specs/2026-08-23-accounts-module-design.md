@@ -180,8 +180,14 @@ deliberate signal that a delete bypassed the app entirely (dashboard/SQL-editor)
   `/accounts/outstanding`, `/accounts/deleted-payments` — each wrapped in the **existing**
   `<ProtectedRoute accountantOnly>` (already does exactly `role === 'accountant' || role ===
   'superadmin'`, confirmed by reading `ProtectedRoute.tsx` directly — no new prop needed).
-- **`AccountsDashboardPage.tsx`** — KPI cards: Total Collected (registration + book orders, this FY),
-  Total Paid to Suppliers, Net Position, Outstanding from Schools, Open Credit Note Balance (sum of
+- **`AccountsDashboardPage.tsx`** — KPI cards: **Total Collected (All-Time)** (registration + book
+  orders — deliberately life-to-date, not FY-scoped: `payment_transactions` has no `fy` column and
+  `accounts_payments_in` doesn't expose one either, so FY-scoping would need real added work; the
+  card is honestly labeled rather than silently promising a scope it doesn't implement — caught by
+  the final whole-branch review, fixed by relabeling instead of adding date-boundary logic that
+  wasn't part of any task brief), Total Paid to Suppliers, Net Position, Outstanding from Schools
+  (same `payment_status IN ('Pending','Partial') AND outstanding_balance > 0` filter as the
+  Outstanding page, so the two pages can't silently diverge), Open Credit Note Balance (sum of
   `credit_notes_with_balance.remaining_balance`), Pending Payment Reviews (count of pending
   `portal_payment_submissions` + pending book-order payment reviews, combined).
 - **`AccountsPaymentsPage.tsx`** — table over `accounts_payments_in`: date range filter, category
