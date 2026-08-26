@@ -37,6 +37,7 @@ type OrderDetail = {
   payment_screenshot_url: string;
   payment_status: PaymentStatus;
   payment_review_note: string | null;
+  applied_credit_note_id: string | null;
   schools: { school_name: string; ss_no: string | null } | null;
 };
 
@@ -101,7 +102,7 @@ export default function OrderRequestDetail() {
     setLoading(true);
     const [orderRes, itemsRes] = await Promise.all([
       supabase.from('product_orders' as any)
-        .select('id, order_number, fy, source, school_id, notes, payment_amount, verified_amount, payment_mode, payment_date, payment_utr_reference, payment_account_holder_name, payment_screenshot_url, payment_status, payment_review_note, schools(school_name, ss_no)')
+        .select('id, order_number, fy, source, school_id, notes, payment_amount, verified_amount, payment_mode, payment_date, payment_utr_reference, payment_account_holder_name, payment_screenshot_url, payment_status, payment_review_note, applied_credit_note_id, schools(school_name, ss_no)')
         .eq('id', id).single(),
       supabase.from('product_order_items' as any)
         .select('id, quantity, unit_price, line_status, rejected_reason, invoice_id, products(name, stock_quantity), invoices(invoice_number, fy)')
@@ -299,7 +300,7 @@ export default function OrderRequestDetail() {
           {order.source === 'manual' && <Badge variant="outline" className="text-xs bg-blue-50 text-blue-600 border-blue-100">Manual Order</Badge>}
         </div>
         <p className="text-sm text-muted-foreground mb-6">
-          ₹{order.payment_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })} · {order.payment_mode} · {new Date(order.payment_date).toLocaleDateString('en-IN')}
+          ₹{order.payment_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })} · {order.applied_credit_note_id ? (order.payment_amount === 0 ? 'Credit Note' : `Credit Note + ${order.payment_mode}`) : order.payment_mode} · {new Date(order.payment_date).toLocaleDateString('en-IN')}
           {order.verified_amount != null && Number(order.verified_amount) !== Number(order.payment_amount) && (
             <span className="ml-2 text-amber-600 font-medium">⚠ Verified: ₹{order.verified_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
           )}
