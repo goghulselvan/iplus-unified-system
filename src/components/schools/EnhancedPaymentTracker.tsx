@@ -486,7 +486,9 @@ export const EnhancedPaymentTracker: React.FC<EnhancedPaymentTrackerProps> = ({ 
                   return (
                     <TableRow key={transaction.id} className={refund ? 'bg-red-50/50' : undefined}>
                       <TableCell className="font-medium">
-                        {transaction.receipt_number ? `${transaction.receipt_number}-${school.ss_no}` : '—'}
+                        {transaction.receipt_number
+                          ? `${transaction.receipt_number}/${transaction.receipt_fy ?? 26}-${(transaction.receipt_fy ?? 26) + 1}`
+                          : '—'}
                       </TableCell>
                       <TableCell>{transaction.payment_date}</TableCell>
                       <TableCell className={refund ? 'text-red-600 font-medium' : undefined}>
