@@ -500,7 +500,7 @@ function CrmLabelMode({ activeProject }: { activeProject: any }) {
     setLoading(true);
     supabase
       .from('school_project_workflow')
-      .select('registration_status, payment_status, schools!inner(id, ss_no, school_name, school_address, district, state, pincode, mobile1, mobile2)')
+      .select('registration_status, payment_status, schools!inner(id, ss_no, school_name, school_address, address1, address2, district, state, pincode, mobile1, mobile2)')
       .eq('project_id', activeProject.id)
       .then(({ data, error }) => {
         setLoading(false);
@@ -509,7 +509,7 @@ function CrmLabelMode({ activeProject }: { activeProject: any }) {
           id: r.schools.id,
           ss_no: r.schools.ss_no,
           school_name: r.schools.school_name,
-          address: r.schools.school_address ?? null,
+          address: [r.schools.address1, r.schools.address2].filter(Boolean).join(', ') || r.schools.school_address || null,
           district: r.schools.district,
           state: r.schools.state,
           pincode: r.schools.pincode,
