@@ -8,6 +8,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import IssueCreditDialog from '@/components/sales/IssueCreditDialog';
 import MarkReturnReceivedDialog from '@/components/sales/MarkReturnReceivedDialog';
+import SendReplacementDialog from '@/components/sales/SendReplacementDialog';
 
 type ReturnRow = {
   id: string;
@@ -17,6 +18,8 @@ type ReturnRow = {
   status: 'requested' | 'credit_issued' | 'received';
   condition_on_receipt: 'resellable' | 'damaged' | null;
   requested_at: string;
+  replacement_sent_at: string | null;
+  replacement_order_reference: string | null;
   actual_product: { name: string } | null;
   invoice_line_items: {
     item_name: string;
@@ -39,6 +42,7 @@ export default function ReturnsPage() {
   const [loading, setLoading] = useState(true);
   const [creditTarget, setCreditTarget] = useState<{ returnId: string; schoolName: string; itemName: string; quantity: number; amount: number } | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<{ id: string; itemName: string } | null>(null);
+  const [replacementTarget, setReplacementTarget] = useState<{ returnId: string; schoolName: string; itemName: string; quantity: number } | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -46,6 +50,7 @@ export default function ReturnsPage() {
       .from('product_returns' as any)
       .select(`
         id, quantity, reason_category, reason_note, status, condition_on_receipt, requested_at,
+        replacement_sent_at, replacement_order_reference,
         actual_product:products!product_returns_actual_product_id_fkey ( name ),
         invoice_line_items ( item_name, unit_price, invoices ( invoice_number, fy, schools ( school_name, ss_no ) ) )
       `)
@@ -100,6 +105,12 @@ export default function ReturnsPage() {
                 {r.actual_product && (
                   <p className="text-xs text-amber-600 mt-0.5">Shipped instead: {r.actual_product.name}</p>
                 )}
+                {r.replacement_sent_at && (
+                  <p className="text-xs text-emerald-600 mt-0.5">
+                    ✓ Replacement sent {new Date(r.replacement_sent_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                    {r.replacement_order_reference ? ` (${r.replacement_order_reference})` : ''}
+                  </p>
+                )}
               </TableCell>
               <TableCell>{r.quantity}</TableCell>
               <TableCell><Badge variant="outline">{REASON_LABELS[r.reason_category] ?? r.reason_category}</Badge></TableCell>
@@ -110,7 +121,17 @@ export default function ReturnsPage() {
                 <TableCell>
                   {canManage && (
                     <div className="flex gap-2">
-                      {opts.issueCredit && (
+                      {opts.issueCredit && r.reason_category === 'wrong_item_shipped' && !r.replacement_sent_at && (
+                        <Button size="sm" variant="outline" onClick={() => setReplacementTarget({
+                          returnId: r.id,
+                          schoolName: schoolLabel(r),
+                          itemName: r.invoice_line_items?.item_name ?? 'item',
+                          quantity: r.quantity,
+                        })}>
+                          Send Replacement
+                        </Button>
+                      )}
+                      {opts.issueCredit && !r.replacement_sent_at && (
                         <Button size="sm" onClick={() => setCreditTarget({
                           returnId: r.id,
                           schoolName: schoolLabel(r),
@@ -165,6 +186,12 @@ export default function ReturnsPage() {
         returnId={confirmTarget?.id ?? null}
         itemName={confirmTarget?.itemName ?? ''}
         onConfirmed={load}
+      />
+      <SendReplacementDialog
+        open={!!replacementTarget}
+        onOpenChange={(o) => { if (!o) setReplacementTarget(null); }}
+        target={replacementTarget}
+        onSent={load}
       />
     </SalesLayout>
   );
