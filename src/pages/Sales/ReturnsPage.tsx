@@ -81,15 +81,16 @@ export default function ReturnsPage() {
           <TableHead>Qty</TableHead>
           <TableHead>Reason</TableHead>
           <TableHead>Invoice</TableHead>
+          <TableHead>Requested</TableHead>
           {opts.showCondition && <TableHead>Condition</TableHead>}
           {(opts.issueCredit || opts.markReceived) && <TableHead></TableHead>}
         </TableRow>
       </TableHeader>
       <TableBody>
         {loading ? (
-          <TableRow><TableCell colSpan={6} className="text-center py-6 text-muted-foreground">Loading…</TableCell></TableRow>
+          <TableRow><TableCell colSpan={7} className="text-center py-6 text-muted-foreground">Loading…</TableCell></TableRow>
         ) : list.length === 0 ? (
-          <TableRow><TableCell colSpan={6} className="text-center py-6 text-muted-foreground">Nothing here.</TableCell></TableRow>
+          <TableRow><TableCell colSpan={7} className="text-center py-6 text-muted-foreground">Nothing here.</TableCell></TableRow>
         ) : (
           list.map(r => (
             <TableRow key={r.id}>
@@ -103,6 +104,7 @@ export default function ReturnsPage() {
               <TableCell>{r.quantity}</TableCell>
               <TableCell><Badge variant="outline">{REASON_LABELS[r.reason_category] ?? r.reason_category}</Badge></TableCell>
               <TableCell>{invoiceLabel(r)}</TableCell>
+              <TableCell>{new Date(r.requested_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</TableCell>
               {opts.showCondition && <TableCell className="capitalize">{r.condition_on_receipt}</TableCell>}
               {(opts.issueCredit || opts.markReceived) && (
                 <TableCell>
