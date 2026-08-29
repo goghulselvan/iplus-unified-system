@@ -582,9 +582,10 @@ export function RegistrationApproval() {
 
       // Link portal account to CRM school
       if (reg.user_id) {
-        await supabase.from("school_portal_accounts")
+        const { error: linkErr } = await supabase.from("school_portal_accounts")
           .update({ school_id: crmSchoolId, linked_at: now })
           .eq("user_id", reg.user_id);
+        if (linkErr) throw linkErr;
       }
 
       // Mark registration as linked
@@ -672,9 +673,10 @@ export function RegistrationApproval() {
 
       // Link portal account
       if (reg.user_id) {
-        await supabase.from("school_portal_accounts")
+        const { error: linkErr } = await supabase.from("school_portal_accounts")
           .update({ school_id: newSchool.id, linked_at: now })
           .eq("user_id", reg.user_id);
+        if (linkErr) throw linkErr;
       }
 
       // Mark registration
