@@ -46,6 +46,7 @@ import ProspectDashboard from "./pages/ProspectDashboard";
 import ProspectLayout from "./components/prospect/ProspectLayout";
 import ProspectSchoolHistory from "./pages/ProspectSchoolHistory";
 import ProspectSchoolsPage from "./pages/ProspectSchoolsPage";
+import InterestLeadsPage from "./pages/InterestLeadsPage";
 import ProspectTemplates from "./pages/ProspectTemplates";
 import ProspectTemplateBuilder from "./pages/ProspectTemplateBuilder";
 import ProspectCampaigns from "./pages/ProspectCampaigns";
@@ -370,6 +371,7 @@ const AppContent = () => {
          <Route path="/prospect" element={<ProtectedRoute><ProspectDashboard /></ProtectedRoute>} />
          <Route path="/prospect/schools/:id/history" element={<ProtectedRoute><ProspectSchoolHistory /></ProtectedRoute>} />
          <Route path="/prospect/schools" element={<ProtectedRoute><ProspectSchoolsPage /></ProtectedRoute>} />
+         <Route path="/prospect/interest-leads" element={<ProtectedRoute><InterestLeadsPage /></ProtectedRoute>} />
          <Route path="/prospect/templates" element={<ProtectedRoute><ProspectTemplates /></ProtectedRoute>} />
          <Route path="/prospect/templates/new" element={<ProtectedRoute><ProspectTemplateBuilder /></ProtectedRoute>} />
          <Route path="/prospect/templates/:id" element={<ProtectedRoute><ProspectTemplateBuilder /></ProtectedRoute>} />
