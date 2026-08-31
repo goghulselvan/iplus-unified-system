@@ -43,6 +43,7 @@ type OrderDetail = {
 
 type ItemRow = {
   id: string;
+  product_id: string;
   quantity: number;
   unit_price: number;
   line_status: LineStatus;
@@ -51,6 +52,9 @@ type ItemRow = {
   products: { name: string; stock_quantity: number } | null;
   invoices: { invoice_number: number; fy: number } | null;
 };
+
+type CatalogProduct = { id: string; name: string; unit_price: number };
+type EditRow = { product_id: string; quantity: string };
 
 const LINE_LABELS: Record<LineStatus, string> = {
   pending: 'Pending', invoiced_unpaid: 'Invoiced (Unpaid)', paid: 'Paid', dispatched: 'Dispatched', rejected: 'Rejected',
@@ -97,21 +101,31 @@ export default function OrderRequestDetail() {
   const [updateScreenshotFile, setUpdateScreenshotFile] = useState<File | null>(null);
   const [updateNote, setUpdateNote] = useState('');
   const updateFileRef = useRef<HTMLInputElement>(null);
+  const [catalog, setCatalog] = useState<CatalogProduct[]>([]);
+  const [editItemsOpen, setEditItemsOpen] = useState(false);
+  const [editRows, setEditRows] = useState<EditRow[]>([]);
+  const [editAmount, setEditAmount] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
 
   const load = async () => {
     setLoading(true);
-    const [orderRes, itemsRes] = await Promise.all([
+    const [orderRes, itemsRes, productsRes] = await Promise.all([
       supabase.from('product_orders' as any)
         .select('id, order_number, fy, source, school_id, notes, payment_amount, verified_amount, payment_mode, payment_date, payment_utr_reference, payment_account_holder_name, payment_screenshot_url, payment_status, payment_review_note, applied_credit_note_id, schools(school_name, ss_no)')
         .eq('id', id).single(),
       supabase.from('product_order_items' as any)
-        .select('id, quantity, unit_price, line_status, rejected_reason, invoice_id, products(name, stock_quantity), invoices(invoice_number, fy)')
+        .select('id, product_id, quantity, unit_price, line_status, rejected_reason, invoice_id, products(name, stock_quantity), invoices(invoice_number, fy)')
         .eq('order_id', id),
+      supabase.from('products' as any)
+        .select('id, name, unit_price')
+        .eq('is_active', true)
+        .order('name'),
     ]);
     if (orderRes.error) toast({ title: 'Error', description: orderRes.error.message, variant: 'destructive' });
     else setOrder(orderRes.data as unknown as OrderDetail);
     if (itemsRes.error) toast({ title: 'Error', description: itemsRes.error.message, variant: 'destructive' });
     else setItems((itemsRes.data || []) as unknown as ItemRow[]);
+    if (!productsRes.error) setCatalog((productsRes.data || []) as unknown as CatalogProduct[]);
     setLoading(false);
   };
 
@@ -278,6 +292,45 @@ export default function OrderRequestDetail() {
     .filter(i => i.line_status === 'pending')
     .reduce((sum, i) => sum + i.quantity * i.unit_price, 0);
 
+  // Editing an order request's items is allowed only for a staff-entered (manual)
+  // order that is still entirely pre-invoice — no line invoiced/rejected, no credit
+  // note applied. Once anything is approved the invoice is the record of truth.
+  const canEditItems =
+    order.source === 'manual' &&
+    !order.applied_credit_note_id &&
+    items.length > 0 &&
+    items.every(i => i.line_status === 'pending' && !i.invoice_id);
+
+  const priceOf = (pid: string) => catalog.find(p => p.id === pid)?.unit_price ?? 0;
+  const editTotal = editRows.reduce((s, r) => s + priceOf(r.product_id) * (Number(r.quantity) || 0), 0);
+  const editRowsValid =
+    editRows.length > 0 &&
+    editRows.every(r => r.product_id && Number(r.quantity) > 0 && Number.isInteger(Number(r.quantity)));
+
+  const openEditItems = () => {
+    setEditRows(items.map(i => ({ product_id: i.product_id, quantity: String(i.quantity) })));
+    setEditAmount(String(order.payment_amount));
+    setEditItemsOpen(true);
+  };
+
+  const handleSaveEditItems = async () => {
+    if (!editRowsValid) return;
+    setEditSaving(true);
+    const { error } = await supabase.rpc('update_manual_order_items' as any, {
+      p_order_id: id,
+      p_items: editRows.map(r => ({ product_id: r.product_id, quantity: Number(r.quantity) })),
+      p_new_payment_amount: editAmount === '' ? null : Number(editAmount),
+    });
+    setEditSaving(false);
+    if (error) {
+      toast({ title: 'Could not save', description: error.message, variant: 'destructive' });
+      return;
+    }
+    toast({ title: 'Order items updated' });
+    setEditItemsOpen(false);
+    load();
+  };
+
   return (
     <SalesLayout>
       <div className="max-w-4xl mx-auto px-4 py-8">
@@ -339,6 +392,13 @@ export default function OrderRequestDetail() {
             <p className="text-sm text-amber-600 mt-4">Waiting for the school to resubmit payment proof.</p>
           )}
         </div>
+
+        {canEditItems && (
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs text-muted-foreground">Wrong item entered? You can still fix the order — nothing has been invoiced yet.</p>
+            <Button variant="outline" size="sm" onClick={openEditItems}>Edit Items</Button>
+          </div>
+        )}
 
         <div className="bg-white rounded-xl border border-neutral-200 shadow-sm overflow-hidden">
           <Table>
@@ -453,6 +513,77 @@ export default function OrderRequestDetail() {
           <img src={order.payment_screenshot_url} alt="Payment proof" className="w-full max-h-[80vh] object-contain rounded" />
           <DialogFooter className="px-2 pb-2">
             <Button variant="outline" onClick={() => setProofOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editItemsOpen} onOpenChange={setEditItemsOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader><DialogTitle>Edit Order Items</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Fix what this manual order should contain. Prices come from the catalog. Only possible while nothing on the order is invoiced.
+            </p>
+            <div className="space-y-2 max-h-[45vh] overflow-y-auto pr-1">
+              {editRows.map((row, idx) => (
+                <div key={idx} className="flex items-start gap-2">
+                  <div className="flex-1">
+                    <Select
+                      value={row.product_id}
+                      onValueChange={(v) => setEditRows(rows => rows.map((r, i) => i === idx ? { ...r, product_id: v } : r))}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Select a book" /></SelectTrigger>
+                      <SelectContent>
+                        {catalog.map(p => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.name} — ₹{p.unit_price.toLocaleString('en-IN')}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Input
+                    type="number" min="1" step="1"
+                    className="w-20"
+                    value={row.quantity}
+                    onChange={(e) => setEditRows(rows => rows.map((r, i) => i === idx ? { ...r, quantity: e.target.value } : r))}
+                  />
+                  <div className="w-24 pt-2 text-sm text-right text-muted-foreground">
+                    ₹{(priceOf(row.product_id) * (Number(row.quantity) || 0)).toLocaleString('en-IN')}
+                  </div>
+                  <Button
+                    variant="ghost" size="sm"
+                    className="text-red-500 hover:text-red-600"
+                    onClick={() => setEditRows(rows => rows.filter((_, i) => i !== idx))}
+                    disabled={editRows.length <= 1}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <Button variant="outline" size="sm" onClick={() => setEditRows(rows => [...rows, { product_id: '', quantity: '1' }])}>
+              + Add item
+            </Button>
+            <div className="flex items-center justify-between border-t border-neutral-200 pt-3">
+              <span className="text-sm font-semibold">New order total</span>
+              <span className="text-sm font-semibold">₹{editTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-amount">Recorded payment amount (₹)</Label>
+              <Input id="edit-amount" type="number" min="0" step="0.01" value={editAmount} onChange={(e) => setEditAmount(e.target.value)} />
+              {editAmount !== '' && Number(editAmount) !== editTotal && (
+                <p className="text-sm bg-amber-50 text-amber-700 rounded-lg p-3">
+                  This doesn't match the new order total (₹{editTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}). Update it if the school's payment changed too.
+                </p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditItemsOpen(false)}>Cancel</Button>
+            <Button onClick={handleSaveEditItems} disabled={!editRowsValid || editSaving}>
+              {editSaving ? 'Saving…' : 'Save Changes'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
