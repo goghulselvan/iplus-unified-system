@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { usePaymentTransactions } from '@/hooks/usePaymentTransactions';
@@ -52,6 +54,7 @@ export const EnhancedPaymentTracker: React.FC<EnhancedPaymentTrackerProps> = ({ 
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState<PaymentTransaction | null>(null);
   const [emailPreview, setEmailPreview] = useState({ subject: '', body: '' });
+  const [deleteReason, setDeleteReason] = useState('');
 
   const { getActiveTemplate } = useCommunicationTemplates(school.current_project_id || undefined);
 
@@ -189,12 +192,16 @@ export const EnhancedPaymentTracker: React.FC<EnhancedPaymentTrackerProps> = ({ 
     }
   };
 
-  const handleDeletePayment = async (transactionId: string, amount: number) => {
+  const handleDeletePayment = async (transactionId: string, amount: number, reason: string) => {
     try {
-      const { error } = await supabase.from('payment_transactions').delete().eq('id', transactionId);
-      if (error) { toast.error('Failed to delete payment'); return; }
+      const { error } = await supabase.rpc('delete_payment_transaction' as any, {
+        p_transaction_id: transactionId,
+        p_reason: reason,
+      });
+      if (error) { toast.error(error.message || 'Failed to delete payment'); return; }
       const label = amount < 0 ? `Refund of ₹${Math.abs(amount).toLocaleString()}` : `Payment of ₹${amount.toLocaleString()}`;
       toast.success(`${label} deleted`);
+      setDeleteReason('');
       await handlePaymentAdded();
     } catch {
       toast.error('Failed to delete');
@@ -516,9 +523,9 @@ export const EnhancedPaymentTracker: React.FC<EnhancedPaymentTrackerProps> = ({ 
                             </Button>
                           )}
                           {profile?.role === 'superadmin' && (
-                            <AlertDialog>
+                            <AlertDialog onOpenChange={(open) => { if (!open) setDeleteReason(''); }}>
                               <AlertDialogTrigger asChild>
-                                <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive">
+                                <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setDeleteReason('')}>
                                   <Trash2 className="h-4 w-4" />
                                 </Button>
                               </AlertDialogTrigger>
@@ -526,13 +533,27 @@ export const EnhancedPaymentTracker: React.FC<EnhancedPaymentTrackerProps> = ({ 
                                 <AlertDialogHeader>
                                   <AlertDialogTitle>Delete {refund ? 'Refund' : 'Payment'}</AlertDialogTitle>
                                   <AlertDialogDescription>
-                                    Delete this {refund ? `refund of ₹${Math.abs(transaction.payment_amount).toLocaleString()}` : `payment of ₹${transaction.payment_amount.toLocaleString()}`}? This cannot be undone.
+                                    Delete this {refund ? `refund of ₹${Math.abs(transaction.payment_amount).toLocaleString()}` : `payment of ₹${transaction.payment_amount.toLocaleString()}`}? This cannot be undone. The school's payment total will be recalculated.
                                   </AlertDialogDescription>
                                 </AlertDialogHeader>
+                                <div className="space-y-1 py-1">
+                                  <Label htmlFor={`del-reason-${transaction.id}`} className="text-sm font-semibold">
+                                    Reason for deleting <span className="text-destructive">*</span>
+                                  </Label>
+                                  <Textarea
+                                    id={`del-reason-${transaction.id}`}
+                                    value={deleteReason}
+                                    onChange={(e) => setDeleteReason(e.target.value)}
+                                    placeholder="Why is this payment being deleted? (e.g. duplicate entry, wrong amount, entered on wrong school)"
+                                    rows={3}
+                                  />
+                                  <p className="text-xs text-muted-foreground">Required. Recorded permanently in the payment deletion log with who deleted it and when.</p>
+                                </div>
                                 <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogCancel onClick={() => setDeleteReason('')}>Cancel</AlertDialogCancel>
                                   <AlertDialogAction
-                                    onClick={() => handleDeletePayment(transaction.id, transaction.payment_amount)}
+                                    disabled={deleteReason.trim().length < 3}
+                                    onClick={() => handleDeletePayment(transaction.id, transaction.payment_amount, deleteReason.trim())}
                                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                                   >
                                     Delete

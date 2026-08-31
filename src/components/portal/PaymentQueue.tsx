@@ -10,6 +10,7 @@ import { sendPaymentReceiptComms } from '@/utils/sendPaymentReceipt';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 
 interface PaymentSubmission {
   id: string;
@@ -35,6 +36,7 @@ export function PaymentQueue() {
   const [ackTarget, setAckTarget] = useState<PaymentSubmission | null>(null);
   const [verifiedAmountInput, setVerifiedAmountInput] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<PaymentSubmission | null>(null);
+  const [deleteReason, setDeleteReason] = useState('');
 
   const { data: submissions = [], isLoading, refetch } = useQuery({
     queryKey: ['admin-payment-queue', filter],
@@ -100,14 +102,15 @@ export function PaymentQueue() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async (submissionId: string) => {
-      const { error } = await supabase.rpc('delete_pending_payment_submission', { p_submission_id: submissionId });
+    mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
+      const { error } = await supabase.rpc('delete_pending_payment_submission' as any, { p_submission_id: id, p_reason: reason });
       if (error) throw error;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-payment-queue'] });
       toast({ title: 'Payment submission deleted' });
       setDeleteTarget(null);
+      setDeleteReason('');
     },
     onError: (err: Error) => {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
@@ -302,7 +305,7 @@ export function PaymentQueue() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setDeleteReason(''); } }}>
         <DialogContent>
           <DialogHeader><DialogTitle>Delete Payment Submission</DialogTitle></DialogHeader>
           {deleteTarget && (
@@ -313,19 +316,30 @@ export function PaymentQueue() {
                 <p><span className="font-bold">Payment Amount:</span> ₹{Number(deleteTarget.amount_paid).toLocaleString('en-IN')}</p>
                 <p><span className="font-bold">Date:</span> {new Date(deleteTarget.created_at).toLocaleDateString('en-IN')}</p>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Use this only for a wrong/duplicate proof that was never acknowledged — it hasn't been
-                counted toward the school's payment total, so nothing else needs to change. This action
-                is permanent and recorded in the payment deletion log.
-              </p>
+              <div className="space-y-1">
+                <Label htmlFor="delete-reason" className="text-sm font-semibold">
+                  Reason for deleting <span className="text-destructive">*</span>
+                </Label>
+                <Textarea
+                  id="delete-reason"
+                  value={deleteReason}
+                  onChange={(e) => setDeleteReason(e.target.value)}
+                  placeholder="Why is this payment being deleted? (e.g. duplicate proof, wrong school, test entry)"
+                  rows={3}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Required. Recorded permanently in the payment deletion log alongside who deleted it and when.
+                  Use this only for a wrong/duplicate proof that was never acknowledged.
+                </p>
+              </div>
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setDeleteTarget(null); setDeleteReason(''); }}>Cancel</Button>
             <Button
               variant="destructive"
-              onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
-              disabled={deleteMutation.isPending}
+              onClick={() => deleteTarget && deleteMutation.mutate({ id: deleteTarget.id, reason: deleteReason.trim() })}
+              disabled={deleteMutation.isPending || deleteReason.trim().length < 3}
             >
               {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
             </Button>
