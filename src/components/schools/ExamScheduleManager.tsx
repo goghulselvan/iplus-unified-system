@@ -6,10 +6,19 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, Plus, Edit2, Trash2, AlertCircle, Layers } from "lucide-react";
+import { Calendar, Plus, Edit2, Trash2, AlertCircle, Layers, Repeat } from "lucide-react";
 import { format } from "date-fns";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
+import { useActiveProject } from "@/hooks/useOlympiadProjects";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,19 +42,157 @@ export function ExamScheduleManager({ school }: ExamScheduleManagerProps) {
 
   const { examSchedules, isLoading, refetch, addExamDate, updateExamDate, deleteExamDate } = useExamSchedules(school.id);
 
+  const queryClient = useQueryClient();
+  const { data: activeProject } = useActiveProject();
+  const slotProjectId = school.current_project_id ?? activeProject?.id ?? null;
+
   const { data: selectedSlot } = useQuery({
-    queryKey: ["school-slot-booking-crm", school.id],
+    queryKey: ["school-slot-booking-crm", school.id, slotProjectId],
     queryFn: async () => {
       const { data } = await supabase
         .from("exam_slots")
         .select("slot_template_id, exam_slot_templates(slot_name)")
         .eq("school_id", school.id)
-        .eq("project_id", school.current_project_id ?? "")
+        .eq("project_id", slotProjectId as string)
         .maybeSingle();
       return data as { slot_template_id: string | null; exam_slot_templates: { slot_name: string } | null } | null;
     },
-    enabled: !!school.current_project_id,
+    enabled: !!slotProjectId,
   });
+
+  // Staff "Change exam slot" override --------------------------------------
+  const { data: slotTemplates = [] } = useQuery({
+    queryKey: ["exam-slot-templates-crm", slotProjectId],
+    enabled: !!slotProjectId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("exam_slot_templates" as any)
+        .select("id, slot_name, booking_deadline")
+        .eq("project_id", slotProjectId as string)
+        .eq("is_active", true)
+        .order("slot_name", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as { id: string; slot_name: string; booking_deadline: string | null }[];
+    },
+  });
+
+  const [slotChoice, setSlotChoice] = useState("");
+  const [slotConfirmOpen, setSlotConfirmOpen] = useState(false);
+  const [applyingSlot, setApplyingSlot] = useState(false);
+
+  const handleApplySlot = async () => {
+    if (!slotChoice || !slotProjectId) return;
+    setApplyingSlot(true);
+    try {
+      const { error } = await supabase.rpc("apply_slot_template_to_school" as any, {
+        p_school_id: school.id,
+        p_template_id: slotChoice,
+        p_project_id: slotProjectId,
+      });
+      if (error) throw error;
+
+      const target = slotTemplates.find((t) => t.id === slotChoice);
+      await supabase.from("activity_logs").insert({
+        school_id: school.id,
+        project_id: slotProjectId,
+        user_id: (await supabase.auth.getUser()).data.user?.id || "",
+        activity_type: "exam_slot_changed",
+        field_name: "exam_slot",
+        old_value: selectedSlot?.exam_slot_templates?.slot_name ?? null,
+        new_value: target?.slot_name ?? null,
+        description: `Staff set exam slot to ${target?.slot_name ?? "?"} (override of the school's portal choice)`,
+      });
+
+      queryClient.invalidateQueries({ queryKey: ["school-slot-booking-crm", school.id] });
+      await refetch();
+      toast.success(`Exam slot set to ${target?.slot_name ?? "the selected slot"}`);
+      setSlotConfirmOpen(false);
+      setSlotChoice("");
+    } catch (e: any) {
+      toast.error(e?.message ?? "Could not change the exam slot");
+    } finally {
+      setApplyingSlot(false);
+    }
+  };
+
+  const slotOverrideCard =
+    slotProjectId && slotTemplates.length > 0 ? (
+      <>
+        <Card className="border-dashed">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Repeat className="h-4 w-4 text-muted-foreground" />
+              Change exam slot (staff override)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Current:{" "}
+              <span className="font-medium text-foreground">
+                {selectedSlot?.exam_slot_templates?.slot_name ?? "No slot selected"}
+              </span>
+              . Applying a slot here overrides the school's portal choice and re-fills its
+              exam dates from that slot — it works even if the school's own slot-selection
+              window has closed.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select value={slotChoice} onValueChange={setSlotChoice}>
+                <SelectTrigger className="w-[220px]">
+                  <SelectValue placeholder="Select a slot…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {slotTemplates.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.slot_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                variant="secondary"
+                disabled={
+                  !slotChoice ||
+                  slotChoice === selectedSlot?.slot_template_id ||
+                  applyingSlot
+                }
+                onClick={() => setSlotConfirmOpen(true)}
+              >
+                Apply
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <AlertDialog open={slotConfirmOpen} onOpenChange={setSlotConfirmOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Change this school's exam slot?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This sets the school to{" "}
+                <span className="font-semibold">
+                  {slotTemplates.find((t) => t.id === slotChoice)?.slot_name ?? "the selected slot"}
+                </span>
+                , replaces any exam dates already on file with that slot's dates, and
+                overrides whatever the school picked on the portal. It's recorded in the
+                school's activity log.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={applyingSlot}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleApplySlot();
+                }}
+                disabled={applyingSlot}
+              >
+                {applyingSlot ? "Applying…" : "Change slot"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </>
+    ) : null;
 
   // Check eligibility
   const isEligible =
@@ -125,6 +272,7 @@ export function ExamScheduleManager({ school }: ExamScheduleManagerProps) {
             </span>
           </div>
         )}
+        {slotOverrideCard}
         <Alert>
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
@@ -152,6 +300,7 @@ export function ExamScheduleManager({ school }: ExamScheduleManagerProps) {
           </span>
         </div>
       )}
+      {slotOverrideCard}
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold">Exam Schedule</h3>
