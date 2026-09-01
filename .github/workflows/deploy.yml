@@ -31,7 +31,8 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./dist/
-          server-dir: /cms.iplus.vaima.in/unified_deployment/
-          # staging folder is emptied manually when moving to live, so always
-          # wipe and re-upload the full build (scoped to unified_deployment/ only)
+          # Deploy straight to the live docroot (MilesWeb, no staging move).
+          # dangerous-clean-slate wipes it first, so every deploy is a full,
+          # correctly-structured upload (index.html at root + assets/ subfolder).
+          server-dir: /cms.iplus.vaima.in/
           dangerous-clean-slate: true
