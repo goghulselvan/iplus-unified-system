@@ -14,6 +14,24 @@ import { formatRegNumberForStudent } from '@/utils/registrationNumberFormatter';
 
 type OlympiadCode = string;
 
+// Pull a readable message out of whatever was thrown. Supabase/PostgREST errors
+// are plain { message, details, hint, code } objects — not Error instances — and
+// file reads throw DOMExceptions; both used to collapse to a useless
+// "Unknown error" that staff couldn't act on.
+function errMsg(err: unknown): string {
+  if (!err) return 'Unknown error';
+  if (typeof err === 'string') return err;
+  if (err instanceof Error && err.message) return err.message;
+  if (typeof err === 'object') {
+    const e = err as { message?: string; details?: string; hint?: string; code?: string; name?: string };
+    const parts = [e.message, e.details, e.hint].filter(Boolean);
+    if (parts.length) return parts.join(' — ') + (e.code ? ` (${e.code})` : '');
+    if (e.name) return e.name;
+  }
+  try { const s = JSON.stringify(err); if (s && s !== '{}') return s; } catch { /* noop */ }
+  return 'Unknown error';
+}
+
 // Derive the class label used in applicable_classes from a class_code value
 function classLabel(classCode: string): string {
   if (classCode === '14') return 'LKG';
@@ -111,8 +129,16 @@ function BulkUpload({ schoolId, subjects, onSuccess }: BulkUploadProps) {
     setUploading(true);
 
     try {
-      const text = await file.text();
+      let text: string;
+      try {
+        text = await file.text();
+      } catch (readErr) {
+        setErrors([`Couldn't read "${file.name}": ${errMsg(readErr)}. If the file is open in Excel or Numbers, close it, then re-select it and try again.`]);
+        setUploading(false);
+        return;
+      }
       const lines = text.trim().split('\n').filter(Boolean);
+      if (lines.length === 0) { setErrors(['The file is empty.']); setUploading(false); return; }
       const dataLines = lines[0].toLowerCase().includes('student') ? lines.slice(1) : lines;
 
       const rowErrors: string[] = [];
@@ -207,7 +233,7 @@ function BulkUpload({ schoolId, subjects, onSuccess }: BulkUploadProps) {
       setOpen(false);
       onSuccess();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
+      const msg = errMsg(err);
       setErrors([`Upload failed: ${msg}`]);
     } finally {
       setUploading(false);
@@ -365,7 +391,7 @@ function StaffAddStudentPanel({ schoolId, projectId, subjects, onAdded }: StaffA
       setSelectedOlympiads([]);
       onAdded();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
+      const msg = errMsg(err);
       toast({ title: 'Error', description: msg, variant: 'destructive' });
     } finally {
       setSubmitting(false);
