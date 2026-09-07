@@ -4,9 +4,13 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Download, Plus } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useToast } from '@/hooks/use-toast';
 import IssueRefundDialog from '@/components/sales/IssueRefundDialog';
+import RecordAdvancePaymentDialog from '@/components/sales/RecordAdvancePaymentDialog';
+import { generateCreditNote } from '@/utils/creditNoteGenerator';
 
 type CreditNoteRow = {
   id: string;
@@ -15,7 +19,12 @@ type CreditNoteRow = {
   amount: number;
   remaining_balance: number;
   created_at: string;
-  schools: { school_name: string; ss_no: number | null } | null;
+  source: 'return' | 'advance_payment' | null;
+  note: string | null;
+  payment_mode: string | null;
+  payment_date: string | null;
+  payment_reference: string | null;
+  schools: { school_name: string; ss_no: number | null; school_address: string | null; state: string | null } | null;
 };
 
 type ApplicationHistoryRow = {
@@ -31,17 +40,20 @@ type ApplicationHistoryRow = {
 
 export default function CreditNotesPage() {
   const { profile } = useAuth();
+  const { toast } = useToast();
   const canManage = profile?.role === 'superadmin' || profile?.role === 'accountant';
   const [creditNotes, setCreditNotes] = useState<CreditNoteRow[]>([]);
   const [history, setHistory] = useState<ApplicationHistoryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refundTarget, setRefundTarget] = useState<{ id: string; remaining_balance: number; school_name: string } | null>(null);
+  const [advanceOpen, setAdvanceOpen] = useState(false);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const load = () => {
     setLoading(true);
     Promise.all([
       supabase.from('credit_notes_with_balance' as any)
-        .select('id, credit_note_number, fy, amount, remaining_balance, created_at, schools ( school_name, ss_no )')
+        .select('id, credit_note_number, fy, amount, remaining_balance, created_at, source, note, payment_mode, payment_date, payment_reference, schools ( school_name, ss_no, school_address, state )')
         .order('fy', { ascending: false }).order('credit_note_number', { ascending: false }),
       supabase.from('credit_note_applications' as any)
         .select('id, application_type, amount, refund_mode, refund_reference, recorded_at, credit_notes ( credit_note_number, fy, schools ( school_name ) ), invoices ( invoice_number, fy )')
@@ -58,10 +70,49 @@ export default function CreditNotesPage() {
   const cnLabel = (num: number | null, fy: number | null) => num ? `CN/${fy}-${(fy ?? 0) + 1}/${num}` : '—';
   const invLabel = (num: number | null, fy: number | null) => num ? `INV/${fy}-${(fy ?? 0) + 1}/${num}` : '—';
 
+  const downloadPdf = async (c: CreditNoteRow) => {
+    setDownloadingId(c.id);
+    try {
+      const blob = await generateCreditNote({
+        creditNoteNumber: c.credit_note_number ?? 0,
+        fy: c.fy ?? 0,
+        issuedDate: new Date(c.created_at),
+        source: c.source === 'advance_payment' ? 'advance_payment' : 'return',
+        buyerName: c.schools?.school_name ?? 'School',
+        buyerSsNo: c.schools?.ss_no ?? null,
+        buyerAddress: c.schools?.school_address ?? null,
+        buyerState: c.schools?.state ?? null,
+        amount: c.amount,
+        remainingBalance: c.remaining_balance,
+        note: c.note,
+        paymentMode: c.payment_mode,
+        paymentDate: c.payment_date ? new Date(c.payment_date) : null,
+        paymentReference: c.payment_reference,
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `CreditNote_CN-${c.fy}-${(c.fy ?? 0) + 1}-${c.credit_note_number}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      toast({ title: 'Could not generate the PDF', description: e instanceof Error ? e.message : String(e), variant: 'destructive' });
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
   return (
     <SalesLayout>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <h1 className="text-2xl font-bold text-neutral-900 mb-4">Credit Notes</h1>
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-2xl font-bold text-neutral-900">Credit Notes</h1>
+          {canManage && (
+            <Button size="sm" onClick={() => setAdvanceOpen(true)}>
+              <Plus className="h-4 w-4 mr-1" /> Record Advance Payment
+            </Button>
+          )}
+        </div>
         <Tabs defaultValue="notes">
           <TabsList>
             <TabsTrigger value="notes">Credit Notes ({creditNotes.length})</TabsTrigger>
@@ -73,23 +124,31 @@ export default function CreditNotesPage() {
                 <TableRow>
                   <TableHead>Credit Note</TableHead>
                   <TableHead>School</TableHead>
+                  <TableHead>Origin</TableHead>
                   <TableHead>Issued</TableHead>
                   <TableHead>Amount</TableHead>
                   <TableHead>Remaining Balance</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead></TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
-                  <TableRow><TableCell colSpan={7} className="text-center py-6 text-muted-foreground">Loading…</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={8} className="text-center py-6 text-muted-foreground">Loading…</TableCell></TableRow>
                 ) : creditNotes.length === 0 ? (
-                  <TableRow><TableCell colSpan={7} className="text-center py-6 text-muted-foreground">No credit notes issued yet.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={8} className="text-center py-6 text-muted-foreground">No credit notes issued yet.</TableCell></TableRow>
                 ) : (
                   creditNotes.map(c => (
                     <TableRow key={c.id}>
                       <TableCell>{cnLabel(c.credit_note_number, c.fy)}</TableCell>
                       <TableCell>{c.schools?.school_name ?? '—'}{c.schools?.ss_no != null ? ` (SS #${c.schools.ss_no})` : ''}</TableCell>
+                      <TableCell>
+                        {c.source === 'advance_payment' ? (
+                          <Badge variant="outline" className="bg-blue-50 text-blue-600 border-blue-100">Advance Payment</Badge>
+                        ) : (
+                          <Badge variant="outline" className="bg-neutral-100 text-neutral-600 border-neutral-200">Return</Badge>
+                        )}
+                      </TableCell>
                       <TableCell>{new Date(c.created_at).toLocaleDateString('en-IN')}</TableCell>
                       <TableCell>₹{c.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</TableCell>
                       <TableCell className="font-semibold">₹{c.remaining_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</TableCell>
@@ -100,9 +159,14 @@ export default function CreditNotesPage() {
                           <Badge variant="outline" className="bg-neutral-100 text-neutral-500 border-neutral-200">Fully Claimed</Badge>
                         )}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="text-right whitespace-nowrap">
+                        <Button size="sm" variant="ghost" disabled={downloadingId === c.id}
+                          onClick={() => downloadPdf(c)}>
+                          <Download className="h-3.5 w-3.5 mr-1" />
+                          {downloadingId === c.id ? 'PDF…' : 'PDF'}
+                        </Button>
                         {canManage && c.remaining_balance > 0 && (
-                          <Button size="sm" variant="outline" onClick={() => setRefundTarget({
+                          <Button size="sm" variant="outline" className="ml-2" onClick={() => setRefundTarget({
                             id: c.id, remaining_balance: c.remaining_balance, school_name: c.schools?.school_name ?? 'School',
                           })}>
                             Issue Refund
@@ -162,6 +226,11 @@ export default function CreditNotesPage() {
         onOpenChange={(o) => { if (!o) setRefundTarget(null); }}
         creditNote={refundTarget}
         onIssued={load}
+      />
+      <RecordAdvancePaymentDialog
+        open={advanceOpen}
+        onOpenChange={setAdvanceOpen}
+        onCreated={load}
       />
     </SalesLayout>
   );
