@@ -10,7 +10,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ArrowLeft, ZoomIn, Upload } from 'lucide-react';
+import { ArrowLeft, ZoomIn, Upload, FileText } from 'lucide-react';
+
+// Payment proofs can be an image OR a PDF (multi-page bank statements are common).
+// The file path lives before the signed-URL query string.
+const isPdfUrl = (url: string | null | undefined) =>
+  !!url && url.split('?')[0].toLowerCase().endsWith('.pdf');
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
@@ -510,8 +515,20 @@ export default function OrderRequestDetail() {
 
       <Dialog open={proofOpen} onOpenChange={setProofOpen}>
         <DialogContent className="max-w-3xl p-2">
-          <img src={order.payment_screenshot_url} alt="Payment proof" className="w-full max-h-[80vh] object-contain rounded" />
-          <DialogFooter className="px-2 pb-2">
+          {isPdfUrl(order.payment_screenshot_url) ? (
+            <iframe
+              src={order.payment_screenshot_url}
+              title="Payment proof"
+              className="w-full h-[80vh] rounded border-0"
+            />
+          ) : (
+            <img src={order.payment_screenshot_url} alt="Payment proof" className="w-full max-h-[80vh] object-contain rounded" />
+          )}
+          <DialogFooter className="px-2 pb-2 gap-2">
+            <a href={order.payment_screenshot_url} target="_blank" rel="noreferrer"
+              className="text-xs text-indigo-600 hover:underline self-center mr-auto">
+              Open in a new tab
+            </a>
             <Button variant="outline" onClick={() => setProofOpen(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
@@ -675,7 +692,13 @@ export default function OrderRequestDetail() {
                     rel="noreferrer"
                     className="flex items-center gap-2 text-xs text-indigo-600 hover:underline mb-1.5"
                   >
-                    <img src={order.payment_screenshot_url} alt="Current proof on file" className="h-10 w-10 object-cover rounded border border-neutral-200" />
+                    {isPdfUrl(order.payment_screenshot_url) ? (
+                      <span className="h-10 w-10 flex items-center justify-center rounded border border-neutral-200 bg-neutral-50">
+                        <FileText className="h-5 w-5 text-neutral-500" />
+                      </span>
+                    ) : (
+                      <img src={order.payment_screenshot_url} alt="Current proof on file" className="h-10 w-10 object-cover rounded border border-neutral-200" />
+                    )}
                     View current proof on file
                   </a>
                 )}
