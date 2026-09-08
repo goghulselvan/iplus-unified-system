@@ -24,17 +24,26 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Deploy to FTP
+      # Ship a single self-contained zip instead of loose files. The FTP user
+      # (unified_deployment@cms.iplus.vaima.in) is jailed to a staging subfolder
+      # and mPanel's "Move" SKIPS files that already exist in the docroot, so
+      # moving loose files leaves a broken index.html/assets mix -> white screen.
+      # A zip has no such problem: move the one file, then Extract in the docroot
+      # (Extract OVERWRITES), and every deploy lands clean from zero.
+      - name: Package build as a zip
+        run: |
+          mkdir -p ftp-out
+          cd dist && zip -r ../ftp-out/crm-latest.zip . && cd ..
+          ls -la ftp-out
+
+      - name: Deploy zip to FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ftp.vaima.in
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
-          local-dir: ./dist/
-          # The FTP user (unified_deployment@cms.iplus.vaima.in) is jailed to the
-          # live docroot /cms.iplus.vaima.in, so "./" IS the docroot — deploy
-          # straight there, no staging subfolder, no manual move.
-          # dangerous-clean-slate wipes it first, so every deploy is a full,
-          # correctly-structured upload (index.html at root + assets/ subfolder).
+          local-dir: ./ftp-out/
+          # "./" = the FTP user's home (the staging subfolder). clean-slate wipes
+          # it so only the newest crm-latest.zip is ever there.
           server-dir: ./
           dangerous-clean-slate: true
