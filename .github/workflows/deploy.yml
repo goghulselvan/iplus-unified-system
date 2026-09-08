@@ -43,7 +43,9 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./ftp-out/
-          # "./" = the FTP user's home (the staging subfolder). clean-slate wipes
-          # it so only the newest crm-latest.zip is ever there.
-          server-dir: ./
+          # This is the path the FTP user can actually write to (a "./" landing-dir
+          # write 553s). crm-latest.zip lands here — the same staging folder the
+          # loose files always went to. clean-slate wipes it so only the newest
+          # zip is ever present.
+          server-dir: /cms.iplus.vaima.in/
           dangerous-clean-slate: true
