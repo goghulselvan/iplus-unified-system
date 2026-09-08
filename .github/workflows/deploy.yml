@@ -31,11 +31,10 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./dist/
-          # "./" = exactly the folder the FTP user lands in (the staging folder
-          # you pull files out of in mPanel). Earlier we used
-          # "/cms.iplus.vaima.in/", which from inside a jailed FTP account writes
-          # to a NESTED cms.iplus.vaima.in/ subfolder your pull never sees.
-          # dangerous-clean-slate wipes this folder so every deploy is a full,
-          # self-consistent upload — index.html + assets/ always match.
-          server-dir: ./
+          # Known-good path for this FTP user. dangerous-clean-slate wipes it so
+          # every deploy is a full, self-consistent set (index.html + assets/
+          # always match). The staging->docroot move is still manual in mPanel
+          # (MilesWeb won't let us repoint the FTP dir / DocumentRoot yet) — do it
+          # as: empty the docroot FIRST, then move, so nothing is left stale.
+          server-dir: /cms.iplus.vaima.in/
           dangerous-clean-slate: true
