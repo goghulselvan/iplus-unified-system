@@ -31,12 +31,13 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./dist/
-          # The FTP user is now jailed to the live docroot (/cms.iplus.vaima.in),
-          # so "/" IS the docroot — deploy straight there, no staging, no manual
-          # move. Use bare "/" not "./": the "./" form hits a SamKirkland bug that
-          # 550s on the assets/ subdirectory ("Can't change directory to assets").
-          # "/cms.iplus.vaima.in/" would nest a folder inside the jail (553).
-          # dangerous-clean-slate wipes the docroot so every deploy is a full,
-          # self-consistent upload (index.html + assets/ always match).
+          # FTP user is jailed to /cms.iplus.vaima.in/unified_deployment (mPanel
+          # won't let us repoint it — MilesWeb ticket open). "/" = that jail root.
+          # Use bare "/" not "./" ("./" 550s on the assets/ subdir) and not
+          # "/cms.iplus.vaima.in/" (553, nests a folder inside the jail).
+          # clean-slate keeps unified_deployment/ a full, self-consistent set.
+          # MANUAL STEP in mPanel until the jail is fixed: in the docroot delete
+          # everything except unified_deployment/, then move unified_deployment/*
+          # (INCLUDING the assets folder) up into the docroot, then flush cache.
           server-dir: /
           dangerous-clean-slate: true
