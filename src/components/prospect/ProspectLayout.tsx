@@ -1,7 +1,7 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
-import { LogOut, ArrowLeft, MapPin, Megaphone, LayoutDashboard, FileText, Printer, MessageSquare, Phone, Sparkles } from 'lucide-react';
+import { LogOut, ArrowLeft, MapPin, Megaphone, LayoutDashboard, FileText, Printer, MessageSquare, Phone, Sparkles, PhoneCall } from 'lucide-react';
 
 const ProspectLayout = ({ children }: { children: React.ReactNode }) => {
   const { profile, signOut } = useAuth();
@@ -10,6 +10,7 @@ const ProspectLayout = ({ children }: { children: React.ReactNode }) => {
 
   const nav = [
     { label: 'Dashboard',  href: '/prospect',                   icon: LayoutDashboard },
+    { label: 'Call Campaign', href: '/prospect/call-campaign',  icon: PhoneCall },
     { label: 'Schools DB', href: '/prospect/schools',           icon: MapPin },
     { label: 'Interest',   href: '/prospect/interest-leads',    icon: Sparkles },
     { label: 'Templates',  href: '/prospect/templates',         icon: FileText },
