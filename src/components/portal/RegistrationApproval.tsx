@@ -582,6 +582,34 @@ export function RegistrationApproval() {
 
       // Link portal account to CRM school
       if (reg.user_id) {
+        // A school can hold only one *active* portal account
+        // (school_portal_one_per_school). When a school registers a second time
+        // (new account), that constraint blocks this link with an opaque DB
+        // error. Auto-release an existing active account IF it has no students
+        // of its own; otherwise stop with a message a human can act on.
+        const { data: activeAccts } = await supabase
+          .from("school_portal_accounts")
+          .select("id, user_id")
+          .eq("school_id", crmSchoolId)
+          .eq("is_active", true);
+        const stale = (activeAccts ?? []).filter((a) => a.user_id !== reg.user_id);
+        if (stale.length > 0) {
+          const { count: staleStudents } = await supabase
+            .from("portal_registered_students")
+            .select("id", { count: "exact", head: true })
+            .in("user_id", stale.map((a) => a.user_id));
+          if ((staleStudents ?? 0) > 0) {
+            throw new Error(
+              `This school is already linked to another active portal account holding ${staleStudents} student(s). ` +
+              `Sort out that duplicate before linking this registration.`,
+            );
+          }
+          const { error: freeErr } = await supabase.from("school_portal_accounts")
+            .update({ is_active: false, school_id: null })
+            .in("id", stale.map((a) => a.id));
+          if (freeErr) throw freeErr;
+        }
+
         const { error: linkErr } = await supabase.from("school_portal_accounts")
           .update({ school_id: crmSchoolId, linked_at: now })
           .eq("user_id", reg.user_id);
@@ -603,7 +631,10 @@ export function RegistrationApproval() {
       });
     },
     onError: (err) => {
-      toast({ title: "Link failed", description: err instanceof Error ? err.message : "Something went wrong", variant: "destructive" });
+      // Supabase query errors are plain {message, details, code} objects, not
+      // real Error instances — read .message directly (same as registerNewMutation).
+      const message = (err as { message?: string })?.message || "Something went wrong";
+      toast({ title: "Link failed", description: message, variant: "destructive" });
     },
   });
 
