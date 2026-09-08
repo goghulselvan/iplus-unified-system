@@ -31,10 +31,12 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./dist/
-          # Known-good path for this FTP user. dangerous-clean-slate wipes it so
-          # every deploy is a full, self-consistent set (index.html + assets/
-          # always match). The staging->docroot move is still manual in mPanel
-          # (MilesWeb won't let us repoint the FTP dir / DocumentRoot yet) — do it
-          # as: empty the docroot FIRST, then move, so nothing is left stale.
-          server-dir: /cms.iplus.vaima.in/
+          # The FTP user is now jailed to the live docroot (/cms.iplus.vaima.in),
+          # so "/" IS the docroot — deploy straight there, no staging, no manual
+          # move. Use bare "/" not "./": the "./" form hits a SamKirkland bug that
+          # 550s on the assets/ subdirectory ("Can't change directory to assets").
+          # "/cms.iplus.vaima.in/" would nest a folder inside the jail (553).
+          # dangerous-clean-slate wipes the docroot so every deploy is a full,
+          # self-consistent upload (index.html + assets/ always match).
+          server-dir: /
           dangerous-clean-slate: true
