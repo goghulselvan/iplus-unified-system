@@ -31,8 +31,10 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./dist/
-          # Deploy straight to the live docroot (MilesWeb, no staging move).
+          # The FTP user (unified_deployment@cms.iplus.vaima.in) is jailed to the
+          # live docroot /cms.iplus.vaima.in, so "./" IS the docroot — deploy
+          # straight there, no staging subfolder, no manual move.
           # dangerous-clean-slate wipes it first, so every deploy is a full,
           # correctly-structured upload (index.html at root + assets/ subfolder).
-          server-dir: /cms.iplus.vaima.in/
+          server-dir: ./
           dangerous-clean-slate: true
