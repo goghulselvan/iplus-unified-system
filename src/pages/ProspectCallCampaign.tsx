@@ -37,6 +37,7 @@ type ScoreRow = {
   user_id: string; name: string; total: number; worked: number;
   signed: number; interested: number; callbacks_due: number;
   regs_committed: number; calls_today: number;
+  districts: { name: string; n: number }[];
 };
 
 const OUTCOMES: { v: string; label: string; hint: string }[] = [
@@ -318,13 +319,34 @@ export default function ProspectCallCampaign() {
           <div className="space-y-4">
             <div className="rounded-lg border bg-card p-6 text-center">
               <Users className="h-8 w-8 mx-auto text-muted-foreground mb-3" />
-              <h3 className="font-semibold mb-1">No schools assigned to you yet</h3>
-              <p className="text-sm text-muted-foreground max-w-lg mx-auto">
-                Nothing is assigned to your login for the current season. Set the lists up below —
-                or ask whoever runs the campaign to include you.
-              </p>
+              {score.length > 0 ? (
+                <>
+                  <h3 className="font-semibold mb-1">You have no calling list — the campaign is running</h3>
+                  <p className="text-sm text-muted-foreground max-w-xl mx-auto">
+                    {score.reduce((a, b) => a + b.total, 0).toLocaleString('en-IN')} schools are assigned
+                    across {score.length} caller{score.length > 1 ? 's' : ''}. Open
+                    <span className="font-medium text-foreground"> Who owns which districts </span>
+                    below to see the split, or assign yourself a list.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h3 className="font-semibold mb-1">Nobody has a calling list yet</h3>
+                  <p className="text-sm text-muted-foreground max-w-lg mx-auto">
+                    Pick your callers below and the pool is split between them — whole districts each,
+                    balanced by school count, for the active olympiad season.
+                  </p>
+                </>
+              )}
             </div>
-            <AssignPanel />
+            {(showAssign || score.length === 0) && <AssignPanel />}
+            {!showAssign && score.length > 0 && (
+              <div className="text-center">
+                <Button variant="outline" onClick={() => setShowAssign(true)}>
+                  <Users className="h-4 w-4 mr-2" />Assign more lists
+                </Button>
+              </div>
+            )}
           </div>
         ) : (
           <>
@@ -418,48 +440,57 @@ export default function ProspectCallCampaign() {
               })}
             </div>
 
-            {/* scoreboard */}
-            {score.length > 0 && (
-              <div className="rounded-lg border bg-card overflow-hidden">
-                <button className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/50 text-left"
-                        onClick={() => setShowScore(s => !s)}>
-                  {showScore ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                  <span className="font-semibold">Team scoreboard</span>
-                  <span className="text-sm text-muted-foreground">
-                    {score.reduce((a, b) => a + b.calls_today, 0)} calls today across the team
-                  </span>
-                </button>
-                {showScore && (
-                  <div className="overflow-x-auto border-t">
-                    <table className="w-full text-sm">
-                      <thead className="bg-muted/50">
-                        <tr className="text-xs uppercase tracking-wider text-muted-foreground">
-                          <th className="text-left font-medium px-4 py-2.5">Caller</th>
-                          <th className="text-right font-medium px-4 py-2.5">Today</th>
-                          <th className="text-right font-medium px-4 py-2.5">Worked</th>
-                          <th className="text-right font-medium px-4 py-2.5">Signed</th>
-                          <th className="text-right font-medium px-4 py-2.5">Callbacks</th>
-                          <th className="text-right font-medium px-4 py-2.5">Regs</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {score.map(s => (
-                          <tr key={s.user_id ?? s.name}>
-                            <td className="px-4 py-2.5 font-medium">{s.name}</td>
-                            <td className="px-4 py-2.5 text-right tabular-nums font-semibold">{s.calls_today}</td>
-                            <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">{s.worked}/{s.total}</td>
-                            <td className="px-4 py-2.5 text-right tabular-nums text-emerald-600 font-semibold">{s.signed}</td>
-                            <td className="px-4 py-2.5 text-right tabular-nums">{s.callbacks_due}</td>
-                            <td className="px-4 py-2.5 text-right tabular-nums">{s.regs_committed}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+          </>
+        )}
+
+        {/* Team + district ownership. Outside the "do I have a list" branch on
+            purpose: a manager or superadmin has no list of their own and still
+            needs to see who owns what. */}
+        {score.length > 0 && (
+          <div className="rounded-lg border bg-card overflow-hidden">
+            <button className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/50 text-left"
+                    onClick={() => setShowScore(s => !s)}>
+              {showScore ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              <span className="font-semibold">Who owns which districts</span>
+              <span className="text-sm text-muted-foreground">
+                {score.length} caller{score.length > 1 ? 's' : ''} ·{' '}
+                {score.reduce((a, b) => a + b.total, 0).toLocaleString('en-IN')} schools ·{' '}
+                {score.reduce((a, b) => a + b.calls_today, 0)} calls today
+              </span>
+            </button>
+            {showScore && (
+              <div className="border-t divide-y">
+                {score.map(s => (
+                  <div key={s.user_id ?? s.name} className="p-4">
+                    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 mb-2.5">
+                      <span className="font-semibold">{s.name}</span>
+                      <span className="text-sm text-muted-foreground tabular-nums">
+                        {s.total.toLocaleString('en-IN')} schools · {(s.districts ?? []).length} districts
+                      </span>
+                      <span className="text-sm tabular-nums ml-auto flex gap-4">
+                        <span><b className="font-semibold">{s.calls_today}</b> <span className="text-muted-foreground">today</span></span>
+                        <span><b className="font-semibold">{s.worked}</b> <span className="text-muted-foreground">worked</span></span>
+                        <span className="text-emerald-600"><b className="font-semibold">{s.signed}</b> signed</span>
+                        {s.callbacks_due > 0 && <span className="text-blue-600"><b className="font-semibold">{s.callbacks_due}</b> callbacks</span>}
+                        {s.regs_committed > 0 && <span><b className="font-semibold">{s.regs_committed}</b> <span className="text-muted-foreground">students</span></span>}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(s.districts ?? []).map(d => (
+                        <span key={d.name}
+                              className="text-xs px-2 py-1 rounded bg-muted text-muted-foreground tabular-nums">
+                          {d.name} <span className="font-semibold text-foreground">{d.n}</span>
+                        </span>
+                      ))}
+                      {(s.districts ?? []).length === 0 && (
+                        <span className="text-xs text-muted-foreground">No districts assigned</span>
+                      )}
+                    </div>
                   </div>
-                )}
+                ))}
               </div>
             )}
-          </>
+          </div>
         )}
 
         {/* log dialog */}
