@@ -110,6 +110,7 @@ export default function OrderRequestDetail() {
   const [editItemsOpen, setEditItemsOpen] = useState(false);
   const [editRows, setEditRows] = useState<EditRow[]>([]);
   const [editAmount, setEditAmount] = useState('');
+  const [editDate, setEditDate] = useState('');
   const [editSaving, setEditSaving] = useState(false);
 
   const load = async () => {
@@ -315,6 +316,7 @@ export default function OrderRequestDetail() {
   const openEditItems = () => {
     setEditRows(items.map(i => ({ product_id: i.product_id, quantity: String(i.quantity) })));
     setEditAmount(String(order.payment_amount));
+    setEditDate(order.payment_date ? order.payment_date.slice(0, 10) : '');
     setEditItemsOpen(true);
   };
 
@@ -325,6 +327,7 @@ export default function OrderRequestDetail() {
       p_order_id: id,
       p_items: editRows.map(r => ({ product_id: r.product_id, quantity: Number(r.quantity) })),
       p_new_payment_amount: editAmount === '' ? null : Number(editAmount),
+      p_new_payment_date: editDate === '' ? null : editDate,
     });
     setEditSaving(false);
     if (error) {
@@ -586,15 +589,21 @@ export default function OrderRequestDetail() {
               <span className="text-sm font-semibold">New order total</span>
               <span className="text-sm font-semibold">₹{editTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="edit-amount">Recorded payment amount (₹)</Label>
-              <Input id="edit-amount" type="number" min="0" step="0.01" value={editAmount} onChange={(e) => setEditAmount(e.target.value)} />
-              {editAmount !== '' && Number(editAmount) !== editTotal && (
-                <p className="text-sm bg-amber-50 text-amber-700 rounded-lg p-3">
-                  This doesn't match the new order total (₹{editTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}). Update it if the school's payment changed too.
-                </p>
-              )}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-amount">Recorded payment amount (₹)</Label>
+                <Input id="edit-amount" type="number" min="0" step="0.01" value={editAmount} onChange={(e) => setEditAmount(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-date">Payment date</Label>
+                <Input id="edit-date" type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)} />
+              </div>
             </div>
+            {editAmount !== '' && Number(editAmount) !== editTotal && (
+              <p className="text-sm bg-amber-50 text-amber-700 rounded-lg p-3">
+                This doesn't match the new order total (₹{editTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}). Update it if the school's payment changed too.
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditItemsOpen(false)}>Cancel</Button>
