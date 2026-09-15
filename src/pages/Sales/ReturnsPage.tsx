@@ -77,7 +77,7 @@ export default function ReturnsPage() {
     return school ? `${school.school_name}${school.ss_no != null ? ` (SS #${school.ss_no})` : ''}` : '—';
   };
 
-  const renderRows = (list: ReturnRow[], opts: { issueCredit?: boolean; markReceived?: boolean; showCondition?: boolean }) => (
+  const renderRows = (list: ReturnRow[], opts: { issueCredit?: boolean; markReceived?: boolean; showCondition?: boolean; sendReplacement?: boolean }) => (
     <Table>
       <TableHeader>
         <TableRow>
@@ -88,7 +88,7 @@ export default function ReturnsPage() {
           <TableHead>Invoice</TableHead>
           <TableHead>Requested</TableHead>
           {opts.showCondition && <TableHead>Condition</TableHead>}
-          {(opts.issueCredit || opts.markReceived) && <TableHead></TableHead>}
+          {(opts.issueCredit || opts.markReceived || opts.sendReplacement) && <TableHead></TableHead>}
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -117,11 +117,11 @@ export default function ReturnsPage() {
               <TableCell>{invoiceLabel(r)}</TableCell>
               <TableCell>{new Date(r.requested_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</TableCell>
               {opts.showCondition && <TableCell className="capitalize">{r.condition_on_receipt}</TableCell>}
-              {(opts.issueCredit || opts.markReceived) && (
+              {(opts.issueCredit || opts.markReceived || opts.sendReplacement) && (
                 <TableCell>
                   {canManage && (
                     <div className="flex gap-2">
-                      {opts.issueCredit && r.reason_category === 'wrong_item_shipped' && !r.replacement_sent_at && (
+                      {opts.sendReplacement && r.reason_category === 'wrong_item_shipped' && !r.replacement_sent_at && (
                         <Button size="sm" variant="outline" onClick={() => setReplacementTarget({
                           returnId: r.id,
                           schoolName: schoolLabel(r),
@@ -169,9 +169,9 @@ export default function ReturnsPage() {
             <TabsTrigger value="awaiting">Awaiting Return ({awaitingReturn.length})</TabsTrigger>
             <TabsTrigger value="received">Received ({received.length})</TabsTrigger>
           </TabsList>
-          <TabsContent value="requested">{renderRows(requested, { issueCredit: true, markReceived: true })}</TabsContent>
+          <TabsContent value="requested">{renderRows(requested, { issueCredit: true, markReceived: true, sendReplacement: true })}</TabsContent>
           <TabsContent value="awaiting">{renderRows(awaitingReturn, { markReceived: true })}</TabsContent>
-          <TabsContent value="received">{renderRows(received, { showCondition: true })}</TabsContent>
+          <TabsContent value="received">{renderRows(received, { showCondition: true, sendReplacement: true })}</TabsContent>
         </Tabs>
       </div>
       <IssueCreditDialog
