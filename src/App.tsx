@@ -54,6 +54,7 @@ import ProspectCampaignNew from "./pages/ProspectCampaignNew";
 import ProspectCampaignDetail from "./pages/ProspectCampaignDetail";
 import ProspectBulkWhatsApp from "./pages/ProspectBulkWhatsApp";
 import ProspectVoiceCampaigns from "./pages/ProspectVoiceCampaigns";
+import ProspectCallCampaign from "./pages/ProspectCallCampaign";
 import ProductsPage from "./pages/Sales/ProductsPage";
 import InvoicesPage from "./pages/Sales/InvoicesPage";
 import SuppliersPage from "./pages/Sales/SuppliersPage";
@@ -378,6 +379,7 @@ const AppContent = () => {
          <Route path="/prospect/campaigns" element={<ProtectedRoute><ProspectCampaigns /></ProtectedRoute>} />
          <Route path="/prospect/bulk-whatsapp" element={<ProtectedRoute><ProspectBulkWhatsApp /></ProtectedRoute>} />
          <Route path="/prospect/voice-campaigns" element={<ProtectedRoute><ProspectVoiceCampaigns /></ProtectedRoute>} />
+         <Route path="/prospect/call-campaign" element={<ProtectedRoute><ProspectCallCampaign /></ProtectedRoute>} />
          <Route path="/prospect/address-labels" element={
            <ProtectedRoute>
              <ProspectAddressLabels />
