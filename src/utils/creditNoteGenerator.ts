@@ -8,7 +8,7 @@ export interface CreditNoteData {
   creditNoteNumber: number;
   fy: number;
   issuedDate: Date;
-  source: 'return' | 'advance_payment';
+  source: 'return' | 'advance_payment' | 'order_overpayment';
   buyerName: string;
   buyerSsNo?: number | null;
   buyerAddress?: string | null;
@@ -114,7 +114,7 @@ export async function generateCreditNote(data: CreditNoteData): Promise<Blob> {
   const meta = [
     { label: 'CREDIT NOTE NO.', value: cnNo },
     { label: 'DATE', value: format(data.issuedDate, 'dd-MMM-yyyy') },
-    { label: 'ORIGIN', value: data.source === 'advance_payment' ? 'ADVANCE PAYMENT' : 'RETURN' },
+    { label: 'ORIGIN', value: data.source === 'advance_payment' ? 'ADVANCE PAYMENT' : data.source === 'order_overpayment' ? 'OVERPAYMENT' : 'RETURN' },
     { label: 'STATUS', value: data.remainingBalance > 0 ? 'OPEN' : 'FULLY CLAIMED' },
   ];
   meta.forEach((m, i) => {
@@ -170,8 +170,8 @@ export async function generateCreditNote(data: CreditNoteData): Promise<Blob> {
     sy -= 11;
   }
 
-  // Payment source (advance payment only)
-  if (data.source === 'advance_payment' && (data.paymentMode || data.paymentReference || data.paymentDate)) {
+  // Payment source (money the school sent: an advance, or more than its order)
+  if (data.source !== 'return' && (data.paymentMode || data.paymentReference || data.paymentDate)) {
     sy -= 10;
     page.drawText('RECEIVED FROM SCHOOL', { x: MARGIN, y: sy, size: 7.5, font: fontBold, color: MUTED });
     sy -= 14;

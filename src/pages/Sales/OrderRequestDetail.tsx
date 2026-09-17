@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import SalesLayout from '@/components/sales/SalesLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ArrowLeft, ZoomIn, Upload, FileText } from 'lucide-react';
+import { ArrowLeft, ZoomIn, Upload, FileText, AlertTriangle, CheckCircle2 } from 'lucide-react';
 
 // Payment proofs can be an image OR a PDF (multi-page bank statements are common).
 // The file path lives before the signed-URL query string.
@@ -43,8 +43,13 @@ type OrderDetail = {
   payment_status: PaymentStatus;
   payment_review_note: string | null;
   applied_credit_note_id: string | null;
+  applied_credit_amount: number | null;
   schools: { school_name: string; ss_no: string | null } | null;
 };
+
+type OverpaymentCreditNote = { id: string; credit_note_number: number; fy: number; amount: number; remaining_balance: number };
+
+const inr = (n: number) => `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 
 type ItemRow = {
   id: string;
@@ -76,9 +81,11 @@ const lineBadge = (s: LineStatus) => {
 export default function OrderRequestDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { toast } = useToast();
   const { profile, user } = useAuth();
   const isSuperadmin = profile?.role === 'superadmin';
+  const canIssueCredit = profile?.role === 'superadmin' || profile?.role === 'accountant';
 
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [items, setItems] = useState<ItemRow[]>([]);
@@ -112,12 +119,18 @@ export default function OrderRequestDetail() {
   const [editAmount, setEditAmount] = useState('');
   const [editDate, setEditDate] = useState('');
   const [editSaving, setEditSaving] = useState(false);
+  const [overpayment, setOverpayment] = useState(0);
+  const [overpaymentNotes, setOverpaymentNotes] = useState<OverpaymentCreditNote[]>([]);
+  const [overpayPromptOpen, setOverpayPromptOpen] = useState(false);
+  const [overpaySaving, setOverpaySaving] = useState(false);
 
-  const load = async () => {
+  // Returns the overpayment still to be credited, so a handler that just
+  // recorded money can ask about it straight away.
+  const load = async (): Promise<number> => {
     setLoading(true);
-    const [orderRes, itemsRes, productsRes] = await Promise.all([
+    const [orderRes, itemsRes, productsRes, excessRes, notesRes] = await Promise.all([
       supabase.from('product_orders' as any)
-        .select('id, order_number, fy, source, school_id, notes, payment_amount, verified_amount, payment_mode, payment_date, payment_utr_reference, payment_account_holder_name, payment_screenshot_url, payment_status, payment_review_note, applied_credit_note_id, schools(school_name, ss_no)')
+        .select('id, order_number, fy, source, school_id, notes, payment_amount, verified_amount, payment_mode, payment_date, payment_utr_reference, payment_account_holder_name, payment_screenshot_url, payment_status, payment_review_note, applied_credit_note_id, applied_credit_amount, schools(school_name, ss_no)')
         .eq('id', id).single(),
       supabase.from('product_order_items' as any)
         .select('id, product_id, quantity, unit_price, line_status, rejected_reason, invoice_id, products(name, stock_quantity), invoices(invoice_number, fy)')
@@ -126,16 +139,52 @@ export default function OrderRequestDetail() {
         .select('id, name, unit_price')
         .eq('is_active', true)
         .order('name'),
+      supabase.rpc('order_overpayment_excess' as any, { p_order_id: id }),
+      supabase.from('credit_notes_with_balance' as any)
+        .select('id, credit_note_number, fy, amount, remaining_balance')
+        .eq('source', 'order_overpayment')
+        .eq('source_order_id', id)
+        .order('created_at'),
     ]);
     if (orderRes.error) toast({ title: 'Error', description: orderRes.error.message, variant: 'destructive' });
     else setOrder(orderRes.data as unknown as OrderDetail);
     if (itemsRes.error) toast({ title: 'Error', description: itemsRes.error.message, variant: 'destructive' });
     else setItems((itemsRes.data || []) as unknown as ItemRow[]);
     if (!productsRes.error) setCatalog((productsRes.data || []) as unknown as CatalogProduct[]);
+    const excess = excessRes.error ? 0 : Number(excessRes.data ?? 0);
+    setOverpayment(excess);
+    if (!notesRes.error) setOverpaymentNotes((notesRes.data || []) as unknown as OverpaymentCreditNote[]);
     setLoading(false);
+    return excess;
   };
 
-  useEffect(() => { load(); }, [id]);
+  useEffect(() => {
+    load().then(excess => {
+      // A manual order saved with more money than its total lands here straight
+      // from the create dialog — ask once, then drop the flag so a refresh doesn't.
+      if ((location.state as { justCreated?: boolean } | null)?.justCreated) {
+        if (excess > 0 && canIssueCredit) setOverpayPromptOpen(true);
+        navigate(location.pathname, { replace: true, state: null });
+      }
+    });
+  }, [id]);
+
+  const handleIssueOverpaymentCredit = async () => {
+    setOverpaySaving(true);
+    const { data, error } = await supabase.rpc('issue_overpayment_credit_note' as any, { p_order_id: id });
+    if (error) {
+      setOverpaySaving(false);
+      toast({ title: 'Could not issue the credit note', description: error.message, variant: 'destructive' });
+      return;
+    }
+    const { data: cn } = await supabase.from('credit_notes_with_balance' as any)
+      .select('credit_note_number, fy, amount').eq('id', data as unknown as string).single();
+    setOverpaySaving(false);
+    const c = cn as unknown as { credit_note_number: number; fy: number; amount: number } | null;
+    toast({ title: c ? `CN/${c.fy}-${c.fy + 1}/${c.credit_note_number} issued for ${inr(c.amount)}` : 'Credit note issued' });
+    setOverpayPromptOpen(false);
+    load();
+  };
 
   const toggleSelected = (itemId: string) => {
     setSelected(prev => {
@@ -170,7 +219,8 @@ export default function OrderRequestDetail() {
     if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
     toast({ title: 'Order confirmed' });
     setConfirmOpen(false);
-    load();
+    const excess = await load();
+    if (excess > 0 && canIssueCredit) setOverpayPromptOpen(true);
   };
 
   const handleRequestResubmit = async () => {
@@ -304,6 +354,7 @@ export default function OrderRequestDetail() {
   const canEditItems =
     order.source === 'manual' &&
     !order.applied_credit_note_id &&
+    overpaymentNotes.length === 0 &&
     items.length > 0 &&
     items.every(i => i.line_status === 'pending' && !i.invoice_id);
 
@@ -336,7 +387,8 @@ export default function OrderRequestDetail() {
     }
     toast({ title: 'Order items updated' });
     setEditItemsOpen(false);
-    load();
+    const excess = await load();
+    if (excess > 0 && canIssueCredit) setOverpayPromptOpen(true);
   };
 
   return (
@@ -366,6 +418,32 @@ export default function OrderRequestDetail() {
             <span className="ml-2 text-amber-600 font-medium">⚠ Verified: ₹{order.verified_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
           )}
         </p>
+
+        {overpayment > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 mb-6">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="h-5 w-5 shrink-0 text-amber-700 mt-0.5" aria-hidden="true" />
+              <div>
+                <p className="font-semibold text-amber-900">School paid {inr(overpayment)} more than this order</p>
+                <p className="text-sm text-amber-800">
+                  {canIssueCredit
+                    ? 'Turn it into a credit note — the school can use it on another order, or you can refund it from Credit Notes.'
+                    : 'An accountant or superadmin can turn it into a credit note for the school.'}
+                </p>
+              </div>
+            </div>
+            {canIssueCredit && <Button onClick={() => setOverpayPromptOpen(true)}>Issue Credit Note</Button>}
+          </div>
+        )}
+        {overpaymentNotes.map(cn => (
+          <div key={cn.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 mb-6 text-sm">
+            <span className="flex items-center gap-2 text-emerald-900">
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-700" aria-hidden="true" />
+              <span><span className="font-semibold">CN/{cn.fy}-{cn.fy + 1}/{cn.credit_note_number}</span> issued for the {inr(cn.amount)} overpayment · {inr(cn.remaining_balance)} unused</span>
+            </span>
+            <Button variant="outline" size="sm" onClick={() => navigate('/sales/credit-notes')}>View in Credit Notes</Button>
+          </div>
+        ))}
 
         <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5 mb-6">
           <div className="flex items-center justify-between mb-3">
@@ -752,6 +830,37 @@ export default function OrderRequestDetail() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setRejectOpen(false)}>Cancel</Button>
             <Button variant="destructive" onClick={handleReject} disabled={!rejectReason.trim()}>Reject</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={overpayPromptOpen} onOpenChange={setOverpayPromptOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>School paid more than the order</DialogTitle></DialogHeader>
+          {overpaymentNotes.length === 0 && (
+            <div className="rounded-lg border border-neutral-200 text-sm divide-y">
+              <div className="flex justify-between px-3 py-2">
+                <span className="text-muted-foreground">Received</span>
+                <span className="tabular-nums">{inr(Number(order.verified_amount ?? order.payment_amount) + Number(order.applied_credit_amount ?? 0))}</span>
+              </div>
+              <div className="flex justify-between px-3 py-2">
+                <span className="text-muted-foreground">Order total</span>
+                <span className="tabular-nums">{inr(items.reduce((s, i) => s + i.quantity * i.unit_price, 0))}</span>
+              </div>
+            </div>
+          )}
+          <div className="flex items-baseline justify-between rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5">
+            <span className="font-semibold text-amber-900">Extra paid</span>
+            <span className="text-xl font-bold tabular-nums text-amber-900">{inr(overpayment)}</span>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Issue a credit note for {inr(overpayment)}? The school can use it on its next book order, or you can refund it from Credit Notes.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOverpayPromptOpen(false)}>Not now</Button>
+            <Button onClick={handleIssueOverpaymentCredit} disabled={overpaySaving}>
+              {overpaySaving ? 'Issuing…' : `Issue Credit Note ${inr(overpayment)}`}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

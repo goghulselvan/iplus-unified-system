@@ -343,6 +343,11 @@ export default function ManualOrderDialog({ open, onOpenChange, onSaved }: Props
                 <Input type="number" min="1" step="0.01" value={amount}
                   onChange={e => setAmount(e.target.value)}
                   placeholder={cartTotal ? String(cartTotal) : ''} />
+                {netDue > 0 && parseFloat(amount) > netDue && (
+                  <p className="text-xs text-amber-700 mt-1">
+                    ₹{(parseFloat(amount) - netDue).toLocaleString('en-IN', { minimumFractionDigits: 2 })} more than this order. After saving you'll be asked to issue a credit note for it.
+                  </p>
+                )}
               </div>
               <div>
                 <Label>Payment Date</Label>

@@ -148,7 +148,7 @@ export default function OrderRequestsPage() {
         <ManualOrderDialog
           open={manualOpen}
           onOpenChange={setManualOpen}
-          onSaved={orderId => navigate(`/sales/order-requests/${orderId}`)}
+          onSaved={orderId => navigate(`/sales/order-requests/${orderId}`, { state: { justCreated: true } })}
         />
 
         <div className="bg-white rounded-xl border border-neutral-200 shadow-sm overflow-hidden">

@@ -19,7 +19,7 @@ type CreditNoteRow = {
   amount: number;
   remaining_balance: number;
   created_at: string;
-  source: 'return' | 'advance_payment' | null;
+  source: 'return' | 'advance_payment' | 'order_overpayment' | null;
   note: string | null;
   payment_mode: string | null;
   payment_date: string | null;
@@ -77,7 +77,7 @@ export default function CreditNotesPage() {
         creditNoteNumber: c.credit_note_number ?? 0,
         fy: c.fy ?? 0,
         issuedDate: new Date(c.created_at),
-        source: c.source === 'advance_payment' ? 'advance_payment' : 'return',
+        source: c.source ?? 'return',
         buyerName: c.schools?.school_name ?? 'School',
         buyerSsNo: c.schools?.ss_no ?? null,
         buyerAddress: c.schools?.school_address ?? null,
@@ -145,6 +145,8 @@ export default function CreditNotesPage() {
                       <TableCell>
                         {c.source === 'advance_payment' ? (
                           <Badge variant="outline" className="bg-blue-50 text-blue-600 border-blue-100">Advance Payment</Badge>
+                        ) : c.source === 'order_overpayment' ? (
+                          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">Overpayment</Badge>
                         ) : (
                           <Badge variant="outline" className="bg-neutral-100 text-neutral-600 border-neutral-200">Return</Badge>
                         )}
