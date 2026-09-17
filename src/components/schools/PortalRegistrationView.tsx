@@ -194,9 +194,24 @@ function BulkUpload({ schoolId, subjects, onSuccess }: BulkUploadProps) {
         const parts = line.split(',').map(p => p.trim().replace(/^"|"$/g, ''));
         if (parts.length < 3) { rowErrors.push(`Row ${rowNum}: must have 3 columns (Name, Class, Olympiads)`); return; }
 
-        const name = parts[0];
-        const rawClass = parts[1];
-        const rawOlympiads = parts.slice(2).join(' ');
+        // A comma inside the name (e.g. "Kumar, S,1,EPO") splits it into an extra
+        // column and shifts everything after it right by one — the class column
+        // silently ends up holding a fragment of the name instead, which used to
+        // surface as a baffling "invalid class" error pointing at the wrong value.
+        // Detected by scanning forward for the first column that actually parses
+        // as a class code: if that isn't column 1, whatever came before it was
+        // the name, split by a comma that shouldn't have been there.
+        let classIdx = 1;
+        const shifted = parts.findIndex((p, i) => i >= 1 && parseClassCode(p));
+        if (shifted > 1) {
+          rowErrors.push(`Row ${rowNum}: name "${parts.slice(0, shifted).join(', ')}" contains a comma — that's an invalid character here, it's read as a column separator and misaligns the rest of the row. Remove it.`);
+          return;
+        }
+        if (shifted !== -1) classIdx = shifted;
+
+        const name = parts.slice(0, classIdx).join(', ');
+        const rawClass = parts[classIdx];
+        const rawOlympiads = parts.slice(classIdx + 1).join(' ');
 
         if (!name || name.length < 2) { rowErrors.push(`Row ${rowNum}: name is empty or too short`); return; }
 
