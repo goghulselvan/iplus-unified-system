@@ -32,6 +32,39 @@ function errMsg(err: unknown): string {
   return 'Unknown error';
 }
 
+// Bulk upload pre-checks for duplicates before inserting, so these codes should be
+// unreachable — they're a net for the races and edge cases the pre-check can't see
+// (someone else adding the same student mid-upload, a project deselected in another
+// tab). Anything unmapped keeps errMsg's raw text so it stays debuggable.
+function uploadErrMsg(err: unknown): string {
+  const code = (err as { code?: string } | null)?.code;
+  if (code === '23505') {
+    return 'A student in this file is already registered — the list changed while the upload ran. ' +
+      'Nothing further was added; re-select the file and upload again to re-check against the current list.';
+  }
+  if (code === '23503' || code === '22P02') {
+    return 'No active olympiad project is selected — pick one, then upload again.';
+  }
+  return `Upload failed: ${errMsg(err)}`;
+}
+
+// One student as the file describes them. `lines` holds every source line they came
+// from — more than one means the school listed them once per subject, which is the
+// duplicate case staff get asked about rather than an error.
+type MergedRow = { name: string; classCode: string; olympiads: OlympiadCode[]; lines: number[] };
+
+// A file row that matches a student already registered for this school + project.
+type ExistingMatch = {
+  studentId: string; name: string; classCode: string;
+  have: OlympiadCode[]; adding: OlympiadCode[];
+};
+
+type ReviewPlan = {
+  newRows: MergedRow[];
+  inFileDupes: MergedRow[];
+  existing: ExistingMatch[];
+};
+
 // Derive the class label used in applicable_classes from a class_code value
 function classLabel(classCode: string): string {
   if (classCode === '14') return 'LKG';
@@ -108,6 +141,10 @@ function BulkUpload({ schoolId, subjects, onSuccess }: BulkUploadProps) {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // Set only when the file needs a decision before anything is inserted. A clean
+  // file never populates this, so it costs no extra click.
+  const [review, setReview] = useState<ReviewPlan | null>(null);
+  const [existingMode, setExistingMode] = useState<'add' | 'skip'>('add');
 
   function downloadTemplate() {
     const csv = [
@@ -137,16 +174,23 @@ function BulkUpload({ schoolId, subjects, onSuccess }: BulkUploadProps) {
         setUploading(false);
         return;
       }
-      const lines = text.trim().split('\n').filter(Boolean);
-      if (lines.length === 0) { setErrors(['The file is empty.']); setUploading(false); return; }
-      const dataLines = lines[0].toLowerCase().includes('student') ? lines.slice(1) : lines;
+      // Carry each line's real position in the file. Filtering blanks out before
+      // numbering shifted every message after a blank line onto the wrong row, and
+      // `i + 2` assumed a header row that isn't always present — so the numbers
+      // staff were told to look at could be wrong in two different ways.
+      // Whitespace-only lines are skipped silently: they're invisible in Excel and
+      // harmless. A ",,"-style row is NOT blank and still gets a real message.
+      const allLines = text.replace(/\r\n?/g, '\n').split('\n').map((line, i) => ({ line, lineNo: i + 1 }));
+      const present = allLines.filter(l => l.line.trim() !== '');
+      if (present.length === 0) { setErrors(['The file is empty.']); setUploading(false); return; }
+      const dataLines = present[0].line.toLowerCase().includes('student') ? present.slice(1) : present;
 
       const rowErrors: string[] = [];
-      type ParsedRow = { name: string; classCode: string; olympiads: OlympiadCode[] };
-      const rows: ParsedRow[] = [];
+      type ParsedRow = { name: string; classCode: string; olympiads: OlympiadCode[]; lineNo: number };
+      const parsedRows: ParsedRow[] = [];
 
-      dataLines.forEach((line, i) => {
-        const rowNum = i + 2;
+      dataLines.forEach(({ line, lineNo }) => {
+        const rowNum = lineNo;
         const parts = line.split(',').map(p => p.trim().replace(/^"|"$/g, ''));
         if (parts.length < 3) { rowErrors.push(`Row ${rowNum}: must have 3 columns (Name, Class, Olympiads)`); return; }
 
@@ -174,11 +218,95 @@ function BulkUpload({ schoolId, subjects, onSuccess }: BulkUploadProps) {
           return;
         }
 
-        rows.push({ name: name.toUpperCase(), classCode, olympiads });
+        parsedRows.push({ name: name.toUpperCase(), classCode, olympiads, lineNo });
       });
 
       if (rowErrors.length > 0) { setErrors(rowErrors); setUploading(false); return; }
-      if (rows.length === 0) { setErrors(['No data rows found']); setUploading(false); return; }
+      if (parsedRows.length === 0) { setErrors(['No data rows found']); setUploading(false); return; }
+
+      if (!activeProject?.id) {
+        setErrors(['No active olympiad project is selected — pick one, then upload again.']);
+        setUploading(false);
+        return;
+      }
+
+      // Collapse rows describing the same student. Names are already uppercased
+      // above, so this also catches the "Monish S" / "Monish s" pair that the
+      // case-sensitive unique constraint would let through as two children.
+      const byStudent = new Map<string, MergedRow>();
+      for (const r of parsedRows) {
+        const key = `${r.classCode}|${r.name}`;
+        const existing = byStudent.get(key);
+        if (!existing) {
+          byStudent.set(key, { name: r.name, classCode: r.classCode, olympiads: [...r.olympiads], lines: [r.lineNo] });
+          continue;
+        }
+        existing.lines.push(r.lineNo);
+        for (const code of r.olympiads) if (!existing.olympiads.includes(code)) existing.olympiads.push(code);
+      }
+      const merged = [...byStudent.values()];
+
+      // Compare against what this school already has. upper() both sides: the
+      // constraint is case-sensitive but 609 of 5,434 names are stored mixed-case
+      // (portal self-registration and single Add Student don't uppercase), so an
+      // exact-case check would miss real duplicates.
+      const { data: already, error: fetchErr } = await supabase
+        .from('portal_registered_students')
+        .select('id, student_name, class_code, portal_student_enrollments(olympiad_code)')
+        .eq('school_id', schoolId)
+        .eq('project_id', activeProject.id);
+      if (fetchErr) throw fetchErr;
+
+      const existingByKey = new Map(
+        (already ?? []).map(s => {
+          const rec = s as unknown as {
+            id: string; student_name: string; class_code: string;
+            portal_student_enrollments: { olympiad_code: string }[] | null;
+          };
+          return [
+            `${rec.class_code}|${rec.student_name.trim().toUpperCase()}`,
+            { id: rec.id, have: (rec.portal_student_enrollments ?? []).map(e => e.olympiad_code) },
+          ] as const;
+        })
+      );
+
+      const newRows: MergedRow[] = [];
+      const existingMatches: ExistingMatch[] = [];
+      for (const row of merged) {
+        const hit = existingByKey.get(`${row.classCode}|${row.name}`);
+        if (!hit) { newRows.push(row); continue; }
+        existingMatches.push({
+          studentId: hit.id, name: row.name, classCode: row.classCode,
+          have: hit.have, adding: row.olympiads.filter(c => !hit.have.includes(c)),
+        });
+      }
+      const inFileDupes = merged.filter(r => r.lines.length > 1);
+
+      // Anything needing a decision stops here — nothing is inserted until staff
+      // choose. A clean file skips this entirely and uploads as it always did.
+      if (inFileDupes.length > 0 || existingMatches.length > 0) {
+        setReview({ newRows, inFileDupes, existing: existingMatches });
+        setExistingMode('add');
+        setUploading(false);
+        return;
+      }
+
+      await insertPlan(newRows, [], 'skip');
+    } catch (err: unknown) {
+      setErrors([uploadErrMsg(err)]);
+    } finally {
+      setUploading(false);
+      setProgress(null);
+    }
+  }
+
+  // Everything that actually writes. Split out of handleUpload so the review step
+  // can call it with the same code path staff would have hit without a review.
+  async function insertPlan(newRows: MergedRow[], existing: ExistingMatch[], mode: 'add' | 'skip') {
+    setErrors([]);
+    setUploading(true);
+    try {
+      const rows = newRows;
 
       // Batched insert — handles 2,000–4,000+ students without thousands of
       // round-trips. Students inserted in chunks; enrollments mapped back by the
@@ -226,15 +354,46 @@ function BulkUpload({ schoolId, subjects, onSuccess }: BulkUploadProps) {
         setProgress({ done: Math.min(i + chunk.length, rows.length), total: rows.length });
       }
 
-      toast({ title: 'Bulk upload complete', description: `${rows.length} student${rows.length !== 1 ? 's' : ''} added successfully.` });
+      // Top up students who were already registered, when staff chose to. Only the
+      // codes they don't already hold — `adding` was computed against their current
+      // enrollments, so re-uploading the same file adds nothing.
+      let toppedUpStudents = 0;
+      let toppedUpSubjects = 0;
+      if (mode === 'add') {
+        const topUps = existing
+          .filter(m => m.adding.length > 0)
+          .flatMap(m => m.adding.map(code => ({ student_id: m.studentId, olympiad_code: code })));
+        toppedUpStudents = existing.filter(m => m.adding.length > 0).length;
+        toppedUpSubjects = topUps.length;
+        const enrollAt = new Date().toISOString();
+        for (let j = 0; j < topUps.length; j += ENROLL_BATCH) {
+          const { data: insertedEnrollments, error: ee } = await supabase
+            .from('portal_student_enrollments')
+            .insert(topUps.slice(j, j + ENROLL_BATCH).map(t => ({ ...t, submitted_at: enrollAt })))
+            .select('id');
+          if (ee) throw ee;
+          const { failed, total } = await verifyRegistrationNumbers((insertedEnrollments ?? []).map(e => e.id));
+          regFailed += failed;
+          regTotal += total;
+        }
+      }
+
+      const parts = [`${rows.length} student${rows.length !== 1 ? 's' : ''} added`];
+      if (toppedUpSubjects > 0) {
+        parts.push(`${toppedUpSubjects} subject${toppedUpSubjects !== 1 ? 's' : ''} added to ${toppedUpStudents} existing student${toppedUpStudents !== 1 ? 's' : ''}`);
+      }
+      const skipped = mode === 'skip' ? existing.length : existing.filter(m => m.adding.length === 0).length;
+      if (skipped > 0) parts.push(`${skipped} already registered, left unchanged`);
+      toast({ title: 'Bulk upload complete', description: parts.join(' · ') + '.' });
       warnIfRegistrationNumbersFailed(regFailed, regTotal);
       setFile(null);
       if (fileRef.current) fileRef.current.value = '';
+      setReview(null);
       setOpen(false);
       onSuccess();
     } catch (err: unknown) {
-      const msg = errMsg(err);
-      setErrors([`Upload failed: ${msg}`]);
+      setErrors([uploadErrMsg(err)]);
+      setReview(null);
     } finally {
       setUploading(false);
       setProgress(null);
@@ -264,10 +423,10 @@ function BulkUpload({ schoolId, subjects, onSuccess }: BulkUploadProps) {
               ref={fileRef}
               type="file"
               accept=".csv"
-              onChange={e => { setFile(e.target.files?.[0] ?? null); setErrors([]); }}
+              onChange={e => { setFile(e.target.files?.[0] ?? null); setErrors([]); setReview(null); }}
               className="text-sm"
             />
-            <Button onClick={handleUpload} disabled={!file || uploading} className="flex items-center gap-2">
+            <Button onClick={handleUpload} disabled={!file || uploading || !!review} className="flex items-center gap-2">
               <Upload className="h-4 w-4" />
               {uploading
                 ? (progress ? `Uploading ${progress.done.toLocaleString()}/${progress.total.toLocaleString()}…` : 'Uploading…')
@@ -277,6 +436,69 @@ function BulkUpload({ schoolId, subjects, onSuccess }: BulkUploadProps) {
           {errors.length > 0 && (
             <div className="rounded-lg bg-red-50 border border-red-200 p-3 space-y-1">
               {errors.map((e, i) => <p key={i} className="text-xs text-red-700">{e}</p>)}
+            </div>
+          )}
+
+          {review && (
+            <div className="rounded-lg bg-amber-50 border border-amber-300 p-3 space-y-3">
+              <p className="text-sm font-semibold text-amber-900">
+                Nothing has been uploaded yet — this file needs a decision first.
+              </p>
+
+              {review.inFileDupes.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-amber-900">
+                    {review.inFileDupes.length} student{review.inFileDupes.length !== 1 ? 's are' : ' is'} listed on more than one row.
+                    Continuing combines each into one student with all their subjects:
+                  </p>
+                  {review.inFileDupes.map((d, i) => (
+                    <p key={i} className="text-xs text-amber-800 pl-2">
+                      <span className="font-medium">{d.name}</span> · class {classLabel(d.classCode)} ·
+                      {' '}rows {d.lines.join(', ')} → {d.olympiads.join(' ')}
+                    </p>
+                  ))}
+                </div>
+              )}
+
+              {review.existing.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold text-amber-900">
+                    {review.existing.length} student{review.existing.length !== 1 ? 's are' : ' is'} already registered for this project:
+                  </p>
+                  {review.existing.map((m, i) => (
+                    <p key={i} className="text-xs text-amber-800 pl-2">
+                      <span className="font-medium">{m.name}</span> · class {classLabel(m.classCode)} ·
+                      {' '}has {m.have.join(' ') || 'no subjects'} ·
+                      {' '}{m.adding.length > 0
+                        ? <span className="font-medium">file adds {m.adding.join(' ')}</span>
+                        : 'file adds nothing new'}
+                    </p>
+                  ))}
+                  <div className="flex flex-col gap-1 pt-1">
+                    <label className="flex items-center gap-2 text-xs text-amber-900">
+                      <input type="radio" checked={existingMode === 'add'} onChange={() => setExistingMode('add')} />
+                      Add the missing subjects to them
+                    </label>
+                    <label className="flex items-center gap-2 text-xs text-amber-900">
+                      <input type="radio" checked={existingMode === 'skip'} onChange={() => setExistingMode('skip')} />
+                      Leave them exactly as they are
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              <p className="text-xs text-amber-900 border-t border-amber-200 pt-2">
+                {review.newRows.length} new student{review.newRows.length !== 1 ? 's' : ''} will be added.
+              </p>
+              <div className="flex gap-2">
+                <Button size="sm" disabled={uploading}
+                  onClick={() => insertPlan(review.newRows, review.existing, existingMode)}>
+                  {uploading ? 'Uploading…' : 'Continue'}
+                </Button>
+                <Button size="sm" variant="outline" disabled={uploading} onClick={() => setReview(null)}>
+                  Cancel
+                </Button>
+              </div>
             </div>
           )}
         </CardContent>
