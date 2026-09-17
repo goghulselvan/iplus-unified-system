@@ -4,11 +4,15 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { CheckCircle2, PackageCheck, Printer, XCircle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useToast } from '@/hooks/use-toast';
 import IssueCreditDialog from '@/components/sales/IssueCreditDialog';
 import MarkReturnReceivedDialog from '@/components/sales/MarkReturnReceivedDialog';
 import SendReplacementDialog from '@/components/sales/SendReplacementDialog';
+import { shortBookName } from '@/utils/bookName';
+import { generateReplacementSlip } from '@/utils/replacementSlipGenerator';
 
 type ReturnRow = {
   id: string;
@@ -24,7 +28,8 @@ type ReturnRow = {
   invoice_line_items: {
     item_name: string;
     unit_price: number;
-    invoices: { invoice_number: number | null; fy: number | null; schools: { school_name: string; ss_no: number | null } | null } | null;
+    products: { name: string } | null;
+    invoices: { invoice_number: number | null; fy: number | null; schools: { id: string; school_name: string; ss_no: number | null } | null } | null;
   } | null;
 };
 
@@ -35,14 +40,24 @@ const REASON_LABELS: Record<string, string> = {
   other: 'Other',
 };
 
+const shortDate = (iso: string) => new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+
+// Invoice lines snapshot the name at billing; the live product name is the one printed on today's books.
+const orderedName = (r: ReturnRow) => r.invoice_line_items?.products?.name ?? r.invoice_line_items?.item_name ?? 'item';
+
+const awaitsReplacement = (r: ReturnRow) =>
+  r.reason_category === 'wrong_item_shipped' && !r.replacement_sent_at && r.status !== 'credit_issued';
+
 export default function ReturnsPage() {
   const { profile } = useAuth();
+  const { toast } = useToast();
   const canManage = profile?.role === 'superadmin' || profile?.role === 'accountant';
   const [rows, setRows] = useState<ReturnRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [creditTarget, setCreditTarget] = useState<{ returnId: string; schoolName: string; itemName: string; quantity: number; amount: number } | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<{ id: string; itemName: string } | null>(null);
-  const [replacementTarget, setReplacementTarget] = useState<{ returnId: string; schoolName: string; itemName: string; quantity: number } | null>(null);
+  const [replacementTarget, setReplacementTarget] = useState<{ returnId: string; schoolName: string; itemName: string; wrongItemName: string | null; quantity: number } | null>(null);
+  const [printingSchoolId, setPrintingSchoolId] = useState<string | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -52,7 +67,7 @@ export default function ReturnsPage() {
         id, quantity, reason_category, reason_note, status, condition_on_receipt, requested_at,
         replacement_sent_at, replacement_order_reference,
         actual_product:products!product_returns_actual_product_id_fkey ( name ),
-        invoice_line_items ( item_name, unit_price, invoices ( invoice_number, fy, schools ( school_name, ss_no ) ) )
+        invoice_line_items ( item_name, unit_price, products ( name ), invoices ( invoice_number, fy, schools ( id, school_name, ss_no ) ) )
       `)
       .order('requested_at', { ascending: false })
       .then(({ data }) => {
@@ -69,7 +84,7 @@ export default function ReturnsPage() {
 
   const invoiceLabel = (r: ReturnRow) => {
     const inv = r.invoice_line_items?.invoices;
-    if (!inv?.invoice_number) return '—';
+    if (!inv?.invoice_number) return null;
     return `INV/${inv.fy}-${(inv.fy ?? 0) + 1}/${inv.invoice_number}`;
   };
   const schoolLabel = (r: ReturnRow) => {
@@ -77,61 +92,125 @@ export default function ReturnsPage() {
     return school ? `${school.school_name}${school.ss_no != null ? ` (SS #${school.ss_no})` : ''}` : '—';
   };
 
-  const renderRows = (list: ReturnRow[], opts: { issueCredit?: boolean; markReceived?: boolean; showCondition?: boolean; sendReplacement?: boolean }) => (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>School</TableHead>
-          <TableHead>Item</TableHead>
-          <TableHead>Qty</TableHead>
-          <TableHead>Reason</TableHead>
-          <TableHead>Invoice</TableHead>
-          <TableHead>Requested</TableHead>
-          {opts.showCondition && <TableHead>Condition</TableHead>}
-          {(opts.issueCredit || opts.markReceived || opts.sendReplacement) && <TableHead></TableHead>}
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {loading ? (
-          <TableRow><TableCell colSpan={7} className="text-center py-6 text-muted-foreground">Loading…</TableCell></TableRow>
-        ) : list.length === 0 ? (
-          <TableRow><TableCell colSpan={7} className="text-center py-6 text-muted-foreground">Nothing here.</TableCell></TableRow>
-        ) : (
-          list.map(r => (
-            <TableRow key={r.id}>
-              <TableCell>{schoolLabel(r)}</TableCell>
-              <TableCell>
-                {r.invoice_line_items?.item_name ?? '—'}
-                {r.actual_product && (
-                  <p className="text-xs text-amber-600 mt-0.5">Shipped instead: {r.actual_product.name}</p>
-                )}
-                {r.replacement_sent_at && (
-                  <p className="text-xs text-emerald-600 mt-0.5">
-                    ✓ Replacement sent {new Date(r.replacement_sent_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                    {r.replacement_order_reference ? ` (${r.replacement_order_reference})` : ''}
-                  </p>
-                )}
-              </TableCell>
-              <TableCell>{r.quantity}</TableCell>
-              <TableCell><Badge variant="outline">{REASON_LABELS[r.reason_category] ?? r.reason_category}</Badge></TableCell>
-              <TableCell>{invoiceLabel(r)}</TableCell>
-              <TableCell>{new Date(r.requested_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</TableCell>
-              {opts.showCondition && <TableCell className="capitalize">{r.condition_on_receipt}</TableCell>}
-              {(opts.issueCredit || opts.markReceived || opts.sendReplacement) && (
-                <TableCell>
-                  {canManage && (
-                    <div className="flex gap-2">
-                      {opts.sendReplacement && r.reason_category === 'wrong_item_shipped' && !r.replacement_sent_at && (
+  // One slip per school covering every replacement still owed to it, merged by book.
+  const printSlip = async (r: ReturnRow) => {
+    const school = r.invoice_line_items?.invoices?.schools;
+    if (!school) return;
+    setPrintingSchoolId(school.id);
+    try {
+      const owed = rows.filter(x => x.invoice_line_items?.invoices?.schools?.id === school.id && awaitsReplacement(x));
+      const byBook = new Map<string, number>();
+      owed.forEach(x => byBook.set(orderedName(x), (byBook.get(orderedName(x)) ?? 0) + x.quantity));
+      const blob = await generateReplacementSlip({
+        schoolName: school.school_name,
+        ssNo: school.ss_no,
+        invoiceRefs: [...new Set(owed.map(invoiceLabel).filter((v): v is string => !!v))],
+        items: [...byBook].map(([name, quantity]) => ({ name, quantity })),
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Replacement_SS${school.ss_no ?? ''}_${new Date().toISOString().slice(0, 10)}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      toast({ title: 'Could not generate the slip', description: e instanceof Error ? e.message : String(e), variant: 'destructive' });
+    } finally {
+      setPrintingSchoolId(null);
+    }
+  };
+
+  const replacementCell = (r: ReturnRow) => {
+    if (r.reason_category !== 'wrong_item_shipped') return <span className="text-muted-foreground">—</span>;
+    if (r.replacement_sent_at) {
+      return (
+        <div>
+          <span className="inline-flex items-center gap-1 text-sm font-medium text-emerald-700">
+            <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> Sent {shortDate(r.replacement_sent_at)}
+          </span>
+          {r.replacement_order_reference && <p className="text-xs text-muted-foreground mt-0.5">{r.replacement_order_reference}</p>}
+        </div>
+      );
+    }
+    if (r.status === 'credit_issued') return <span className="text-sm text-muted-foreground">Credit issued instead</span>;
+    return (
+      <div>
+        <p className="flex items-center gap-1 font-bold text-neutral-900">
+          <PackageCheck className="h-4 w-4 shrink-0 text-emerald-700" aria-hidden="true" />
+          Send {shortBookName(orderedName(r))} × {r.quantity}
+        </p>
+        <Badge variant="outline" className="mt-1 bg-amber-50 text-amber-700 border-amber-200">Not sent yet</Badge>
+      </div>
+    );
+  };
+
+  const renderRows = (list: ReturnRow[], opts: { issueCredit?: boolean; markReceived?: boolean; showCondition?: boolean; sendReplacement?: boolean }) => {
+    const colCount = 8 + (opts.showCondition ? 1 : 0);
+    return (
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>School</TableHead>
+            <TableHead>Ordered</TableHead>
+            <TableHead>Wrong book sent</TableHead>
+            <TableHead>Qty</TableHead>
+            <TableHead>Replacement to send</TableHead>
+            <TableHead>Reason</TableHead>
+            <TableHead>Requested</TableHead>
+            {opts.showCondition && <TableHead>Condition</TableHead>}
+            <TableHead></TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {loading ? (
+            <TableRow><TableCell colSpan={colCount} className="text-center py-6 text-muted-foreground">Loading…</TableCell></TableRow>
+          ) : list.length === 0 ? (
+            <TableRow><TableCell colSpan={colCount} className="text-center py-6 text-muted-foreground">Nothing here.</TableCell></TableRow>
+          ) : (
+            list.map(r => {
+              const schoolId = r.invoice_line_items?.invoices?.schools?.id;
+              return (
+                <TableRow key={r.id}>
+                  <TableCell>
+                    {schoolLabel(r)}
+                    {invoiceLabel(r) && <p className="text-xs text-muted-foreground mt-0.5">{invoiceLabel(r)}</p>}
+                  </TableCell>
+                  <TableCell className="font-semibold text-neutral-900" title={orderedName(r)}>
+                    {shortBookName(orderedName(r))}
+                  </TableCell>
+                  <TableCell>
+                    {r.actual_product ? (
+                      <span className="inline-flex items-center gap-1 font-medium text-red-700" title={r.actual_product.name}>
+                        <XCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
+                        {shortBookName(r.actual_product.name)}
+                      </span>
+                    ) : <span className="text-muted-foreground">—</span>}
+                  </TableCell>
+                  <TableCell className="tabular-nums">{r.quantity}</TableCell>
+                  <TableCell>{replacementCell(r)}</TableCell>
+                  <TableCell><Badge variant="outline">{REASON_LABELS[r.reason_category] ?? r.reason_category}</Badge></TableCell>
+                  <TableCell>{new Date(r.requested_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</TableCell>
+                  {opts.showCondition && <TableCell className="capitalize">{r.condition_on_receipt}</TableCell>}
+                  <TableCell>
+                    <div className="flex flex-wrap justify-end gap-2">
+                      {awaitsReplacement(r) && schoolId && (
+                        <Button size="sm" variant="outline" disabled={printingSchoolId === schoolId} onClick={() => printSlip(r)}>
+                          <Printer className="h-3.5 w-3.5 mr-1" aria-hidden="true" />
+                          {printingSchoolId === schoolId ? 'Slip…' : 'Print Slip'}
+                        </Button>
+                      )}
+                      {canManage && opts.sendReplacement && awaitsReplacement(r) && (
                         <Button size="sm" variant="outline" onClick={() => setReplacementTarget({
                           returnId: r.id,
                           schoolName: schoolLabel(r),
-                          itemName: r.invoice_line_items?.item_name ?? 'item',
+                          itemName: orderedName(r),
+                          wrongItemName: r.actual_product?.name ?? null,
                           quantity: r.quantity,
                         })}>
                           Send Replacement
                         </Button>
                       )}
-                      {opts.issueCredit && !r.replacement_sent_at && (
+                      {canManage && opts.issueCredit && !r.replacement_sent_at && (
                         <Button size="sm" onClick={() => setCreditTarget({
                           returnId: r.id,
                           schoolName: schoolLabel(r),
@@ -142,22 +221,22 @@ export default function ReturnsPage() {
                           Issue Credit
                         </Button>
                       )}
-                      {opts.markReceived && (
+                      {canManage && opts.markReceived && (
                         <Button size="sm" variant={opts.issueCredit ? 'outline' : 'default'}
                           onClick={() => setConfirmTarget({ id: r.id, itemName: r.invoice_line_items?.item_name ?? 'item' })}>
                           Mark Received
                         </Button>
                       )}
                     </div>
-                  )}
-                </TableCell>
-              )}
-            </TableRow>
-          ))
-        )}
-      </TableBody>
-    </Table>
-  );
+                  </TableCell>
+                </TableRow>
+              );
+            })
+          )}
+        </TableBody>
+      </Table>
+    );
+  };
 
   return (
     <SalesLayout>

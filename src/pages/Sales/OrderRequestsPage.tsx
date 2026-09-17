@@ -3,9 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import SalesLayout from '@/components/sales/SalesLayout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus } from 'lucide-react';
+import { Plus, Search } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import ManualOrderDialog from './ManualOrderDialog';
@@ -73,6 +74,7 @@ export default function OrderRequestsPage() {
   const [error, setError] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
   const [sourceFilter, setSourceFilter] = useState('all');
+  const [search, setSearch] = useState('');
   const [manualOpen, setManualOpen] = useState(false);
 
   const load = async () => {
@@ -98,34 +100,49 @@ export default function OrderRequestsPage() {
     let rows = orders;
     if (statusFilter !== 'all') rows = rows.filter(o => o.payment_status === statusFilter);
     if (sourceFilter !== 'all') rows = rows.filter(o => o.source === sourceFilter);
+    const q = search.trim().toLowerCase();
+    if (q) {
+      // Order no. matches "79", "ORD/26-27/79" or the "26-27-79" form schools see on WhatsApp.
+      rows = rows.filter(o =>
+        (o.schools?.school_name ?? '').toLowerCase().includes(q)
+        || String(o.schools?.ss_no ?? '') === q
+        || String(o.order_number ?? '') === q
+        || orderRef(o).toLowerCase().includes(q)
+        || (o.fy != null && `${o.fy}-${o.fy + 1}-${o.order_number}` === q));
+    }
     return rows;
-  }, [orders, statusFilter, sourceFilter]);
+  }, [orders, statusFilter, sourceFilter, search]);
 
   return (
     <SalesLayout>
       <div className="max-w-6xl mx-auto px-4 py-8">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-3xl font-bold">Order Requests</h1>
-          <div className="flex items-center gap-3">
-            <Select value={sourceFilter} onValueChange={setSourceFilter}>
-              <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Manual & Portal</SelectItem>
-                <SelectItem value="manual">Manual Only</SelectItem>
-                <SelectItem value="portal">Portal Only</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Statuses</SelectItem>
-                <SelectItem value="pending">Pending Review</SelectItem>
-                <SelectItem value="confirmed">Confirmed</SelectItem>
-                <SelectItem value="resubmit_requested">Resubmit Requested</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button onClick={() => setManualOpen(true)}><Plus className="h-4 w-4 mr-2" />New Order Request</Button>
+          <Button onClick={() => setManualOpen(true)}><Plus className="h-4 w-4 mr-2" />New Order Request</Button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 mb-4">
+          <div className="relative flex-1 min-w-56">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input className="pl-8" placeholder="Search school name, SS No or order no.…" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
+          <Select value={sourceFilter} onValueChange={setSourceFilter}>
+            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Manual & Portal</SelectItem>
+              <SelectItem value="manual">Manual Only</SelectItem>
+              <SelectItem value="portal">Portal Only</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Statuses</SelectItem>
+              <SelectItem value="pending">Pending Review</SelectItem>
+              <SelectItem value="confirmed">Confirmed</SelectItem>
+              <SelectItem value="resubmit_requested">Resubmit Requested</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         <ManualOrderDialog
@@ -152,7 +169,7 @@ export default function OrderRequestsPage() {
               ) : error ? (
                 <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">—</TableCell></TableRow>
               ) : filtered.length === 0 ? (
-                <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No order requests.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">{search.trim() ? `No orders match "${search.trim()}".` : 'No order requests.'}</TableCell></TableRow>
               ) : (
                 filtered.map(o => (
                   <TableRow key={o.id} className="cursor-pointer hover:bg-neutral-50" onClick={() => navigate(`/sales/order-requests/${o.id}`)}>
