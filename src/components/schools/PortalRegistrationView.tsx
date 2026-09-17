@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Trash2, Plus, Check, X, Pencil, Save, Upload, Download, FileText, ChevronDown, ChevronUp, ClipboardList } from 'lucide-react';
+import { Trash2, Plus, Check, X, Pencil, Save, Upload, Download, FileText, ChevronDown, ChevronUp, ClipboardList, ArrowUp, ArrowDown, ArrowUpDown, Search } from 'lucide-react';
 import { generateStudentNamelistPdf } from '@/utils/studentNamelistPdfGenerator';
 import { toast, useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
@@ -85,6 +85,8 @@ const CLASS_OPTIONS = [
     value: String(i + 1).padStart(2, '0'), label: `Class ${i + 1}`,
   })),
 ];
+// LKG/UKG carry codes 14/15, so a plain string sort would put them after Class 8.
+const CLASS_ORDER = new Map(CLASS_OPTIONS.map((c, i) => [c.value, i]));
 
 const CLASS_LABEL_TO_CODE: Record<string, string> = {
   LKG: '14', UKG: '15',
@@ -720,8 +722,11 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
   const [editOlympiads, setEditOlympiads] = useState<OlympiadCode[]>([]);
   const [concessionInput, setConcessionInput] = useState<string>('');
   const [savingConcession, setSavingConcession] = useState(false);
-  const [sortField, setSortField] = useState<'name' | 'class'>('class');
+  const [sortField, setSortField] = useState<'name' | 'class' | 'subjects'>('class');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [search, setSearch] = useState('');
+  const [classFilter, setClassFilter] = useState('');
+  const [subjectFilter, setSubjectFilter] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [downloadingNamelist, setDownloadingNamelist] = useState(false);
 
@@ -793,19 +798,40 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
     [students, subjects]
   );
 
+  const classCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    students.forEach(s => counts.set(s.class_code, (counts.get(s.class_code) ?? 0) + 1));
+    return [...counts].sort((a, b) => (CLASS_ORDER.get(a[0]) ?? 99) - (CLASS_ORDER.get(b[0]) ?? 99));
+  }, [students]);
+
   const displayedStudents = useMemo(() => {
-    const sorted = [...students];
-    sorted.sort((a, b) => {
-      if (sortField === 'name') {
-        const cmp = a.student_name.localeCompare(b.student_name);
-        return sortOrder === 'asc' ? cmp : -cmp;
-      } else {
-        const cmp = a.class_code.localeCompare(b.class_code);
-        return sortOrder === 'asc' ? cmp : -cmp;
-      }
+    const q = search.trim().toLowerCase();
+    const filtered = students.filter(s =>
+      (!classFilter || s.class_code === classFilter)
+      && (!subjectFilter || s.enrollments.includes(subjectFilter))
+      && (!q
+        || s.student_name.toLowerCase().includes(q)
+        || Object.values(s.regNumbers).some(r => !!r && (r.toLowerCase().includes(q) || formatRegNumberForStudent(r).toLowerCase().includes(q)))));
+
+    const classRank = (code: string) => CLASS_ORDER.get(code) ?? 99;
+    // "0" for each subject taken, in subject order — identical sets sort together,
+    // and students taking the first subject come before those who don't.
+    const comboKey = (s: PortalStudent) => subjects.map(subj => (s.enrollments.includes(subj.alphabetical_code!) ? '0' : '1')).join('');
+    const byName = (a: PortalStudent, b: PortalStudent) => a.student_name.localeCompare(b.student_name);
+    const byClass = (a: PortalStudent, b: PortalStudent) => classRank(a.class_code) - classRank(b.class_code);
+
+    const dir = sortOrder === 'asc' ? 1 : -1;
+    return filtered.sort((a, b) => {
+      if (sortField === 'name') return dir * byName(a, b);
+      if (sortField === 'subjects') return dir * comboKey(a).localeCompare(comboKey(b)) || byClass(a, b) || byName(a, b);
+      return dir * byClass(a, b) || byName(a, b);
     });
-    return sorted;
-  }, [students, sortField, sortOrder]);
+  }, [students, subjects, search, classFilter, subjectFilter, sortField, sortOrder]);
+
+  const filtersActive = !!(search.trim() || classFilter || subjectFilter);
+  // A tick on a row the filter just hid would still be deleted by "Delete N selected".
+  const changeFilter = (apply: () => void) => { apply(); setSelectedIds(new Set()); };
+  const clearFilters = () => changeFilter(() => { setSearch(''); setClassFilter(''); setSubjectFilter(''); });
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -980,7 +1006,7 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
     }
   }
 
-  function toggleSort(field: 'name' | 'class') {
+  function toggleSort(field: 'name' | 'class' | 'subjects') {
     if (sortField === field) setSortOrder(o => o === 'asc' ? 'desc' : 'asc');
     else { setSortField(field); setSortOrder('asc'); }
   }
@@ -1080,7 +1106,15 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
         </CardContent>
       </Card>
 
-      <BulkUpload schoolId={schoolId} subjects={subjects} onSuccess={() => qc.invalidateQueries({ queryKey: ['crm-portal-students', schoolId] })} />
+      <div className="grid gap-6 md:grid-cols-2 items-start">
+        <BulkUpload schoolId={schoolId} subjects={subjects} onSuccess={() => qc.invalidateQueries({ queryKey: ['crm-portal-students', schoolId] })} />
+        <StaffAddStudentPanel
+          schoolId={schoolId}
+          projectId="dd5de83d-64f8-4113-a231-27024058396b"
+          subjects={subjects}
+          onAdded={() => qc.invalidateQueries({ queryKey: ['crm-portal-students', schoolId, activeProject?.id] })}
+        />
+      </div>
 
       {/* Students table — always editable. Red tint is a status indicator only,
           shown for portal-registered schools until the school hits Submit —
@@ -1094,7 +1128,7 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
           </p>
           <p className="text-sm text-muted-foreground max-w-sm mx-auto">
             {!portalRegistered
-              ? 'Use Bulk Upload or Add Student below to get started.'
+              ? 'Use Bulk Upload or Add Student above to get started.'
               : isSubmitted
               ? 'The school submitted an empty list.'
               : 'Nothing added by the school on the portal yet.'}
@@ -1138,21 +1172,49 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
                 <FileText className="h-3.5 w-3.5 mr-1" />
                 {downloadingNamelist ? 'Generating…' : 'Namelist PDF'}
               </Button>
-              <Button
-                variant={sortField === 'name' ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => toggleSort('name')}
-              >
-                Name {sortField === 'name' ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
-              </Button>
-              <Button
-                variant={sortField === 'class' ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => toggleSort('class')}
-              >
-                Class {sortField === 'class' ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
-              </Button>
             </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 pt-3">
+            <div className="relative flex-1 min-w-56">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              <Input
+                className="pl-8"
+                placeholder="Search student name or registration no.…"
+                aria-label="Search students"
+                value={search}
+                onChange={(e) => { const v = e.target.value; changeFilter(() => setSearch(v)); }}
+              />
+            </div>
+            <select
+              aria-label="Filter by class"
+              value={classFilter}
+              onChange={(e) => { const v = e.target.value; changeFilter(() => setClassFilter(v)); }}
+              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            >
+              <option value="">All classes</option>
+              {classCounts.map(([code, n]) => (
+                <option key={code} value={code}>{CLASS_OPTIONS.find(c => c.value === code)?.label ?? code} ({n})</option>
+              ))}
+            </select>
+            <select
+              aria-label="Filter by subject"
+              value={subjectFilter}
+              onChange={(e) => { const v = e.target.value; changeFilter(() => setSubjectFilter(v)); }}
+              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            >
+              <option value="">All subjects</option>
+              {subjects.filter(subj => subj.alphabetical_code).map(subj => (
+                <option key={subj.alphabetical_code} value={subj.alphabetical_code!}>
+                  {subj.alphabetical_code} ({olympiadStats[subj.alphabetical_code!] ?? 0})
+                </option>
+              ))}
+            </select>
+            {filtersActive && (
+              <>
+                <span className="text-sm text-muted-foreground">Showing {displayedStudents.length} of {students.length}</span>
+                <Button variant="ghost" size="sm" onClick={clearFilters}>Clear</Button>
+              </>
+            )}
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -1174,13 +1236,34 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
                       </th>
                     )}
                     <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">#</th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Name</th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Class</th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Subjects</th>
+                    {([['name', 'Name'], ['class', 'Class'], ['subjects', 'Subjects']] as const).map(([field, label]) => {
+                      const active = sortField === field;
+                      const Icon = !active ? ArrowUpDown : sortOrder === 'asc' ? ArrowUp : ArrowDown;
+                      return (
+                        <th key={field} className="text-left px-4 py-3" aria-sort={active ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                          <button
+                            type="button"
+                            onClick={() => toggleSort(field)}
+                            className={`inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider rounded hover:text-foreground ${active ? 'text-foreground' : 'text-muted-foreground'}`}
+                          >
+                            {label}
+                            <Icon className={`h-3.5 w-3.5 ${active ? '' : 'opacity-40'}`} aria-hidden="true" />
+                          </button>
+                        </th>
+                      );
+                    })}
                     <th className="px-4 py-3 w-24" />
                   </tr>
                 </thead>
                 <tbody className={`divide-y ${showUnsubmittedState ? 'bg-red-50/60' : ''}`}>
+                  {displayedStudents.length === 0 && (
+                    <tr>
+                      <td colSpan={canBulkDelete ? 6 : 5} className="px-4 py-8 text-center text-muted-foreground">
+                        No students match these filters.{' '}
+                        <button type="button" onClick={clearFilters} className="font-medium text-indigo-600 hover:underline">Clear filters</button>
+                      </td>
+                    </tr>
+                  )}
                   {displayedStudents.map((s, i) => {
                     const isEditing = editingId === s.id;
                     const clsLabel = CLASS_OPTIONS.find((c) => c.value === s.class_code)?.label ?? s.class_code;
@@ -1297,13 +1380,6 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
         </CardContent>
       </Card>
       )}
-
-      <StaffAddStudentPanel
-        schoolId={schoolId}
-        projectId="dd5de83d-64f8-4113-a231-27024058396b"
-        subjects={subjects}
-        onAdded={() => qc.invalidateQueries({ queryKey: ['crm-portal-students', schoolId, activeProject?.id] })}
-      />
     </div>
   );
 }
