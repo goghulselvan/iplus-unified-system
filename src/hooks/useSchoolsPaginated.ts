@@ -19,6 +19,12 @@ interface SchoolFilters {
   boardFilter?: string;
   schoolIds?: string[]; // filter to specific school IDs (for project view)
   projectId?: string;   // scope list to schools in this project's workflow
+  // Overview cross-tab row click — any subset of the three fields at once.
+  crosstabFilter?: {
+    registration_status?: string;
+    payment_status?: string;
+    name_list_status?: string;
+  };
 }
 
 // scopeProjectId: when provided, EVERY fetch is scoped to schools in that
@@ -137,6 +143,16 @@ export const useSchoolsPaginated = (scopeProjectId?: string) => {
           query = query.eq('result_status', 'Sent');
           break;
       }
+    }
+
+    // Overview cross-tab row click — all three fields at once, kept separate
+    // from workflowFilter above since that mechanism only ever carries one
+    // value at a time and this needs three simultaneously.
+    if (searchFilters.crosstabFilter) {
+      const { registration_status, payment_status, name_list_status } = searchFilters.crosstabFilter;
+      if (registration_status) query = query.eq('registration_status', registration_status);
+      if (payment_status) query = query.eq('payment_status', payment_status);
+      if (name_list_status) query = query.eq('name_list_status', name_list_status);
     }
 
     // Apply state filter (case-insensitive) - match by state directly

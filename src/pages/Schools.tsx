@@ -260,6 +260,14 @@ const Schools = () => {
     const answerSheetStatus = searchParams.get('answer_sheet_status');
     const resultStatus = searchParams.get('result_status');
     const dateFilter = searchParams.get('date');
+    // Overview cross-tab row click — distinct param names (xt_*) so a row
+    // with e.g. registration_status=Confirmed doesn't collide with the
+    // single-field registration_status param above, which means something
+    // different (the plain "Registration Confirmed" tile).
+    const xtRegistration = searchParams.get('xt_registration');
+    const xtPayment = searchParams.get('xt_payment');
+    const xtNamelist = searchParams.get('xt_namelist');
+    const hasCrosstabFilter = !!(xtRegistration || xtPayment || xtNamelist);
 
     // Build workflow filter based on URL parameters
     let workflowValue = savedFilters?.workflowFilter || 'all';
@@ -288,7 +296,20 @@ const Schools = () => {
     }
 
     // Apply the filters - URL parameters always trigger a fresh filter
-    if (workflowValue !== 'all' || dateFilter) {
+    if (hasCrosstabFilter) {
+      setTimeout(() => {
+        applyFilters({
+          schoolIds: projectSchoolIds,
+          projectId: activeProject?.id,
+          crosstabFilter: {
+            registration_status: xtRegistration || undefined,
+            payment_status: xtPayment || undefined,
+            name_list_status: xtNamelist || undefined,
+          },
+        });
+        setInitialFiltersApplied(true);
+      }, 100);
+    } else if (workflowValue !== 'all' || dateFilter) {
       setTimeout(() => {
         applyFilters({
           search: searchTerm,

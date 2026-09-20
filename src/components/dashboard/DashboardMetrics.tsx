@@ -22,6 +22,7 @@ import { format } from 'date-fns';
 import { useActiveProject, useOlympiadProjects } from '@/hooks/useOlympiadProjects';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -44,6 +45,30 @@ export const DashboardMetrics: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [showDateView, setShowDateView] = useState(false);
   const [showComparison, setShowComparison] = useState(false);
+
+  // Overview cross-tab: registration x payment x namelist, ordered by how far
+  // each combination sits from "Confirmed + Received + Uploaded" — the RPC
+  // does the ordering, this just renders whatever it returns.
+  const { data: crosstab } = useQuery({
+    queryKey: ['dashboard-crosstab', activeProject?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('get_registration_payment_namelist_crosstab', {
+        p_project_id: activeProject!.id,
+      });
+      if (error) throw error;
+      return data as { registration_status: string; payment_status: string; name_list_status: string; school_count: number }[];
+    },
+    enabled: !!activeProject?.id,
+  });
+
+  const goToCrosstabRow = (row: { registration_status: string; payment_status: string; name_list_status: string }) => {
+    const params = new URLSearchParams({
+      xt_registration: row.registration_status,
+      xt_payment: row.payment_status,
+      xt_namelist: row.name_list_status,
+    });
+    navigate(`/schools?${params.toString()}`);
+  };
 
   const fetchOverallMetrics = async () => {
     try {
@@ -619,9 +644,60 @@ export const DashboardMetrics: React.FC = () => {
         {/* Row 5: Overview */}
         <div>
           <h3 className="text-lg font-semibold mb-4 text-muted-foreground">Overview</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {metricRows.row5.map((metric, index) => renderMetricCard(metric, index, 'row5'))}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            {metricRows.row5.map((metric, index) => (
+              <Card
+                key={`row5-${index}`}
+                className="cursor-pointer hover:shadow-md transition-shadow"
+                onClick={() => handleMetricClick(metric.filterType)}
+              >
+                <CardContent className="flex items-center justify-between py-3 px-4">
+                  <div className="flex items-center gap-2">
+                    <metric.icon className={`h-4 w-4 ${metric.color}`} />
+                    <span className="text-sm font-medium">{metric.title}</span>
+                  </div>
+                  <span className="text-xl font-bold">{metric.value}</span>
+                </CardContent>
+              </Card>
+            ))}
           </div>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base font-semibold">
+                Registration &times; Payment &times; Name List
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Schools needing the most work first. Click a row to see exactly those schools.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Registration</TableHead>
+                    <TableHead>Payment</TableHead>
+                    <TableHead>Name List</TableHead>
+                    <TableHead className="text-right">Schools</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {crosstab?.map((row, index) => (
+                    <TableRow
+                      key={index}
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => goToCrosstabRow(row)}
+                    >
+                      <TableCell>{row.registration_status}</TableCell>
+                      <TableCell>{row.payment_status}</TableCell>
+                      <TableCell>{row.name_list_status}</TableCell>
+                      <TableCell className="text-right font-semibold">{row.school_count}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Date-specific metrics if in date view */}
