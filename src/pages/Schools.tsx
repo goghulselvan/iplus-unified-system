@@ -67,6 +67,16 @@ const Schools = () => {
   const [districtFilter, setDistrictFilter] = useState(savedFilters?.districtFilter || 'all');
   const [boardFilter, setBoardFilter] = useState(savedFilters?.boardFilter || 'all');
   const [initialFiltersApplied, setInitialFiltersApplied] = useState(false);
+  // Overview cross-tab row click. Must live in real state, not just be passed
+  // inline to one applyFilters call — the debounced effect below re-fires the
+  // instant initialFiltersApplied flips true (it's in that effect's own
+  // dependency array) and calls applyFilters again from current state. The
+  // existing single-field tiles survive that re-fire because workflowFilter
+  // is already state by the time it happens; this wasn't, so the crosstab
+  // filter got silently wiped a few hundred ms after being applied.
+  const [crosstabFilter, setCrosstabFilter] = useState<
+    { registration_status?: string; payment_status?: string; name_list_status?: string } | undefined
+  >(undefined);
   const [isInterestedDialogOpen, setIsInterestedDialogOpen] = useState(false);
   const [projectSchoolIds, setProjectSchoolIds] = useState<string[]>([]);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
@@ -297,15 +307,17 @@ const Schools = () => {
 
     // Apply the filters - URL parameters always trigger a fresh filter
     if (hasCrosstabFilter) {
+      const xt = {
+        registration_status: xtRegistration || undefined,
+        payment_status: xtPayment || undefined,
+        name_list_status: xtNamelist || undefined,
+      };
+      setCrosstabFilter(xt);
       setTimeout(() => {
         applyFilters({
           schoolIds: projectSchoolIds,
           projectId: activeProject?.id,
-          crosstabFilter: {
-            registration_status: xtRegistration || undefined,
-            payment_status: xtPayment || undefined,
-            name_list_status: xtNamelist || undefined,
-          },
+          crosstabFilter: xt,
         });
         setInitialFiltersApplied(true);
       }, 100);
@@ -357,11 +369,12 @@ const Schools = () => {
         districtFilter,
         boardFilter,
         schoolIds: projectSchoolIds,
+        crosstabFilter,
       });
     }, 300); // 300ms debounce
 
     return () => clearTimeout(timeoutId);
-  }, [searchTerm, statusFilter, workflowFilter, paymentFilter, stateFilter, districtFilter, boardFilter, initialFiltersApplied, projectSchoolIds]); // Removed applyFilters dependency
+  }, [searchTerm, statusFilter, workflowFilter, paymentFilter, stateFilter, districtFilter, boardFilter, initialFiltersApplied, projectSchoolIds, crosstabFilter]); // Removed applyFilters dependency
 
   // Fetch all school IDs for active project, then immediately refilter
   useEffect(() => {
@@ -582,6 +595,42 @@ const Schools = () => {
             {!showAllInterested && interestedSchools.length > 6 && (
               <p className="text-xs text-amber-600 mt-2 ml-1">+{interestedSchools.length - 6} more — click "Show all"</p>
             )}
+          </div>
+        )}
+
+        {crosstabFilter && (
+          <div className="flex items-center gap-3 mb-4 px-4 py-3 rounded-lg border border-orange-200 bg-orange-50 dark:border-orange-900 dark:bg-orange-950/30">
+            <span className="text-sm font-medium text-orange-900 dark:text-orange-200">
+              Filtered from Dashboard:
+            </span>
+            <div className="flex flex-wrap gap-2">
+              {crosstabFilter.registration_status && (
+                <Badge variant="outline" className="bg-white dark:bg-transparent">
+                  Registration: {crosstabFilter.registration_status}
+                </Badge>
+              )}
+              {crosstabFilter.payment_status && (
+                <Badge variant="outline" className="bg-white dark:bg-transparent">
+                  Payment: {crosstabFilter.payment_status}
+                </Badge>
+              )}
+              {crosstabFilter.name_list_status && (
+                <Badge variant="outline" className="bg-white dark:bg-transparent">
+                  Name List: {crosstabFilter.name_list_status}
+                </Badge>
+              )}
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-auto text-orange-900 dark:text-orange-200 hover:bg-orange-100 dark:hover:bg-orange-900/40"
+              onClick={() => {
+                setCrosstabFilter(undefined);
+                navigate('/schools', { replace: true });
+              }}
+            >
+              Clear
+            </Button>
           </div>
         )}
 

@@ -145,15 +145,6 @@ export const useSchoolsPaginated = (scopeProjectId?: string) => {
       }
     }
 
-    // Overview cross-tab row click — all three fields at once, kept separate
-    // from workflowFilter above since that mechanism only ever carries one
-    // value at a time and this needs three simultaneously.
-    if (searchFilters.crosstabFilter) {
-      const { registration_status, payment_status, name_list_status } = searchFilters.crosstabFilter;
-      if (registration_status) query = query.eq('registration_status', registration_status);
-      if (payment_status) query = query.eq('payment_status', payment_status);
-      if (name_list_status) query = query.eq('name_list_status', name_list_status);
-    }
 
     // Apply state filter (case-insensitive) - match by state directly
     if (searchFilters.stateFilter && searchFilters.stateFilter !== 'all') {
@@ -188,30 +179,39 @@ export const useSchoolsPaginated = (scopeProjectId?: string) => {
       setLoading(true);
       const offset = (page - 1) * PAGE_SIZE;
       
-      // Convert "all" values to null for proper database filtering
+      // Convert "all" values to null for proper database filtering.
+      // crosstabFilter (Overview row click) takes priority over the plain
+      // dropdown values when both are present — status_filter/payment_filter
+      // already do exact-value matching server-side, reused directly rather
+      // than inventing a parallel filter path.
       const cleanFilters = {
         search: searchFilters.search && searchFilters.search.trim() !== '' ? searchFilters.search.trim() : null,
         state: searchFilters.stateFilter && searchFilters.stateFilter !== 'all' ? searchFilters.stateFilter : null,
         district: searchFilters.districtFilter && searchFilters.districtFilter !== 'all' ? searchFilters.districtFilter : null,
-        status: searchFilters.statusFilter && searchFilters.statusFilter !== 'all' ? searchFilters.statusFilter : null
+        status: searchFilters.crosstabFilter?.registration_status
+          ?? (searchFilters.statusFilter && searchFilters.statusFilter !== 'all' ? searchFilters.statusFilter : null),
+        payment: searchFilters.crosstabFilter?.payment_status
+          ?? (searchFilters.paymentFilter && searchFilters.paymentFilter !== 'all' ? searchFilters.paymentFilter : null),
+        nameList: searchFilters.crosstabFilter?.name_list_status ?? null,
       };
-      
+
       console.log('Clean filters for database:', cleanFilters);
-      
+
       // Use new case-insensitive search function for consistent formatting
       const { data, error } = await supabase.rpc('search_schools_case_insensitive', {
         search_term: cleanFilters.search,
         state_filter: cleanFilters.state,
-        district_filter: cleanFilters.district,  
+        district_filter: cleanFilters.district,
         status_filter: cleanFilters.status,
         workflow_filter: searchFilters.workflowFilter && searchFilters.workflowFilter !== 'all' ? searchFilters.workflowFilter : null,
-        payment_filter: searchFilters.paymentFilter && searchFilters.paymentFilter !== 'all' ? searchFilters.paymentFilter : null,
+        payment_filter: cleanFilters.payment,
         board_filter: searchFilters.boardFilter && searchFilters.boardFilter !== 'all' ? searchFilters.boardFilter : null,
         limit_count: PAGE_SIZE,
         offset_count: offset,
         // Hook-level scope wins; never let a stale/empty filter object drop it.
         project_filter: scopeProjectId ?? searchFilters.projectId ?? null,
-      });
+        name_list_filter: cleanFilters.nameList,
+      } as any);
 
       console.log('search_schools_case_insensitive result:', { data: data?.length, error });
 

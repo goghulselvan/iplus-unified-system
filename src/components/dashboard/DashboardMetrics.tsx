@@ -644,7 +644,7 @@ export const DashboardMetrics: React.FC = () => {
         {/* Row 5: Overview */}
         <div>
           <h3 className="text-lg font-semibold mb-4 text-muted-foreground">Overview</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             {metricRows.row5.map((metric, index) => (
               <Card
                 key={`row5-${index}`}
@@ -675,23 +675,23 @@ export const DashboardMetrics: React.FC = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Registration</TableHead>
-                    <TableHead>Payment</TableHead>
-                    <TableHead>Name List</TableHead>
-                    <TableHead className="text-right">Schools</TableHead>
+                    <TableHead className="text-sm font-semibold text-foreground">Registration</TableHead>
+                    <TableHead className="text-sm font-semibold text-foreground">Payment</TableHead>
+                    <TableHead className="text-sm font-semibold text-foreground">Name List</TableHead>
+                    <TableHead className="text-sm font-semibold text-foreground">Schools</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {crosstab?.map((row, index) => (
                     <TableRow
                       key={index}
-                      className="cursor-pointer hover:bg-muted/50"
+                      className={`cursor-pointer hover:bg-orange-50 dark:hover:bg-orange-950/20 transition-colors ${index % 2 === 1 ? 'bg-muted/40' : ''}`}
                       onClick={() => goToCrosstabRow(row)}
                     >
-                      <TableCell>{row.registration_status}</TableCell>
-                      <TableCell>{row.payment_status}</TableCell>
-                      <TableCell>{row.name_list_status}</TableCell>
-                      <TableCell className="text-right font-semibold">{row.school_count}</TableCell>
+                      <TableCell className="text-base py-3">{row.registration_status}</TableCell>
+                      <TableCell className="text-base py-3">{row.payment_status}</TableCell>
+                      <TableCell className="text-base py-3">{row.name_list_status}</TableCell>
+                      <TableCell className="text-lg font-bold py-3">{row.school_count}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
