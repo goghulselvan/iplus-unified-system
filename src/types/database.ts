@@ -161,6 +161,9 @@ export type DashboardMetrics = {
   registration_interested: number;
   registration_not_interested: number;
   consent_requested: number;
+  // Only populated by getDashboardMetricsByProject (get_dashboard_metrics_by_project_with_access) —
+  // "Yes" flagged but no real count yet in consent_forms. The actual follow-up list.
+  consent_count_pending?: number;
   consent_form_sent_total: number;
   consent_form_sent_physical: number;
   consent_form_sent_digital: number;

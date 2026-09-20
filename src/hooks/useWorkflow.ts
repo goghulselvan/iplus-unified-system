@@ -70,11 +70,20 @@ export const useWorkflow = () => {
         Object.assign(updateData, cleanedUpdates);
       }
 
-      // Update school record directly for workflow updates
-      const { error: schoolError } = await supabase
-        .from('schools')
-        .update(updateData)
-        .eq('id', schoolId);
+      // Route through update_school_with_manual_edit rather than writing
+      // schools directly — this was a bare .from('schools').update(), the
+      // exact anti-pattern school_project_workflow exists to prevent. It
+      // silently orphaned the per-project row for all 12 stages this
+      // function manages, and switch_active_project's schools-mirror step
+      // would later overwrite the (correct) schools value with the
+      // (never-updated, stale) workflow value — the actual mechanism behind
+      // consent_form_requested reverting Yes -> No with no visible cause.
+      // This RPC dual-writes both tables, keyed off the school's own
+      // current_project_id, exactly like School Detail's main Edit form.
+      const { error: schoolError } = await supabase.rpc('update_school_with_manual_edit', {
+        p_school_id: schoolId,
+        p_updates: updateData,
+      });
 
       if (schoolError) throw schoolError;
 

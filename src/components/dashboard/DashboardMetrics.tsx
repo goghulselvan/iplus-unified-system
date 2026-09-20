@@ -277,6 +277,19 @@ export const DashboardMetrics: React.FC = () => {
         icon: Send,
         color: 'text-cyan-500',
         filterType: 'consent_form_sent_digital'
+      },
+      {
+        // "Yes" flagged but no real count in consent_forms yet — the actual
+        // follow-up list. Not clickable: filtering the school list on this
+        // exact compound condition (Yes AND no count) isn't built yet, and a
+        // tile that says "click to view schools" but can't show the right
+        // ones would be worse than one that's honestly just a number.
+        title: 'Requested — Count Pending',
+        value: currentMetrics.consent_count_pending ?? 0,
+        icon: FileText,
+        color: 'text-amber-600',
+        filterType: 'consent_count_pending',
+        nonClickable: true
       }
     ];
 
@@ -455,10 +468,10 @@ export const DashboardMetrics: React.FC = () => {
     };
 
     return (
-      <Card 
-        key={`${keyPrefix}-${index}`} 
-        className={`hover:shadow-xl transition-all duration-300 cursor-pointer hover:scale-105 ${getGradientClass()}`}
-        onClick={() => handleMetricClick(metric.filterType)}
+      <Card
+        key={`${keyPrefix}-${index}`}
+        className={`hover:shadow-xl transition-all duration-300 hover:scale-105 ${metric.nonClickable ? '' : 'cursor-pointer'} ${getGradientClass()}`}
+        onClick={metric.nonClickable ? undefined : () => handleMetricClick(metric.filterType)}
       >
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium">
@@ -494,7 +507,9 @@ export const DashboardMetrics: React.FC = () => {
               </span>
             </div>
           )}
-          <p className="text-xs text-muted-foreground mt-1">Click to view schools</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            {metric.nonClickable ? 'Follow up to get a count' : 'Click to view schools'}
+          </p>
         </CardContent>
       </Card>
     );

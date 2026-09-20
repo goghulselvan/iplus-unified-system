@@ -528,9 +528,9 @@ export const useSchoolsPaginated = (scopeProjectId?: string) => {
       const { data, error } = await supabase.rpc('get_dashboard_metrics_by_project_with_access', {
         p_project_id: projectId || null
       });
-      
+
       if (error) throw error;
-      
+
       const metrics = data[0];
       return {
         total_schools: Number(metrics.total_schools),
@@ -541,6 +541,7 @@ export const useSchoolsPaginated = (scopeProjectId?: string) => {
         registration_interested: Number(metrics.registration_interested),
         registration_not_interested: Number(metrics.registration_not_interested),
         consent_requested: Number(metrics.consent_requested),
+        consent_count_pending: Number((metrics as any).consent_count_pending || 0),
         consent_form_sent_total: Number(metrics.consent_form_sent_total),
         consent_form_sent_physical: Number(metrics.consent_form_sent_physical),
         consent_form_sent_digital: Number(metrics.consent_form_sent_digital),
@@ -566,6 +567,7 @@ export const useSchoolsPaginated = (scopeProjectId?: string) => {
         registration_interested: 0,
         registration_not_interested: 0,
         consent_requested: 0,
+        consent_count_pending: 0,
         consent_form_sent_total: 0,
         consent_form_sent_physical: 0,
         consent_form_sent_digital: 0,
