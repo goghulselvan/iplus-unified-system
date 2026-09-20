@@ -115,7 +115,10 @@ export const useSchoolsPaginated = (scopeProjectId?: string) => {
           query = query.in('consent_form_sent', ['Sent', 'Sent Digitally']);
           break;
         case 'payment_received':
-          query = query.eq('payment_status', 'Received');
+          // Overpaid still means the school paid in full (and then some) —
+          // excluding it undercounted "actually paid" by however many
+          // schools sit there. Goghul's call, 2026-09-21.
+          query = query.in('payment_status', ['Received', 'Overpaid']);
           break;
         case 'question_paper_sent':
           query = query.eq('question_paper_sent', 'Sent');
