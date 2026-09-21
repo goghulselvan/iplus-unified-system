@@ -71,7 +71,14 @@ export const useDashboardMetrics = (projectId?: string) => {
     staleTime: 2 * 60 * 1000, // 2 minutes - balance freshness with performance
     gcTime: 15 * 60 * 1000, // 15 minutes cache for high concurrency
     refetchOnWindowFocus: false, // Prevent unnecessary refetches
-    refetchOnMount: false, // Use cached data on mount
+    // Was false — showed whatever was cached from your last Dashboard visit
+    // even if it was made stale by something that happened on a different
+    // page (the realtime subscription only listens while Dashboard is
+    // actually mounted, so it can't catch a change that happened while you
+    // were elsewhere). staleTime is still the real throttle here — this only
+    // refetches on mount if the cache is already >2 minutes old, so rapid
+    // navigation back and forth still won't spam requests.
+    refetchOnMount: true,
     refetchOnReconnect: false, // Don't refetch on reconnect
     retry: 1, // Single retry for faster failure
   });
