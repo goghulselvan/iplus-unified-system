@@ -12,7 +12,7 @@ import ProjectSelector from '@/components/olympiad/ProjectSelector';
 import { useActiveProject } from '@/hooks/useOlympiadProjects';
 import { useState, useEffect, useMemo } from 'react';
 import { useDashboardMetrics } from '@/hooks/useDashboardMetrics';
-import { useRefreshData } from '@/hooks/useRealtimeSync';
+import { useRefreshData, useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { supabase } from '@/integrations/supabase/client';
 
 
@@ -24,6 +24,21 @@ const Dashboard = () => {
   const { data: dashboardMetrics } = useDashboardMetrics(activeProject?.id);
   const { refreshAll } = useRefreshData();
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Live updates: useDashboardMetrics deliberately disables its own
+  // refetchOnWindowFocus/refetchOnMount/refetchOnReconnect (2-minute
+  // staleTime, meant to reduce load), so nothing ever refetched this data on
+  // its own before — only the manual "Refresh Data" button (useRefreshData
+  // above) ever touched it. That's a different hook from this one: this is
+  // the one that actually opens a Postgres realtime channel and invalidates
+  // 'dashboard-metrics' the moment a watched table really changes — delete a
+  // school, add a student, anything — instead of waiting for a click.
+  // student_registrations/student_subjects/students (the hook's own default
+  // list) are dead tables, 0 rows everywhere — not worth watching.
+  useRealtimeSync({
+    tables: ['schools', 'school_project_workflow', 'portal_registered_students', 'portal_student_enrollments'],
+    projectId: activeProject?.id,
+  });
 
   // Memoize metrics to prevent unnecessary re-renders
   const { registrationInProgress, totalRegistrations } = useMemo(() => ({

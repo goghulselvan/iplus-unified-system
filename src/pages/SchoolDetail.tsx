@@ -154,7 +154,16 @@ const SchoolDetail = () => {
     };
 
     fetchSchool();
-  }, [id, getSchoolById, user, authLoading]);
+    // Depend on user?.id, not the user object itself. Supabase refreshes the
+    // auth token whenever a backgrounded tab regains focus, and useAuth.tsx
+    // sets a brand-new user object on every auth event including
+    // TOKEN_REFRESHED — same underlying account, new reference. With the
+    // object itself as a dependency, that re-fired this fetch on every tab
+    // switch back, re-setting `school`, which re-triggers the editForm
+    // re-init effect below and silently wipes whatever was mid-edit
+    // (a payment amount or name being typed). id is a stable primitive and
+    // only changes when the user genuinely does.
+  }, [id, getSchoolById, user?.id, authLoading]);
 
   // Initialize edit form when school loads or edit mode starts
   useEffect(() => {

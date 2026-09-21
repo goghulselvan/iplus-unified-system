@@ -434,6 +434,27 @@ export const useSchoolsPaginated = (scopeProjectId?: string) => {
     }
   };
 
+  // delete_school_from_project deliberately still lets real FK constraints
+  // block a delete (its own comment: "FK guards ... still apply") rather than
+  // silently cleaning up references that might matter — a school's real
+  // portal login, results, or payment proofs shouldn't get orphaned just
+  // because staff clicked delete. This translates the raw Postgres error
+  // into what staff actually need to do about it, instead of a constraint
+  // name nobody outside this codebase would recognize.
+  const translateDeleteSchoolError = (error: { message?: string; code?: string }): string => {
+    const msg = error.message || '';
+    if (error.code === '23503' || msg.includes('violates foreign key constraint')) {
+      if (msg.includes('school_portal_registrations'))
+        return 'This school has a linked portal registration (it or a student self-registered online). Resolve or unlink that registration first, then delete.';
+      if (msg.includes('results') || msg.includes('student_reports') || msg.includes('student_responses'))
+        return 'This school has exam results on record. Remove those first, then delete.';
+      if (msg.includes('payment'))
+        return 'This school has payment records on file. Resolve those first, then delete.';
+      return 'This school has other records referencing it that need to be resolved first.';
+    }
+    return msg || 'Failed to delete school';
+  };
+
   const deleteSchool = async (id: string) => {
     try {
       if (!scopeProjectId) throw new Error('No active project selected');
@@ -446,7 +467,7 @@ export const useSchoolsPaginated = (scopeProjectId?: string) => {
         p_project_id: scopeProjectId,
       });
 
-      if (error) throw error;
+      if (error) throw new Error(translateDeleteSchoolError(error));
       if (data === 'not_found') throw new Error('School not found');
 
       setSchools(prev => prev.filter(school => school.id !== id));
