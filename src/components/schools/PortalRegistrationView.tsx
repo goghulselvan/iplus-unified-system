@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Trash2, Plus, Check, X, Pencil, Save, Upload, Download, FileText, ChevronDown, ChevronUp, ClipboardList, ArrowUp, ArrowDown, ArrowUpDown, Search } from 'lucide-react';
+import { Trash2, Plus, Check, X, Pencil, Save, Upload, Download, FileText, ChevronDown, ChevronUp, ClipboardList, ArrowUp, ArrowDown, ArrowUpDown, Search, Lock } from 'lucide-react';
 import { generateStudentNamelistPdf } from '@/utils/studentNamelistPdfGenerator';
 import { toast, useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
@@ -530,12 +530,16 @@ interface PortalStudent {
   class_code: string;
   enrollments: OlympiadCode[];
   regNumbers: Record<string, string | null>;
+  // Whether each enrollment falls within what's actually been paid for (oldest-
+  // entered first) — false means "Waiting", excluded from dashboard/namelist counts.
+  confirmedMap: Record<string, boolean>;
 }
 
 interface PortalWorkflow {
   per_entry_rate: number | null;
   concession_per_entry: number | null;
   payment_status: string | null;
+  payment_received: number | null;
   name_list_status: string | null;
   list_submitted_at: string | null;
 }
@@ -744,32 +748,33 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
     queryFn: async (): Promise<PortalStudent[]> => {
       const { data, error } = await supabase
         .from('portal_registered_students')
-        .select('id, student_name, class_code, portal_student_enrollments(olympiad_code, registration_number)')
+        .select('id, student_name, class_code, portal_student_enrollments(olympiad_code, registration_number, is_confirmed)')
         .eq('school_id', schoolId)
         .eq('project_id', activeProject!.id)
         .order('class_code').order('student_name');
       if (error) throw error;
       return (data ?? []).map((s) => {
-        const enrollRows = s.portal_student_enrollments as { olympiad_code: OlympiadCode; registration_number: string | null }[];
+        const enrollRows = s.portal_student_enrollments as { olympiad_code: OlympiadCode; registration_number: string | null; is_confirmed: boolean }[];
         return {
           id: s.id,
           student_name: s.student_name,
           class_code: s.class_code,
           enrollments: enrollRows.map((e) => e.olympiad_code),
           regNumbers: Object.fromEntries(enrollRows.map((e) => [e.olympiad_code, e.registration_number])),
+          confirmedMap: Object.fromEntries(enrollRows.map((e) => [e.olympiad_code, e.is_confirmed])),
         };
       });
     },
     enabled: !!activeProject?.id,
   });
 
-  const { data: workflow } = useQuery({
+  const { data: workflow, isLoading: workflowLoading } = useQuery({
     queryKey: ['crm-portal-workflow', schoolId, activeProject?.id],
     enabled: !!activeProject?.id,
     queryFn: async (): Promise<PortalWorkflow | null> => {
       const { data, error } = await supabase
         .from('school_project_workflow')
-        .select('per_entry_rate, concession_per_entry, payment_status, name_list_status, list_submitted_at')
+        .select('per_entry_rate, concession_per_entry, payment_status, payment_received, name_list_status, list_submitted_at')
         .eq('school_id', schoolId)
         .eq('project_id', activeProject!.id)
         .maybeSingle();
@@ -787,6 +792,16 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
   const showUnsubmittedState = !!portalRegistered && !isSubmitted;
 
   const totalEnrollments = students.reduce((s, st) => s + st.enrollments.length, 0);
+  const waitingEnrollments = students.reduce(
+    (s, st) => s + st.enrollments.filter((code) => !st.confirmedMap[code]).length,
+    0
+  );
+  // Locked (not just discouraged) until at least one payment has been
+  // acknowledged for this school+project — the direct fix for the incident
+  // that prompted this: staff doing a full namelist data-entry pass for a
+  // school that then declines to pay. Defaults to locked while the workflow
+  // row is still loading, so the form never flashes open then yanks shut.
+  const hasPayment = !workflowLoading && (workflow?.payment_received ?? 0) > 0;
   const rate = workflow?.per_entry_rate ?? 150;
   const concessionPerEntry = workflow?.concession_per_entry ?? 0;
   const grossFee = totalEnrollments * rate;
@@ -948,10 +963,11 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
 
   function exportCSV() {
     const subjectCodes = subjects.map(s => s.alphabetical_code!).filter(Boolean);
-    const header = ['#', 'Name', 'Class', ...subjectCodes];
+    const header = ['#', 'Name', 'Class', ...subjectCodes, 'Waiting on Payment'];
     const csvRows = displayedStudents.map((s, i) => {
       const clsLabel = CLASS_OPTIONS.find(c => c.value === s.class_code)?.label ?? s.class_code;
-      return [i + 1, s.student_name, clsLabel, ...subjectCodes.map(code => s.enrollments.includes(code) ? '1' : '0')];
+      const waitingCodes = s.enrollments.filter(code => !s.confirmedMap[code]);
+      return [i + 1, s.student_name, clsLabel, ...subjectCodes.map(code => s.enrollments.includes(code) ? '1' : '0'), waitingCodes.join(' ')];
     });
     const content = [header, ...csvRows].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
     const url = URL.createObjectURL(new Blob(['﻿' + content], { type: 'text/csv' }));
@@ -969,14 +985,29 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
     if (!students.length || !schoolInfo) return;
     setDownloadingNamelist(true);
     try {
+      // Confirmed entries only — this PDF is the official namelist used for
+      // question-paper/answer-sheet counts, so a student waiting on payment
+      // must not appear on it (the exact incident this feature exists to fix).
       const rows = students.flatMap((s) =>
-        s.enrollments.map((code) => ({
-          name: s.student_name,
-          classCode: s.class_code,
-          subject: code,
-          registrationNumber: s.regNumbers[code] ?? null,
-        }))
+        s.enrollments
+          .filter((code) => s.confirmedMap[code])
+          .map((code) => ({
+            name: s.student_name,
+            classCode: s.class_code,
+            subject: code,
+            registrationNumber: s.regNumbers[code] ?? null,
+          }))
       );
+      if (waitingEnrollments > 0) {
+        toast({
+          title: `${waitingEnrollments} registration${waitingEnrollments === 1 ? '' : 's'} excluded`,
+          description: 'Waiting on payment — not included in this namelist. They will appear automatically once payment is acknowledged.',
+        });
+      }
+      if (rows.length === 0) {
+        toast({ title: 'Nothing to export yet', description: 'No confirmed (paid) registrations for this school.', variant: 'destructive' });
+        return;
+      }
       // 6-digit state+district+school block — same derivation as the portal's
       // usePortalSchoolCode(), read off any student's own registration number
       // rather than the bare school_codes.school_code (that's a different,
@@ -1106,15 +1137,29 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 md:grid-cols-2 items-start">
-        <BulkUpload schoolId={schoolId} subjects={subjects} onSuccess={() => qc.invalidateQueries({ queryKey: ['crm-portal-students', schoolId] })} />
-        <StaffAddStudentPanel
-          schoolId={schoolId}
-          projectId="dd5de83d-64f8-4113-a231-27024058396b"
-          subjects={subjects}
-          onAdded={() => qc.invalidateQueries({ queryKey: ['crm-portal-students', schoolId, activeProject?.id] })}
-        />
-      </div>
+      {hasPayment ? (
+        <div className="grid gap-6 md:grid-cols-2 items-start">
+          <BulkUpload schoolId={schoolId} subjects={subjects} onSuccess={() => qc.invalidateQueries({ queryKey: ['crm-portal-students', schoolId] })} />
+          <StaffAddStudentPanel
+            schoolId={schoolId}
+            projectId="dd5de83d-64f8-4113-a231-27024058396b"
+            subjects={subjects}
+            onAdded={() => qc.invalidateQueries({ queryKey: ['crm-portal-students', schoolId, activeProject?.id] })}
+          />
+        </div>
+      ) : (
+        <Card className="border-amber-200 bg-amber-50/60">
+          <CardContent className="py-8 text-center">
+            <Lock className="w-8 h-8 text-amber-500 mx-auto mb-3" />
+            <p className="text-base font-semibold text-foreground mb-1">Payment Required Before Adding Students</p>
+            <p className="text-sm text-muted-foreground max-w-md mx-auto">
+              Record a payment on the Payment tab first — Bulk Upload and Add Student unlock once at least one
+              payment is on record for this school, so staff don't enter a full name list for a school that
+              hasn't committed to paying.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Students table — always editable. Red tint is a status indicator only,
           shown for portal-registered schools until the school hits Submit —
@@ -1145,6 +1190,14 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
               {showUnsubmittedState && (
                 <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-red-100 text-red-700 border border-red-300">
                   Not yet submitted by school
+                </span>
+              )}
+              {waitingEnrollments > 0 && (
+                <span
+                  className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-300"
+                  title="Entered beyond what's been paid for — excluded from dashboard counts and the Namelist PDF until more payment is acknowledged"
+                >
+                  {waitingEnrollments} waiting on payment
                 </span>
               )}
             </div>
@@ -1320,10 +1373,18 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
                             <div className="mt-1 space-y-0.5">
                               {s.enrollments.map((code) => {
                                 const formatted = formatRegNumberForStudent(s.regNumbers[code]);
-                                return formatted ? (
-                                  <p key={code} className="text-[10px] text-muted-foreground font-mono">{formatted}</p>
-                                ) : (
-                                  <p key={code} className="text-[10px] text-amber-500 font-mono">Pending</p>
+                                const waiting = !s.confirmedMap[code];
+                                return (
+                                  <p key={code} className="text-[10px] font-mono flex items-center gap-1">
+                                    <span className={formatted ? 'text-muted-foreground' : 'text-amber-500'}>
+                                      {formatted ?? 'Pending'}
+                                    </span>
+                                    {waiting && (
+                                      <span className="text-amber-600 font-sans font-semibold" title="Beyond what's been paid for — excluded from dashboard counts and the Namelist PDF">
+                                        · Waiting on payment
+                                      </span>
+                                    )}
+                                  </p>
                                 );
                               })}
                             </div>
