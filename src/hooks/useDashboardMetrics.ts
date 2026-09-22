@@ -10,6 +10,7 @@ interface DashboardMetrics {
   registration_interested: number;
   registration_not_interested: number;
   consent_requested: number;
+  consent_count_pending: number;
   consent_form_sent_total: number;
   consent_form_sent_physical: number;
   consent_form_sent_digital: number;
@@ -26,9 +27,42 @@ interface DashboardMetrics {
   brochure_digital_sent: number;
   brochure_both_physical_digital: number;
   total_registrations?: number; // Added for dashboard display
+  total_students: number;
 }
 
-export const useDashboardMetrics = (projectId?: string) => {
+const EMPTY_METRICS: DashboardMetrics = {
+  total_schools: 0,
+  courier_sent: 0,
+  courier_returned: 0,
+  contacted_yes: 0,
+  contacted_no: 0,
+  registration_interested: 0,
+  registration_not_interested: 0,
+  consent_requested: 0,
+  consent_count_pending: 0,
+  consent_form_sent_total: 0,
+  consent_form_sent_physical: 0,
+  consent_form_sent_digital: 0,
+  registration_confirmed: 0,
+  registration_pending: 0,
+  registration_in_progress: 0,
+  name_list_received: 0,
+  name_list_uploaded: 0,
+  payment_received: 0,
+  question_paper_sent: 0,
+  answer_sheet_received: 0,
+  result_sent: 0,
+  brochure_physical_only: 0,
+  brochure_digital_sent: 0,
+  brochure_both_physical_digital: 0,
+  total_registrations: 0,
+  total_students: 0,
+};
+
+// enabled: lets a caller (e.g. the comparison-project picker) hold off
+// fetching until a real projectId is actually chosen, instead of firing with
+// p_project_id: null ("all projects") the moment the picker mounts.
+export const useDashboardMetrics = (projectId?: string, options?: { enabled?: boolean }) => {
   return useQuery({
     queryKey: ['dashboard-metrics', projectId],
     queryFn: async (): Promise<DashboardMetrics> => {
@@ -42,32 +76,20 @@ export const useDashboardMetrics = (projectId?: string) => {
         throw error;
       }
 
-      return data?.[0] || {
-        total_schools: 0,
-        courier_sent: 0,
-        courier_returned: 0,
-        contacted_yes: 0,
-        contacted_no: 0,
-        registration_interested: 0,
-        registration_not_interested: 0,
-        consent_requested: 0,
-        consent_form_sent_total: 0,
-        consent_form_sent_physical: 0,
-        consent_form_sent_digital: 0,
-        registration_confirmed: 0,
-        registration_pending: 0, // Added for consistency
-        registration_in_progress: 0,
-        name_list_received: 0,
-        name_list_uploaded: 0,
-        payment_received: 0,
-        question_paper_sent: 0,
-        answer_sheet_received: 0,
-        result_sent: 0,
-        brochure_physical_only: 0,
-        brochure_digital_sent: 0,
-        brochure_both_physical_digital: 0,
-      };
+      // total_students is a genuinely separate RPC (DISTINCT student count,
+      // not subject-enrolments) — merged in here so every consumer of this
+      // hook gets one complete, single-source-of-truth object instead of each
+      // screen re-deriving it. Only meaningful when scoped to a real project.
+      let totalStudents = 0;
+      if (projectId) {
+        const { data: ts, error: tsError } = await supabase.rpc('get_total_students_count', { p_project_id: projectId });
+        if (tsError) console.error('Error fetching total students:', tsError);
+        else totalStudents = (ts as number) || 0;
+      }
+
+      return { ...EMPTY_METRICS, ...(data?.[0] || {}), total_students: totalStudents };
     },
+    enabled: options?.enabled ?? true,
     staleTime: 2 * 60 * 1000, // 2 minutes - balance freshness with performance
     gcTime: 15 * 60 * 1000, // 15 minutes cache for high concurrency
     refetchOnWindowFocus: false, // Prevent unnecessary refetches

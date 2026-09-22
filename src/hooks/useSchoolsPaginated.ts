@@ -563,69 +563,6 @@ export const useSchoolsPaginated = (scopeProjectId?: string) => {
     }
   };
 
-  const getDashboardMetricsByProject = async (projectId?: string): Promise<DashboardMetrics & { total_registrations: number }> => {
-    try {
-      const { data, error } = await supabase.rpc('get_dashboard_metrics_by_project_with_access', {
-        p_project_id: projectId || null
-      });
-
-      if (error) throw error;
-
-      const metrics = data[0];
-      return {
-        total_schools: Number(metrics.total_schools),
-        courier_sent: Number(metrics.courier_sent),
-        courier_returned: Number(metrics.courier_returned),
-        contacted_yes: Number(metrics.contacted_yes),
-        contacted_no: Number(metrics.contacted_no),
-        registration_interested: Number(metrics.registration_interested),
-        registration_not_interested: Number(metrics.registration_not_interested),
-        consent_requested: Number(metrics.consent_requested),
-        consent_count_pending: Number((metrics as any).consent_count_pending || 0),
-        consent_form_sent_total: Number(metrics.consent_form_sent_total),
-        consent_form_sent_physical: Number(metrics.consent_form_sent_physical),
-        consent_form_sent_digital: Number(metrics.consent_form_sent_digital),
-        registration_confirmed: Number(metrics.registration_confirmed),
-        registration_in_progress: Number((metrics as any).registration_in_progress || 0),
-        name_list_received: Number(metrics.name_list_received),
-        name_list_uploaded: Number((metrics as any).name_list_uploaded || 0),
-        payment_received: Number(metrics.payment_received),
-        question_paper_sent: Number(metrics.question_paper_sent),
-        answer_sheet_received: Number(metrics.answer_sheet_received),
-        result_sent: Number(metrics.result_sent),
-        total_consent_forms: { 'Total': Number(metrics.consent_form_sent_total) },
-        total_registrations: Number(metrics.total_registrations)
-      };
-    } catch (error) {
-      console.error('Failed to fetch project dashboard metrics:', error);
-      const metrics = {
-        total_schools: 0,
-        courier_sent: 0,
-        courier_returned: 0,
-        contacted_yes: 0,
-        contacted_no: 0,
-        registration_interested: 0,
-        registration_not_interested: 0,
-        consent_requested: 0,
-        consent_count_pending: 0,
-        consent_form_sent_total: 0,
-        consent_form_sent_physical: 0,
-        consent_form_sent_digital: 0,
-        registration_confirmed: 0,
-        registration_in_progress: 0,
-        name_list_received: 0,
-        name_list_uploaded: 0,
-        payment_received: 0,
-        question_paper_sent: 0,
-        answer_sheet_received: 0,
-        result_sent: 0,
-        total_consent_forms: { 'Total': 0 },
-        total_registrations: 0
-      };
-      return metrics;
-    }
-  };
-
   const getDashboardMetricsByDate = async (targetDate: string): Promise<DashboardMetricsByDate> => {
     try {
       const { data, error } = await supabase.rpc('get_dashboard_metrics_by_date', { target_date: targetDate });
@@ -899,7 +836,6 @@ export const useSchoolsPaginated = (scopeProjectId?: string) => {
     deleteSchool,
     getSchoolById,
     getDashboardMetrics,
-    getDashboardMetricsByProject,
     getDashboardMetricsByDate,
     getFilterOptions,
     getDistrictsByState,

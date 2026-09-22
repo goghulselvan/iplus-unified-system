@@ -26,6 +26,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { useDashboardMetrics } from '@/hooks/useDashboardMetrics';
 
 interface ProjectMetrics extends MetricsType {
   total_registrations: number;
@@ -33,18 +34,31 @@ interface ProjectMetrics extends MetricsType {
 }
 
 export const DashboardMetrics: React.FC = () => {
-  const { getDashboardMetricsByProject, getDashboardMetricsByDate } = useSchoolsPaginated();
+  const { getDashboardMetricsByDate } = useSchoolsPaginated();
   const { data: activeProject } = useActiveProject();
   const { data: allProjects } = useOlympiadProjects();
   const navigate = useNavigate();
-  const [metrics, setMetrics] = useState<ProjectMetrics | null>(null);
   const [dateMetrics, setDateMetrics] = useState<DateMetricsType | null>(null);
   const [comparisonProject, setComparisonProject] = useState<string>('');
-  const [comparisonMetrics, setComparisonMetrics] = useState<ProjectMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [showDateView, setShowDateView] = useState(false);
   const [showComparison, setShowComparison] = useState(false);
+
+  // Overall (non-date-view) metrics: the same cached, realtime-invalidated
+  // query Dashboard.tsx's hero tiles already use — React Query dedupes
+  // identical keys automatically, so this doesn't add a second network call,
+  // it shares the one that's already kept live. Used to be its own separate
+  // fetch (fetchOverallMetrics) hitting the exact same RPC redundantly, and
+  // — since it was plain component state, not a query — invisible to the
+  // realtime subscription entirely; that's why Rows 1-5 never updated live
+  // even after the hero tiles did.
+  const { data: metrics, isLoading: metricsLoading } = useDashboardMetrics(activeProject?.id);
+  // Comparison project: only fetch once one is actually picked, not the
+  // moment comparison mode toggles on.
+  const { data: comparisonMetrics } = useDashboardMetrics(comparisonProject, {
+    enabled: showComparison && !!comparisonProject,
+  });
 
   // Overview cross-tab: registration x payment x namelist, ordered by how far
   // each combination sits from "Confirmed + Received + Uploaded" — the RPC
@@ -70,35 +84,6 @@ export const DashboardMetrics: React.FC = () => {
     navigate(`/schools?${params.toString()}`);
   };
 
-  const fetchOverallMetrics = async () => {
-    try {
-      setLoading(true);
-      const data = await getDashboardMetricsByProject(activeProject?.id);
-      let totalStudents = 0;
-      if (activeProject?.id) {
-        const { data: ts } = await supabase.rpc('get_total_students_count', { p_project_id: activeProject.id });
-        totalStudents = (ts as number) || 0;
-      }
-      setMetrics({ ...(data as ProjectMetrics), total_students: totalStudents });
-    } catch (error) {
-      console.error('Failed to fetch metrics:', error);
-      toast.error('Failed to load dashboard metrics. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchComparisonMetrics = async (projectId: string) => {
-    try {
-      const data = await getDashboardMetricsByProject(projectId);
-      const { data: ts } = await supabase.rpc('get_total_students_count', { p_project_id: projectId });
-      setComparisonMetrics({ ...(data as ProjectMetrics), total_students: (ts as number) || 0 });
-    } catch (error) {
-      console.error('Failed to fetch comparison metrics:', error);
-      toast.error('Failed to load comparison metrics.');
-    }
-  };
-
   const fetchDateMetrics = async (date: string) => {
     try {
       setLoading(true);
@@ -122,27 +107,20 @@ export const DashboardMetrics: React.FC = () => {
   const handleShowOverall = () => {
     setShowDateView(false);
     setDateMetrics(null);
-    fetchOverallMetrics();
+    // No manual fetch needed — useDashboardMetrics already keeps `metrics`
+    // current (realtime-invalidated + refetch-on-mount), unlike the old
+    // fetchOverallMetrics() this used to call.
   };
-
-  useEffect(() => {
-    if (activeProject?.id) {
-      fetchOverallMetrics();
-    }
-  }, [activeProject?.id]);
 
   const handleComparisonChange = (projectId: string) => {
     setComparisonProject(projectId);
-    if (projectId && projectId !== 'none') {
-      setShowComparison(true);
-      fetchComparisonMetrics(projectId);
-    } else {
-      setShowComparison(false);
-      setComparisonMetrics(null);
-    }
+    setShowComparison(!!projectId && projectId !== 'none');
+    // Fetching is handled by the comparisonMetrics hook's `enabled` flag
+    // above — it fires on its own once both showComparison and
+    // comparisonProject are true.
   };
 
-  if (loading) {
+  if (showDateView ? loading : metricsLoading) {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {Array.from({ length: 12 }).map((_, index) => (

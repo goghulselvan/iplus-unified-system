@@ -84,6 +84,7 @@ export const useRealtimeSync = (options: RealtimeSyncOptions = {}) => {
       'schools-paginated',
       'school-filter-options',
       'dashboard-metrics',
+      'dashboard-crosstab',
       'registration-summary',
     ],
     school_project_workflow: [
@@ -91,6 +92,7 @@ export const useRealtimeSync = (options: RealtimeSyncOptions = {}) => {
       'project-workflows',
       'schools-paginated',
       'dashboard-metrics',
+      'dashboard-crosstab',
       'accountant-dashboard',
     ],
     payment_transactions: [
@@ -214,6 +216,8 @@ export const useRefreshData = () => {
   const refreshSchools = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['schools-paginated'] });
     queryClient.invalidateQueries({ queryKey: ['school-filter-options'] });
+    queryClient.invalidateQueries({ queryKey: ['dashboard-metrics'] });
+    queryClient.invalidateQueries({ queryKey: ['dashboard-crosstab'] });
   }, [queryClient]);
   
   const refreshPayments = useCallback(() => {
