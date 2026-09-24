@@ -120,6 +120,13 @@ export const useSchoolsPaginated = (scopeProjectId?: string) => {
         case 'consent_sent_total':
           query = query.in('consent_form_sent', ['Sent', 'Sent Digitally']);
           break;
+        case 'payment_outstanding':
+          // The dashboard's Unpaid Registrations tile lands here: schools that
+          // entered students and still owe for some of them. Without the
+          // total_participants guard this returns every school sitting at
+          // Pending with nothing entered (73 vs the 6 that actually owe).
+          query = query.in('payment_status', ['Pending', 'Partial']).gt('total_participants', 0);
+          break;
         case 'payment_received':
           // Overpaid still means the school paid in full (and then some) —
           // excluding it undercounted "actually paid" by however many

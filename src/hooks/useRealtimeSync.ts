@@ -99,6 +99,7 @@ export const useRealtimeSync = (options: RealtimeSyncOptions = {}) => {
       'payment-transactions',
       'accountant-dashboard',
       'dashboard-metrics',
+      'registration-totals',
     ],
     communications: [
       'communications',
@@ -111,6 +112,7 @@ export const useRealtimeSync = (options: RealtimeSyncOptions = {}) => {
       'dashboard-reg-summary',
       'portal-enrollment-count',
       'crm-reg-summary',
+      'registration-totals',
     ],
     portal_student_enrollments: [
       'crm-portal-students',
@@ -118,6 +120,7 @@ export const useRealtimeSync = (options: RealtimeSyncOptions = {}) => {
       'portal-enrollment-count',
       'crm-reg-summary',
       'portal-participations',
+      'registration-totals',
     ],
   };
   
@@ -211,6 +214,7 @@ export const useRefreshData = () => {
     queryClient.invalidateQueries({ queryKey: ['all-olympiad-registrations'] });
     queryClient.invalidateQueries({ queryKey: ['school-students'] });
     queryClient.invalidateQueries({ queryKey: ['dashboard-metrics'] });
+    queryClient.invalidateQueries({ queryKey: ['registration-totals'] });
   }, [queryClient]);
   
   const refreshSchools = useCallback(() => {
@@ -223,6 +227,7 @@ export const useRefreshData = () => {
   const refreshPayments = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['payment-transactions'] });
     queryClient.invalidateQueries({ queryKey: ['accountant-dashboard'] });
+    queryClient.invalidateQueries({ queryKey: ['registration-totals'] });
   }, [queryClient]);
   
   const refreshAll = useCallback(() => {

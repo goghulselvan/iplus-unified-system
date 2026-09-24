@@ -297,6 +297,7 @@ const Schools = () => {
     else if (nameListStatus === 'Received') workflowValue = 'name_list_received';
     else if (nameListStatus === 'Uploaded') workflowValue = 'name_list_uploaded';
     else if (paymentStatus === 'Received') workflowValue = 'payment_received';
+    else if (paymentStatus === 'Outstanding') workflowValue = 'payment_outstanding';
     else if (questionPaperSent === 'Sent') workflowValue = 'question_paper_sent';
     else if (answerSheetStatus === 'Received') workflowValue = 'answer_sheet_received';
     else if (resultStatus === 'Sent') workflowValue = 'result_sent';

@@ -7,11 +7,12 @@ import Navbar from '@/components/layout/Navbar';
 import { DashboardMetrics } from '@/components/dashboard/DashboardMetrics';
 import { ConsentFormsTable } from '@/components/dashboard/ConsentFormsTable';
 import { RegistrationSummary } from '@/components/dashboard/RegistrationSummary';
-import { MessageSquare, Users, TrendingUp, Clock, RefreshCw, Phone, Mail, Bot } from 'lucide-react';
+import { MessageSquare, Users, TrendingUp, Clock, RefreshCw, Phone, Mail, Bot, IndianRupee } from 'lucide-react';
 import ProjectSelector from '@/components/olympiad/ProjectSelector';
 import { useActiveProject } from '@/hooks/useOlympiadProjects';
 import { useState, useEffect, useMemo } from 'react';
 import { useDashboardMetrics } from '@/hooks/useDashboardMetrics';
+import { useRegistrationTotals } from '@/hooks/useRegistrationTotals';
 import { useRefreshData, useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -22,6 +23,7 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const { data: activeProject } = useActiveProject();
   const { data: dashboardMetrics } = useDashboardMetrics(activeProject?.id);
+  const { data: regTotals } = useRegistrationTotals(activeProject?.id);
   const { refreshAll } = useRefreshData();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -93,10 +95,16 @@ const Dashboard = () => {
                   Project-specific metrics and workflow overview
                 </p>
                 {activeProject && (
-                  <div className="mt-3 flex items-center gap-4 text-sm">
-                    <span className="font-medium">Current Project:</span>
-                    <span className="text-primary">{activeProject.project_name}</span>
-                    <span className="text-muted-foreground">({activeProject.project_year})</span>
+                  <div className="mt-3 flex items-center gap-2 text-sm">
+                    <span className="text-muted-foreground">Current Project:</span>
+                    <span className="font-bold text-foreground">{activeProject.project_name} ({activeProject.project_year})</span>
+                    <span className={`px-2 py-0.5 rounded-md text-xs font-semibold border ${
+                      activeProject.is_active
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : 'bg-neutral-100 text-neutral-600 border-neutral-200'
+                    }`}>
+                      {activeProject.is_active ? 'Active' : 'Inactive'}
+                    </span>
                   </div>
                 )}
               </div>
@@ -133,24 +141,29 @@ const Dashboard = () => {
                       <Users className="h-6 w-6 text-white" />
                     </div>
                     <div>
-                      <p className="text-sm text-blue-100 font-medium">Total Registrations</p>
+                      <p className="text-sm text-blue-100 font-medium">Paid Registrations</p>
                       <p className="text-3xl font-bold text-white">
                         {totalRegistrations.toLocaleString()}
                       </p>
+                      <p className="text-xs text-blue-100/90">Money received covers these</p>
                     </div>
                   </div>
                 </div>
                 
-                <div className="relative overflow-hidden bg-gradient-to-br from-emerald-500 to-teal-600 dark:from-emerald-600 dark:to-teal-700 p-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 border border-emerald-400/20">
+                <div className="relative overflow-hidden bg-gradient-to-br from-rose-500 to-red-600 dark:from-rose-600 dark:to-red-700 p-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 cursor-pointer border border-rose-400/20"
+                     onClick={() => navigate('/schools?payment_status=Outstanding')}>
                   <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16"></div>
                   <div className="relative flex items-center gap-3">
                     <div className="p-3 bg-white/20 rounded-lg backdrop-blur-sm">
-                      <TrendingUp className="h-6 w-6 text-white" />
+                      <IndianRupee className="h-6 w-6 text-white" />
                     </div>
                     <div>
-                      <p className="text-sm text-emerald-100 font-medium">Project Year</p>
+                      <p className="text-sm text-rose-100 font-medium">Unpaid Registrations</p>
                       <p className="text-3xl font-bold text-white">
-                        {activeProject.project_year}
+                        {(regTotals?.unpaid ?? 0).toLocaleString()}
+                      </p>
+                      <p className="text-xs text-rose-100/90">
+                        ₹{(regTotals?.amount_unpaid ?? 0).toLocaleString('en-IN')} to collect
                       </p>
                     </div>
                   </div>
@@ -176,13 +189,14 @@ const Dashboard = () => {
                   <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16"></div>
                   <div className="relative flex items-center gap-3">
                     <div className="p-3 bg-white/20 rounded-lg backdrop-blur-sm">
-                      <MessageSquare className="h-6 w-6 text-white" />
+                      <TrendingUp className="h-6 w-6 text-white" />
                     </div>
                     <div>
-                      <p className="text-sm text-violet-100 font-medium">Project Status</p>
-                      <p className="text-2xl font-bold text-white">
-                        {activeProject.is_active ? 'Active' : 'Inactive'}
+                      <p className="text-sm text-violet-100 font-medium">Total Registrations</p>
+                      <p className="text-3xl font-bold text-white">
+                        {(regTotals?.entered ?? 0).toLocaleString()}
                       </p>
+                      <p className="text-xs text-violet-100/90">Paid + unpaid, all entered</p>
                     </div>
                   </div>
                 </div>
