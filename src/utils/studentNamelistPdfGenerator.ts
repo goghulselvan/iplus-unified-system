@@ -32,6 +32,43 @@ function extractRoll(regNo: string | null): string {
   return parts.length === 6 ? parts[5] : regNo;
 }
 
+// Greedy word-wrap so a long school name breaks onto its own lines instead of
+// running past its column and underneath whatever's drawn next (the school
+// code block, in this case — real case: "Al-Azhar Matriculation Hgher
+// Secondary School, Mangalapuram Kadayanallur (SS 2502)" ran straight under
+// the SCHOOL CODE number since the name was drawn at a fixed size with no
+// width check at all). Caps at maxLines — anything left over is ellipsized
+// rather than growing the banner indefinitely for a pathological name.
+function wrapToWidth(text: string, font: import('pdf-lib').PDFFont, size: number, maxWidth: number, maxLines = 2): string[] {
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let current = '';
+  let i = 0;
+  while (i < words.length) {
+    const attempt = current ? `${current} ${words[i]}` : words[i];
+    if (font.widthOfTextAtSize(attempt, size) <= maxWidth || !current) {
+      current = attempt;
+      i++;
+    } else {
+      lines.push(current);
+      current = '';
+      if (lines.length === maxLines) break;
+    }
+  }
+  if (current && lines.length < maxLines) lines.push(current);
+
+  // Words left over past maxLines — ellipsize the last line instead of
+  // silently dropping text with no indication there was more.
+  if (i < words.length && lines.length === maxLines) {
+    let last = lines[maxLines - 1];
+    while (font.widthOfTextAtSize(`${last}…`, size) > maxWidth && last.length > 1) {
+      last = last.slice(0, -1).trimEnd();
+    }
+    lines[maxLines - 1] = `${last}…`;
+  }
+  return lines;
+}
+
 const INDIGO = { r: 79 / 255, g: 70 / 255, b: 229 / 255 };
 const VIOLET = { r: 124 / 255, g: 58 / 255, b: 237 / 255 };
 const INDIGO_TEXT = rgb(INDIGO.r, INDIGO.g, INDIGO.b);
@@ -117,15 +154,29 @@ export async function generateStudentNamelistPdf({ schoolName, ssNo, schoolCode,
     page.drawText(dateLine, { x: W - MARGIN - dateW, y: y - 22, size: 9, font, color: MUTED });
     y -= logoH + 6;
 
-    const bannerH = 54;
-    page.drawRectangle({ x: MARGIN, y: y - bannerH, width: TABLE_W, height: bannerH, color: SCHOOL_BANNER_BG, borderColor: SCHOOL_BANNER_BORDER, borderWidth: 1 });
-    page.drawText(fullSchoolName, { x: MARGIN + 16, y: y - bannerH / 2 + 4, size: 13, font: fontBold, color: TEXT_DARK });
     const codeText = schoolCode || '—';
     const codeSize = 28;
     const codeW = fontBold.widthOfTextAtSize(codeText, codeSize);
     const codeLabel = 'SCHOOL CODE';
     const codeLabelW = font.widthOfTextAtSize(codeLabel, 9);
     const codeRight = MARGIN + TABLE_W - 16;
+    const codeReserved = Math.max(codeW, codeLabelW) + 24; // gap between name and code block
+
+    const nameSize = 13;
+    const nameMaxWidth = TABLE_W - 16 - 16 - codeReserved;
+    const nameLines = wrapToWidth(fullSchoolName, fontBold, nameSize, nameMaxWidth, 2);
+    const lineGap = 16;
+    const bannerH = Math.max(54, 34 + nameLines.length * lineGap);
+
+    page.drawRectangle({ x: MARGIN, y: y - bannerH, width: TABLE_W, height: bannerH, color: SCHOOL_BANNER_BG, borderColor: SCHOOL_BANNER_BORDER, borderWidth: 1 });
+    // Same anchor the original single-line version used (y - bannerH/2 + 4),
+    // with extra lines spread symmetrically around it — a 1-line name lands
+    // on the exact same pixel as before, unchanged for every short school name.
+    let nameY = y - bannerH / 2 + 4 + ((nameLines.length - 1) * lineGap) / 2;
+    for (const line of nameLines) {
+      page.drawText(line, { x: MARGIN + 16, y: nameY, size: nameSize, font: fontBold, color: TEXT_DARK });
+      nameY -= lineGap;
+    }
     page.drawText(codeLabel, { x: codeRight - codeLabelW, y: y - 15, size: 9, font: fontBold, color: MUTED });
     page.drawText(codeText, { x: codeRight - codeW, y: y - bannerH + 12, size: codeSize, font: fontBold, color: INDIGO_TEXT });
     y -= bannerH + 14;
