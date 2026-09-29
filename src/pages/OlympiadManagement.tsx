@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Download, Search, Users, BookOpen, School, Trophy, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useActiveProject, useOlympiadSubjects } from '@/hooks/useOlympiadProjects';
 import { useSchoolsPaginated } from '@/hooks/useSchoolsPaginated';
+import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import Navbar from '@/components/layout/Navbar';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -45,6 +46,15 @@ interface SubjectClassStat {
   count: number;
 }
 
+interface SlotOption {
+  id: string;
+  label: string;
+  firstDate: string | null;
+}
+
+const SLOT_ALL = 'all';
+const SLOT_UNASSIGNED = 'unassigned';
+
 const OlympiadManagement = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -53,6 +63,7 @@ const OlympiadManagement = () => {
   const [selectedSchool, setSelectedSchool] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'participations' | 'students'>('participations');
   const [page, setPage] = useState(1);
+  const [selectedSlot, setSelectedSlot] = useState<string>(SLOT_ALL);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -72,6 +83,47 @@ const OlympiadManagement = () => {
   const { schools } = useSchoolsPaginated();
   const { data: subjects = [] } = useOlympiadSubjects(activeProject?.id);
 
+  // Live counting: a school changing its own slot (portal) or staff applying
+  // the override button both write exam_slots — this page needs to reflect
+  // that without a manual refresh, same as enrollments/students changing.
+  useRealtimeSync({
+    tables: ['schools', 'portal_registered_students', 'portal_student_enrollments', 'exam_slots'],
+    projectId: activeProject?.id,
+  });
+
+  // Slot dropdown options — read from whatever's actually active for this
+  // project rather than hardcoding "Slot 1/2/3", so a new slot just appears.
+  const { data: slotOptions = [] } = useQuery<SlotOption[]>({
+    queryKey: ['exam-slot-options', activeProject?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('exam_slot_templates')
+        .select('id, slot_name, exam_slot_template_subjects(exam_date)')
+        .eq('project_id', activeProject!.id)
+        .eq('is_active', true);
+      if (error) throw error;
+      const fmt = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+      return (data ?? [])
+        .map((t: any) => {
+          const dates = ((t.exam_slot_template_subjects ?? []) as { exam_date: string }[])
+            .map((s) => s.exam_date).filter(Boolean).sort();
+          const first = dates[0] ?? null;
+          const last = dates[dates.length - 1] ?? null;
+          const range = first && last ? (first === last ? fmt(first) : `${fmt(first)} – ${fmt(last)}`) : '';
+          return { id: t.id, label: range ? `${t.slot_name} (${range})` : t.slot_name, firstDate: first };
+        })
+        .sort((a, b) => (a.firstDate ?? '').localeCompare(b.firstDate ?? ''));
+    },
+    enabled: !!activeProject?.id,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const slotParams = useMemo(() => {
+    if (selectedSlot === SLOT_ALL) return { p_slot_template_id: null as string | null, p_unassigned_only: false };
+    if (selectedSlot === SLOT_UNASSIGNED) return { p_slot_template_id: null as string | null, p_unassigned_only: true };
+    return { p_slot_template_id: selectedSlot, p_unassigned_only: false };
+  }, [selectedSlot]);
+
   const subjectLabelMap = useMemo(() => {
     const map = new Map<string, string>();
     for (const s of subjects) if (s.alphabetical_code) map.set(s.alphabetical_code, s.subject_name);
@@ -80,10 +132,11 @@ const OlympiadManagement = () => {
 
   // Fast aggregate stats — independent of list pagination
   const { data: stats, isLoading: statsLoading } = useQuery<OlympiadStats>({
-    queryKey: ['olympiad-stats', activeProject?.id],
+    queryKey: ['olympiad-stats', activeProject?.id, selectedSlot],
     queryFn: async () => {
       const { data, error } = await supabase.rpc('get_olympiad_stats', {
         p_project_id: activeProject!.id,
+        ...slotParams,
       });
       if (error) throw error;
       const row = data?.[0];
@@ -100,10 +153,11 @@ const OlympiadManagement = () => {
 
   // Per-subject class breakdown for stats cards
   const { data: classStats = [] } = useQuery<SubjectClassStat[]>({
-    queryKey: ['olympiad-class-stats', activeProject?.id],
+    queryKey: ['olympiad-class-stats', activeProject?.id, selectedSlot],
     queryFn: async () => {
       const { data, error } = await supabase.rpc('get_olympiad_subject_class_stats', {
         p_project_id: activeProject!.id,
+        ...slotParams,
       });
       if (error) throw error;
       return (data ?? []) as SubjectClassStat[];
@@ -117,7 +171,7 @@ const OlympiadManagement = () => {
     queryKey: [
       'olympiad-participations',
       activeProject?.id, debouncedSearch,
-      selectedOlympiad, selectedClass, selectedSchool, page,
+      selectedOlympiad, selectedClass, selectedSchool, page, selectedSlot,
     ],
     queryFn: async () => {
       const { data, error } = await supabase.rpc('get_olympiad_participations', {
@@ -128,6 +182,7 @@ const OlympiadManagement = () => {
         p_school_id:     selectedSchool  !== 'all' ? selectedSchool  : null,
         p_limit:  PAGE_SIZE,
         p_offset: (page - 1) * PAGE_SIZE,
+        ...slotParams,
       });
       if (error) throw error;
       return data ?? [];
@@ -195,6 +250,7 @@ const OlympiadManagement = () => {
       p_school_id:     selectedSchool  !== 'all' ? selectedSchool  : null,
       p_limit:  100000,
       p_offset: 0,
+      ...slotParams,
     });
     if (!data?.length) { alert('No data to export'); return; }
     const rows = [
@@ -223,6 +279,21 @@ const OlympiadManagement = () => {
           <Button onClick={handleExport} variant="outline">
             <Download className="h-4 w-4 mr-2" /> Export Filtered
           </Button>
+        </div>
+
+        {/* Slot filter — controls the counting below (stats, subject breakdown, and the list) */}
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-medium text-muted-foreground">Counting for</span>
+          <Select value={selectedSlot} onValueChange={handleFilterChange(setSelectedSlot)}>
+            <SelectTrigger className="w-64"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={SLOT_ALL}>All Olympiad</SelectItem>
+              {slotOptions.map((slot) => (
+                <SelectItem key={slot.id} value={slot.id}>{slot.label}</SelectItem>
+              ))}
+              <SelectItem value={SLOT_UNASSIGNED}>Not Assigned Yet</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Stats */}

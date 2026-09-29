@@ -13,7 +13,8 @@ type TableName =
   | 'communications'
   | 'follow_ups'
   | 'portal_registered_students'
-  | 'portal_student_enrollments';
+  | 'portal_student_enrollments'
+  | 'exam_slots';
 
 interface RealtimeSyncOptions {
   tables?: TableName[];
@@ -113,6 +114,9 @@ export const useRealtimeSync = (options: RealtimeSyncOptions = {}) => {
       'portal-enrollment-count',
       'crm-reg-summary',
       'registration-totals',
+      'olympiad-stats',
+      'olympiad-class-stats',
+      'olympiad-participations',
     ],
     portal_student_enrollments: [
       'crm-portal-students',
@@ -121,6 +125,19 @@ export const useRealtimeSync = (options: RealtimeSyncOptions = {}) => {
       'crm-reg-summary',
       'portal-participations',
       'registration-totals',
+      'olympiad-stats',
+      'olympiad-class-stats',
+      'olympiad-participations',
+    ],
+    // A school changing its own exam slot (portal self-selection) or staff
+    // applying the override button both go through apply_slot_template_to_school,
+    // which upserts this table — without tracking it, the Olympiad Management
+    // page's slot-wise counts would only ever update on next mount/refetch,
+    // not while someone's actively looking at it.
+    exam_slots: [
+      'olympiad-stats',
+      'olympiad-class-stats',
+      'olympiad-participations',
     ],
   };
   
