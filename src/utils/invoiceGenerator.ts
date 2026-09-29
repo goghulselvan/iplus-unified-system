@@ -1,4 +1,4 @@
-import { PDFDocument, rgb, StandardFonts, PDFFont } from 'pdf-lib';
+import { PDFDocument, PDFPage, rgb, StandardFonts, PDFFont } from 'pdf-lib';
 import { format } from 'date-fns';
 import { numberToWords } from './numberToWords';
 import iplusLogoUrl from '@/assets/iplus-logo.png';
@@ -71,8 +71,16 @@ function sanitizeForPdf(text: string): string {
 export async function generateInvoice(data: InvoiceData): Promise<Blob> {
   const pdfDoc = await PDFDocument.create();
   const W = 595.28, H = 841.89; // A4 portrait
-  const page = pdfDoc.addPage([W, H]);
   const MARGIN = 40;
+  const barH = 7;
+  // Below this y, nothing new starts — a fresh page begins instead. This is
+  // the actual fix: the old version had no page-break at all and just shrank
+  // the font to try to fit everything on one fixed page. Past a certain
+  // order size the shrink hit its own floor and rows were drawn below y=0 —
+  // not hidden, gone off the physical page entirely (confirmed live: a
+  // 48-item order only showed 38, the rest silently missing, not just
+  // visually behind the footer).
+  const FOOTER_LIMIT = 50;
 
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
@@ -87,17 +95,23 @@ export async function generateInvoice(data: InvoiceData): Promise<Blob> {
   const invoiceNo = `INV/${data.fy}-${data.fy + 1}/${data.invoiceNumber}`;
   const dateStr = format(data.invoiceDate, 'dd-MMM-yyyy');
 
-  page.drawRectangle({ x: 0, y: 0, width: W, height: H, color: IVORY });
+  const pages: PDFPage[] = [];
 
-  const wmH = 260, wmW = wmH * (wmImg.width / wmImg.height);
-  page.drawImage(wmImg, { x: (W - wmW) / 2, y: (H - wmH) / 2, width: wmW, height: wmH, opacity: 0.05 });
-
-  const barH = 7, STRIPS = 80, stripW = W / STRIPS;
-  for (let i = 0; i < STRIPS; i++) {
-    const t = i / (STRIPS - 1);
-    const c = rgb(lerp(INDIGO.r, VIOLET.r, t), lerp(INDIGO.g, VIOLET.g, t), lerp(INDIGO.b, VIOLET.b, t));
-    page.drawRectangle({ x: i * stripW, y: H - barH, width: stripW + 0.5, height: barH, color: c });
+  function drawBackground(p: PDFPage) {
+    p.drawRectangle({ x: 0, y: 0, width: W, height: H, color: IVORY });
+    const wmH = 260, wmW = wmH * (wmImg.width / wmImg.height);
+    p.drawImage(wmImg, { x: (W - wmW) / 2, y: (H - wmH) / 2, width: wmW, height: wmH, opacity: 0.05 });
+    const STRIPS = 80, stripW = W / STRIPS;
+    for (let i = 0; i < STRIPS; i++) {
+      const t = i / (STRIPS - 1);
+      const c = rgb(lerp(INDIGO.r, VIOLET.r, t), lerp(INDIGO.g, VIOLET.g, t), lerp(INDIGO.b, VIOLET.b, t));
+      p.drawRectangle({ x: i * stripW, y: H - barH, width: stripW + 0.5, height: barH, color: c });
+    }
   }
+
+  let page = pdfDoc.addPage([W, H]);
+  pages.push(page);
+  drawBackground(page);
 
   const logoH = 38, logoW = logoH * (logoImg.width / logoImg.height);
   const logoY = H - barH - 14 - logoH;
@@ -168,7 +182,6 @@ export async function generateInvoice(data: InvoiceData): Promise<Blob> {
     by -= 12;
   }
 
-  const tableTop = by - 14;
   const cols = [
     { key: 'sno', label: 'S.No', w: 32 },
     { key: 'item', label: 'Item', w: 190 },
@@ -181,26 +194,40 @@ export async function generateInvoice(data: InvoiceData): Promise<Blob> {
   const colX: number[] = [];
   { let x = MARGIN; for (const c of cols) { colX.push(x); x += c.w; } }
 
-  let rowFontSize = 9;
+  // Fixed row size, no more shrink-to-fit — legibility no longer degrades
+  // (or silently fails) as an order gets bigger, pagination handles that.
+  const rowFontSize = 9;
   const rowH = 18;
-  const maxTableH = tableTop - 170;
-  if (data.lineItems.length * rowH > maxTableH) {
-    rowFontSize = Math.max(6.5, 9 * (maxTableH / (data.lineItems.length * rowH)));
+
+  function drawTableHeaderBand(p: PDFPage, topY: number): number {
+    p.drawRectangle({ x: MARGIN, y: topY - 16, width: tableW, height: 16, color: rgb(0.94, 0.93, 0.98) });
+    cols.forEach((c, i) => {
+      p.drawText(c.label, { x: colX[i] + 4, y: topY - 12, size: 8, font: fontBold, color: TEXT_DARK });
+    });
+    return topY - 16;
   }
-  const actualRowH = Math.max(14, rowFontSize + 8);
 
-  page.drawRectangle({ x: MARGIN, y: tableTop - 16, width: tableW, height: 16, color: rgb(0.94, 0.93, 0.98) });
-  cols.forEach((c, i) => {
-    page.drawText(c.label, { x: colX[i] + 4, y: tableTop - 12, size: 8, font: fontBold, color: TEXT_DARK });
-  });
+  function newContinuationPage(): number {
+    page = pdfDoc.addPage([W, H]);
+    pages.push(page);
+    drawBackground(page);
+    const y = H - barH - 40;
+    page.drawText(`${invoiceNo} — continued`, { x: MARGIN, y, size: 11, font: fontBold, color: TEXT_DARK });
+    return y - 20;
+  }
 
-  let rowY = tableTop - 16;
+  const tableTop = by - 14;
+  let rowY = drawTableHeaderBand(page, tableTop);
   data.lineItems.forEach((item, idx) => {
-    rowY -= actualRowH;
-    if (idx % 2 === 1) {
-      page.drawRectangle({ x: MARGIN, y: rowY, width: tableW, height: actualRowH, color: ROW_SHADE });
+    if (rowY - rowH < FOOTER_LIMIT) {
+      page.drawLine({ start: { x: MARGIN, y: rowY }, end: { x: MARGIN + tableW, y: rowY }, thickness: 0.75, color: CARD_BORDER });
+      rowY = drawTableHeaderBand(page, newContinuationPage());
     }
-    const textY = rowY + actualRowH / 2 - rowFontSize / 2.6;
+    rowY -= rowH;
+    if (idx % 2 === 1) {
+      page.drawRectangle({ x: MARGIN, y: rowY, width: tableW, height: rowH, color: ROW_SHADE });
+    }
+    const textY = rowY + rowH / 2 - rowFontSize / 2.6;
     page.drawText(String(idx + 1), { x: colX[0] + 4, y: textY, size: rowFontSize, font, color: TEXT_DARK });
     const itemLines = splitTextIntoLines(sanitizeForPdf(item.itemName), font, rowFontSize, cols[1].w - 8);
     const displayName = itemLines.length > 1
@@ -214,6 +241,13 @@ export async function generateInvoice(data: InvoiceData): Promise<Blob> {
   });
 
   page.drawLine({ start: { x: MARGIN, y: rowY }, end: { x: MARGIN + tableW, y: rowY }, thickness: 0.75, color: CARD_BORDER });
+
+  // The totals block is a single unit — if it doesn't fully fit above the
+  // footer line, it starts a fresh page rather than splitting mid-summary.
+  const SUMMARY_BLOCK_H = 165;
+  if (rowY - SUMMARY_BLOCK_H < FOOTER_LIMIT) {
+    rowY = newContinuationPage();
+  }
 
   let sy = rowY - 20;
   const summaryX = MARGIN + tableW - 200;
@@ -248,6 +282,14 @@ export async function generateInvoice(data: InvoiceData): Promise<Blob> {
   const thanksText = 'Thank you for your purchase with iPlus Olympiads!';
   const thanksW = fontItalic.widthOfTextAtSize(thanksText, 8);
   page.drawText(thanksText, { x: W - MARGIN - thanksW, y: 24, size: 8, font: fontItalic, color: MUTED });
+
+  if (pages.length > 1) {
+    pages.forEach((p, i) => {
+      const label = `Page ${i + 1} of ${pages.length}`;
+      const labelW = font.widthOfTextAtSize(label, 8);
+      p.drawText(label, { x: (W - labelW) / 2, y: 10, size: 8, font, color: MUTED });
+    });
+  }
 
   const pdfBytes = await pdfDoc.save();
   return new Blob([pdfBytes as BlobPart], { type: 'application/pdf' });
