@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   MessageSquare, Mail, RefreshCw, History, PhoneIncoming, PhoneOutgoing,
-  Bot, CheckCircle2, Inbox, Download, PlayCircle, Eye, EyeOff, X,
+  Bot, CheckCircle2, Inbox, Download, PlayCircle, Eye, EyeOff, X, Reply, Send,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -137,6 +137,39 @@ export default function MessageCentre() {
       setReplies(prev => prev.filter(r => r.id !== row.id));
     } catch (e: any) {
       toast({ title: "Failed to update", description: e.message, variant: "destructive" });
+    }
+  };
+
+  // ── Reply box (freeform WhatsApp reply, type:"text" — only valid within
+  // WhatsApp's 24-hour window after the inbound message being answered) ──────
+  const [openReplyId, setOpenReplyId] = useState<string | null>(null);
+  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+  const [sendingReplyId, setSendingReplyId] = useState<string | null>(null);
+
+  const sendReply = async (row: ReplyRow) => {
+    const text = (replyDrafts[row.id] ?? "").trim();
+    if (!text) return;
+    setSendingReplyId(row.id);
+    try {
+      const { data, error } = await supabase.functions.invoke("send-whatsapp-reply", {
+        body: { waReplyId: row.id, phone: row.phone, text },
+      });
+      if (error) {
+        // supabase-js's generic FunctionsHttpError.message doesn't include our
+        // actual error text (e.g. "outside the 24-hour reply window") — that's
+        // in the response body the SDK already fetched into error.context.
+        const detail = await (error as any)?.context?.json?.().catch(() => null);
+        throw new Error(detail?.error || error.message);
+      }
+      if (data?.error) throw new Error(data.error);
+      toast({ title: "Reply sent" });
+      setReplyDrafts(prev => { const next = { ...prev }; delete next[row.id]; return next; });
+      setOpenReplyId(null);
+      setReplies(prev => prev.filter(r => r.id !== row.id));
+    } catch (e: any) {
+      toast({ title: "Failed to send reply", description: e.message, variant: "destructive" });
+    } finally {
+      setSendingReplyId(null);
     }
   };
 
@@ -415,8 +448,34 @@ export default function MessageCentre() {
                         <span className="text-xs text-gray-400">{fmtWhen(r.received_at)}</span>
                       </div>
                       {r.message_text && <p className="text-sm text-gray-700 mt-1">{r.message_text}</p>}
+                      {openReplyId === r.id && (
+                        <div className="flex items-center gap-2 mt-2">
+                          <Input
+                            autoFocus
+                            placeholder="Type a reply…"
+                            className="h-8 text-sm"
+                            value={replyDrafts[r.id] ?? ""}
+                            onChange={(e) => setReplyDrafts(prev => ({ ...prev, [r.id]: e.target.value }))}
+                            onKeyDown={(e) => { if (e.key === "Enter" && !sendingReplyId) sendReply(r); }}
+                            disabled={sendingReplyId === r.id}
+                          />
+                          <Button size="sm" className="h-8 text-xs flex-shrink-0"
+                            onClick={() => sendReply(r)}
+                            disabled={sendingReplyId === r.id || !(replyDrafts[r.id] ?? "").trim()}>
+                            <Send className="h-3 w-3 mr-1" />
+                            {sendingReplyId === r.id ? "Sending…" : "Send"}
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-8 text-xs flex-shrink-0" onClick={() => setOpenReplyId(null)}>
+                            Cancel
+                          </Button>
+                        </div>
+                      )}
                     </div>
                     <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <Button variant="outline" size="sm" className="h-7 text-xs border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                        onClick={() => setOpenReplyId(openReplyId === r.id ? null : r.id)} title="Reply">
+                        <Reply className="h-3 w-3" />
+                      </Button>
                       <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setReplyStatus(r, "read")} title="Mark read">
                         <Eye className="h-3 w-3" />
                       </Button>
