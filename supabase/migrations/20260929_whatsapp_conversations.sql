@@ -67,9 +67,20 @@ AS $function$
     l.stat,
     COALESCE(u.n, 0)
   FROM latest l
-  LEFT JOIN LATERAL (SELECT * FROM match_phone_all(l.p10)) m ON true
-  LEFT JOIN schools sc ON sc.id = m.school_id
-  LEFT JOIN prospect_schools ps ON ps.id = m.prospect_school_id
+  -- Direct set-based joins on the indexed primary mobile columns, not
+  -- match_phone_all() per row — that function's additional_contacts
+  -- fallback is an OR+EXISTS over a jsonb array that no index can serve
+  -- (confirmed via EXPLAIN: ~100ms/call even with the phone indexes below,
+  -- because the OR forces a sequential scan regardless). Calling it once
+  -- per conversation (185 today) is what timed out in the first place.
+  -- Trade-off: a school/prospect only reachable via a secondary number
+  -- stored in additional_contacts won't resolve to a name here — the
+  -- conversation still shows, just by phone number instead of by name.
+  LEFT JOIN schools sc
+    ON right(regexp_replace(COALESCE(sc.mobile1, ''), '\D', '', 'g'), 10) = l.p10
+    OR right(regexp_replace(COALESCE(sc.mobile2, ''), '\D', '', 'g'), 10) = l.p10
+  LEFT JOIN prospect_schools ps
+    ON right(regexp_replace(COALESCE(ps.mobile, ''), '\D', '', 'g'), 10) = l.p10
   LEFT JOIN latest_name ln ON ln.p10 = l.p10
   LEFT JOIN unread u ON u.p10 = l.p10
   WHERE p_search IS NULL OR p_search = ''
