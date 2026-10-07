@@ -5,8 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Trash2, Plus, Check, X, Pencil, Save, Upload, Download, FileText, ChevronDown, ChevronUp, ClipboardList, ArrowUp, ArrowDown, ArrowUpDown, Search, Lock } from 'lucide-react';
+import { Trash2, Plus, Check, X, Pencil, Save, Upload, Download, FileText, ChevronDown, ChevronUp, ClipboardList, ClipboardCheck, ArrowUp, ArrowDown, ArrowUpDown, Search, Lock } from 'lucide-react';
 import { generateStudentNamelistPdf } from '@/utils/studentNamelistPdfGenerator';
+import { generateAttendanceSheetPdf } from '@/utils/attendanceSheetPdfGenerator';
 import { toast, useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { useActiveProject, useOlympiadSubjects, OlympiadSubject } from '@/hooks/useOlympiadProjects';
@@ -733,6 +734,7 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
   const [subjectFilter, setSubjectFilter] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [downloadingNamelist, setDownloadingNamelist] = useState(false);
+  const [downloadingAttendance, setDownloadingAttendance] = useState(false);
 
   const { data: schoolInfo } = useQuery({
     queryKey: ['crm-school-namelist-info', schoolId],
@@ -978,6 +980,51 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
     URL.revokeObjectURL(url);
   }
 
+  // Confirmed (paid) entries only — these PDFs drive question-paper and
+  // answer-sheet counts, so a student waiting on payment must not appear on
+  // either (the exact incident the namelist exists to fix). Shared by both
+  // exports so the two documents can never disagree about who is registered.
+  function buildConfirmedRows() {
+    const rows = students.flatMap((s) =>
+      s.enrollments
+        .filter((code) => s.confirmedMap[code])
+        .map((code) => ({
+          name: s.student_name,
+          classCode: s.class_code,
+          subject: code,
+          registrationNumber: s.regNumbers[code] ?? null,
+        }))
+    );
+    // 6-digit state+district+school block — same derivation as the portal's
+    // usePortalSchoolCode(), read off any student's own registration number
+    // rather than the bare school_codes.school_code (that's a different,
+    // shorter per-project sequence number, not what's shown to schools).
+    const sampleRegNo = rows.find((r) => r.registrationNumber)?.registrationNumber;
+    const parts = sampleRegNo?.split('-');
+    const schoolCode = parts && parts.length === 6 ? parts[1] + parts[2] + parts[3] : null;
+    return { rows, schoolCode };
+  }
+
+  function noteExcluded(docLabel: string) {
+    if (waitingEnrollments > 0) {
+      toast({
+        title: `${waitingEnrollments} registration${waitingEnrollments === 1 ? '' : 's'} excluded`,
+        description: `Waiting on payment — not included in this ${docLabel}. They will appear automatically once payment is acknowledged.`,
+      });
+    }
+  }
+
+  function savePdf(bytes: Uint8Array, filename: string) {
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const fileStem = () => (schoolInfo?.school_name ?? 'school').replace(/[^a-z0-9]+/gi, '_');
+
   // Same generator + layout as the school portal's own "Export PDF" — lets
   // staff hand the identical branded namelist to schools without portal
   // access (manually-managed schools), not just self-served ones.
@@ -985,55 +1032,47 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
     if (!students.length || !schoolInfo) return;
     setDownloadingNamelist(true);
     try {
-      // Confirmed entries only — this PDF is the official namelist used for
-      // question-paper/answer-sheet counts, so a student waiting on payment
-      // must not appear on it (the exact incident this feature exists to fix).
-      const rows = students.flatMap((s) =>
-        s.enrollments
-          .filter((code) => s.confirmedMap[code])
-          .map((code) => ({
-            name: s.student_name,
-            classCode: s.class_code,
-            subject: code,
-            registrationNumber: s.regNumbers[code] ?? null,
-          }))
-      );
-      if (waitingEnrollments > 0) {
-        toast({
-          title: `${waitingEnrollments} registration${waitingEnrollments === 1 ? '' : 's'} excluded`,
-          description: 'Waiting on payment — not included in this namelist. They will appear automatically once payment is acknowledged.',
-        });
-      }
+      const { rows, schoolCode } = buildConfirmedRows();
+      noteExcluded('namelist');
       if (rows.length === 0) {
         toast({ title: 'Nothing to export yet', description: 'No confirmed (paid) registrations for this school.', variant: 'destructive' });
         return;
       }
-      // 6-digit state+district+school block — same derivation as the portal's
-      // usePortalSchoolCode(), read off any student's own registration number
-      // rather than the bare school_codes.school_code (that's a different,
-      // shorter per-project sequence number, not what's shown to schools).
-      const sampleRegNo = rows.find((r) => r.registrationNumber)?.registrationNumber;
-      const schoolCode = sampleRegNo
-        ? (() => {
-            const parts = sampleRegNo.split('-');
-            return parts.length === 6 ? parts[1] + parts[2] + parts[3] : null;
-          })()
-        : null;
-
       const bytes = await generateStudentNamelistPdf({
         schoolName: schoolInfo.school_name,
         ssNo: schoolInfo.ss_no,
         schoolCode,
         rows,
       });
-      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `Student_Namelist_${schoolInfo.school_name.replace(/[^a-z0-9]+/gi, '_')}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
+      savePdf(bytes, `Student_Namelist_${fileStem()}.pdf`);
     } finally {
       setDownloadingNamelist(false);
+    }
+  }
+
+  // The exam-room register: same confirmed students as the namelist, plus a box
+  // per student to mark, per-class Total/Present/Absent counts and signature
+  // lines. Deliberately a different design from the namelist — both land on the
+  // same desk on exam morning and must not be confused for each other.
+  async function downloadAttendanceSheetPDF() {
+    if (!students.length || !schoolInfo) return;
+    setDownloadingAttendance(true);
+    try {
+      const { rows, schoolCode } = buildConfirmedRows();
+      noteExcluded('attendance sheet');
+      if (rows.length === 0) {
+        toast({ title: 'Nothing to export yet', description: 'No confirmed (paid) registrations for this school.', variant: 'destructive' });
+        return;
+      }
+      const bytes = await generateAttendanceSheetPdf({
+        schoolName: schoolInfo.school_name,
+        ssNo: schoolInfo.ss_no,
+        schoolCode,
+        rows,
+      });
+      savePdf(bytes, `Attendance_Sheet_${fileStem()}.pdf`);
+    } finally {
+      setDownloadingAttendance(false);
     }
   }
 
@@ -1224,6 +1263,10 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
               <Button variant="outline" size="sm" onClick={downloadNamelistPDF} disabled={!students.length || downloadingNamelist}>
                 <FileText className="h-3.5 w-3.5 mr-1" />
                 {downloadingNamelist ? 'Generating…' : 'Namelist PDF'}
+              </Button>
+              <Button variant="outline" size="sm" onClick={downloadAttendanceSheetPDF} disabled={!students.length || downloadingAttendance}>
+                <ClipboardCheck className="h-3.5 w-3.5 mr-1" />
+                {downloadingAttendance ? 'Generating…' : 'Attendance Sheet'}
               </Button>
             </div>
           </div>

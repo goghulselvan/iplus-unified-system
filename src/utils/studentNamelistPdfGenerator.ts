@@ -32,6 +32,30 @@ function extractRoll(regNo: string | null): string {
   return parts.length === 6 ? parts[5] : regNo;
 }
 
+// pdf-lib's standard fonts are WinAnsi-encoded: drawing any character outside
+// CP1252 throws, and it throws mid-render, so the whole download fails with
+// nothing shown to the user. Verified against the live library: a curly
+// apostrophe is fine (U+2019 IS in CP1252), but Tamil throws outright —
+// `WinAnsi cannot encode "த" (0x0ba4)`. Names are free text typed in the portal
+// or pasted into Bulk Upload, and these are Tamil Nadu and Puducherry schools,
+// so a single Tamil-script name would otherwise take down a school's entire
+// namelist. Everything drawn is folded to WinAnsi-safe text first.
+//
+// Falls back to '—' when folding empties the string (a wholly non-Latin name),
+// so the row renders visibly blank instead of silently vanishing — the roll
+// number beside it still identifies the student.
+function sanitize(text: string): string {
+  const out = String(text ?? '')
+    .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+    .replace(/[\u2010\u2011\u2012\u2013]/g, '-')
+    .replace(/[\u00A0\u1680\u2000-\u200B\u202F\u205F\u3000]/g, ' ')
+    .replace(/[^\x20-\x7E\xA0-\xFF]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return out || '—';
+}
+
 // Greedy word-wrap so a long school name breaks onto its own lines instead of
 // running past its column and underneath whatever's drawn next (the school
 // code block, in this case — real case: "Al-Azhar Matriculation Hgher
@@ -130,7 +154,7 @@ export async function generateStudentNamelistPdf({ schoolName, ssNo, schoolCode,
   const logoBytes = await fetch(iplusLogoUrl).then((r) => r.arrayBuffer());
   const logoImg = await pdfDoc.embedPng(logoBytes);
 
-  const fullSchoolName = ssNo != null ? `${schoolName} (SS ${ssNo})` : schoolName;
+  const fullSchoolName = sanitize(ssNo != null ? `${schoolName} (SS ${ssNo})` : schoolName);
   const generatedOn = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 
   function drawTopChrome(page: PDFPage): number {
@@ -154,7 +178,7 @@ export async function generateStudentNamelistPdf({ schoolName, ssNo, schoolCode,
     page.drawText(dateLine, { x: W - MARGIN - dateW, y: y - 22, size: 9, font, color: MUTED });
     y -= logoH + 6;
 
-    const codeText = schoolCode || '—';
+    const codeText = sanitize(schoolCode || '—');
     const codeSize = 28;
     const codeW = fontBold.widthOfTextAtSize(codeText, codeSize);
     const codeLabel = 'SCHOOL CODE';
@@ -241,8 +265,8 @@ export async function generateStudentNamelistPdf({ schoolName, ssNo, schoolCode,
         const isEven = sno % 2 === 0;
         if (isEven) page.drawRectangle({ x: MARGIN, y: y - ROW_H, width: TABLE_W, height: ROW_H, color: ROW_SHADE });
         page.drawText(String(sno), { x: COLS[0].x + 8, y: y - ROW_H + 6, size: 9, font, color: TEXT_DARK });
-        page.drawText(student.name, { x: COLS[1].x + 8, y: y - ROW_H + 6, size: 9, font, color: TEXT_DARK });
-        const roll = extractRoll(student.registrationNumber);
+        page.drawText(sanitize(student.name), { x: COLS[1].x + 8, y: y - ROW_H + 6, size: 9, font, color: TEXT_DARK });
+        const roll = sanitize(extractRoll(student.registrationNumber));
         page.drawText(roll, { x: COLS[2].x + 8, y: y - ROW_H + 6, size: 10.5, font: fontBold, color: INDIGO_TEXT });
         y -= ROW_H;
         sno++;
