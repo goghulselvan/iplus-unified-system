@@ -44,10 +44,10 @@ function extractRoll(regNo: string | null): string {
 // Mirrors sanitize() in studentNamelistPdfGenerator.ts.
 function sanitize(text: string): string {
   const out = String(text ?? '')
-    .replace(/[‘’‚‛]/g, "'")
-    .replace(/[“”„‟]/g, '"')
-    .replace(/[‐‑‒–]/g, '-')
-    .replace(/[   -​  　]/g, ' ')
+    .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+    .replace(/[\u2010\u2011\u2012\u2013]/g, '-')
+    .replace(/[\u00A0\u1680\u2000-\u200B\u202F\u205F\u3000]/g, ' ')
     .replace(/[^\x20-\x7E\xA0-\xFF]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
@@ -76,7 +76,17 @@ function wrapToWidth(text: string, font: PDFFont, size: number, maxWidth: number
 // Brand navy/gold off the corporate letterhead — deliberately NOT the
 // namelist's indigo/violet. Both documents land on the same exam desk on the
 // same morning and must never be mistaken for each other.
+//
+// Tuned for toner cost: these are colour-printed in-office on a CMYK laser, in
+// volume (one school can run 21 pages). Navy is 235% total area coverage — it
+// burns cyan, magenta AND black — so it is kept to text only, never to a fill.
+// The masthead carries no fill at all (it was 56% of the page's toner for pure
+// decoration; the logo and gold rule already brand the page) and table headers
+// use SKY at 68% TAC with navy text, which reads at 7.9:1. Net result is about
+// 18% of the toner the all-navy version used. Do not reintroduce a solid navy
+// band or white-on-light-blue text — white on SKY measures 1.99:1, unreadable.
 const NAVY = rgb(0.047, 0.035, 0.478);
+const SKY = rgb(0.514, 0.753, 0.875);   // #83C0DF — table headers
 const GOLD = rgb(0.992, 0.698, 0.000);
 const INK = rgb(0.10, 0.10, 0.14);
 const MUTED = rgb(0.42, 0.45, 0.51);
@@ -87,7 +97,6 @@ const META_BG = rgb(0.96, 0.965, 0.99);
 const CLASS_BG = rgb(0.93, 0.94, 0.98);
 const ROW_ALT = rgb(0.975, 0.976, 0.99);
 const WHITE = rgb(1, 1, 1);
-const SUBTITLE = rgb(0.80, 0.82, 0.95);
 
 const W = 595.28, H = 841.89; // A4 portrait
 const MARGIN = 36;
@@ -151,7 +160,7 @@ export async function generateAttendanceSheetPdf({ schoolName, ssNo, schoolCode,
   function drawHead(subj: string, continued: boolean) {
     page = pdfDoc.addPage([W, H]);
     pages.push(page);
-    page.drawRectangle({ x: 0, y: H - HEADER_BAND_H, width: W, height: HEADER_BAND_H, color: NAVY });
+    // no masthead fill by design — see the palette note above
     page.drawRectangle({ x: 0, y: H - HEADER_BAND_H - 4, width: W, height: 4, color: GOLD });
 
     const d = logoImg.scale(1);
@@ -159,9 +168,9 @@ export async function generateAttendanceSheetPdf({ schoolName, ssNo, schoolCode,
     page.drawImage(logoImg, { x: MARGIN, y: H - HEADER_BAND_H / 2 - lh / 2, width: lw, height: lh });
 
     const title = 'ATTENDANCE SHEET';
-    page.drawText(title, { x: W - MARGIN - bold.widthOfTextAtSize(title, 19), y: H - 32, size: 19, font: bold, color: WHITE });
+    page.drawText(title, { x: W - MARGIN - bold.widthOfTextAtSize(title, 19), y: H - 32, size: 19, font: bold, color: NAVY });
     const sub = 'Level 1 Examination';
-    page.drawText(sub, { x: W - MARGIN - font.widthOfTextAtSize(sub, 9), y: H - 46, size: 9, font, color: SUBTITLE });
+    page.drawText(sub, { x: W - MARGIN - font.widthOfTextAtSize(sub, 9), y: H - 46, size: 9, font, color: MUTED });
 
     y = H - HEADER_BAND_H - 4 - 16;
 
@@ -203,11 +212,11 @@ export async function generateAttendanceSheetPdf({ schoolName, ssNo, schoolCode,
   }
 
   function drawTableHead() {
-    page.drawRectangle({ x: MARGIN, y: y - HEAD_H, width: TABLE_W, height: HEAD_H, color: NAVY });
+    page.drawRectangle({ x: MARGIN, y: y - HEAD_H, width: TABLE_W, height: HEAD_H, color: SKY });
     for (const c of COL) {
       const centred = c.key === 'sno' || c.key === 'mark';
       const tw = bold.widthOfTextAtSize(c.label, 9);
-      page.drawText(c.label, { x: centred ? c.x + c.w / 2 - tw / 2 : c.x + 8, y: y - HEAD_H + 8, size: 9, font: bold, color: WHITE });
+      page.drawText(c.label, { x: centred ? c.x + c.w / 2 - tw / 2 : c.x + 8, y: y - HEAD_H + 8, size: 9, font: bold, color: NAVY });
     }
     y -= HEAD_H;
   }
