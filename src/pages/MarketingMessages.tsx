@@ -235,7 +235,13 @@ export default function MarketingMessages() {
     const tasks: Promise<any>[] = [];
 
     if (sendEmail && emailTemplateType) {
-      tasks.push(emailSend.run(matched, emailTemplateType));
+      // The attachment travels with the template, not the campaign — so the
+      // circular PDF goes with the circular email every time it is sent.
+      const tpl = emailTemplates.find(t => t.template_type === emailTemplateType);
+      const attachment = tpl?.attachment_url
+        ? { url: tpl.attachment_url, filename: tpl.attachment_filename }
+        : undefined;
+      tasks.push(emailSend.run(matched, emailTemplateType, attachment));
     }
 
     if (sendWhatsApp && waTemplateKey) {
@@ -295,7 +301,13 @@ export default function MarketingMessages() {
     for (const email of testEmails) {
       if (sendEmail && emailTemplateType && schoolId) {
         const { data, error } = await supabase.functions.invoke("send-template-email", {
-          body: { schoolId, templateType: emailTemplateType, userId: user?.id, emailOverride: email },
+          body: {
+            schoolId, templateType: emailTemplateType, userId: user?.id, emailOverride: email,
+            ...(currentEmailTemplate?.attachment_url
+              ? { attachmentUrl: currentEmailTemplate.attachment_url,
+                  attachmentFilename: currentEmailTemplate.attachment_filename ?? undefined }
+              : {}),
+          },
         });
         results.push({ channel: "email", address: email, success: !error && data?.success !== false, error: error?.message || data?.error });
       }
@@ -399,6 +411,9 @@ export default function MarketingMessages() {
                   </Button>
                 </div>
                 {emailTemplateType && <p className="text-xs text-indigo-700">✓ {currentEmailTemplate?.template_name}</p>}
+                {currentEmailTemplate?.attachment_url && (
+                  <p className="text-xs text-emerald-700">📎 Attachment: {currentEmailTemplate.attachment_filename ?? "attachment.pdf"}</p>
+                )}
               </div>
             )}
 

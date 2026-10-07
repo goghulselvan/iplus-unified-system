@@ -38,10 +38,18 @@ export const useBulkEmailSend = () => {
     schoolId: string,
     templateType: string,
     userId: string | undefined,
+    attachment?: { url: string; filename?: string | null },
   ): Promise<{ ok: boolean; reason?: string }> => {
     try {
+      // Resend fetches attachmentUrl server-side, so a multi-MB PDF is never
+      // base64'd inside the edge function.
       const { data, error } = await supabase.functions.invoke("send-template-email", {
-        body: { schoolId, templateType, userId },
+        body: {
+          schoolId, templateType, userId,
+          ...(attachment?.url
+            ? { attachmentUrl: attachment.url, attachmentFilename: attachment.filename ?? undefined }
+            : {}),
+        },
       });
       if (error) return { ok: false, reason: error.message?.slice(0, 200) };
       if (data?.success === false) return { ok: false, reason: String(data.error || "Failed").slice(0, 200) };
@@ -54,6 +62,7 @@ export const useBulkEmailSend = () => {
   const run = useCallback(async (
     schools: Array<{ id: string; school_name: string; email: string | null }>,
     templateType: string,
+    attachment?: { url: string; filename?: string | null },
   ) => {
     cancelRef.current = false;
     setRunning(true);
@@ -72,7 +81,7 @@ export const useBulkEmailSend = () => {
           skipped++;
           results.push({ schoolId: s.id, schoolName: s.school_name, email: null, status: "skipped", reason: "No email address" });
         } else {
-          const res = await sendOne(s.id, templateType, user?.id);
+          const res = await sendOne(s.id, templateType, user?.id, attachment);
           if (res.ok) sent++;
           else failed++;
           results.push({ schoolId: s.id, schoolName: s.school_name, email: s.email, status: res.ok ? "sent" : "failed", reason: res.reason });

@@ -10,6 +10,8 @@ export interface CommunicationTemplate {
   subject: string;
   email_body: string;
   whatsapp_message?: string;
+  attachment_url?: string | null;
+  attachment_filename?: string | null;
   is_active: boolean;
   template_category: 'workflow' | 'marketing';
   created_at: string;
