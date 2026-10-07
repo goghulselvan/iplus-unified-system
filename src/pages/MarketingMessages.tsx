@@ -104,6 +104,7 @@ export default function MarketingMessages() {
   const [testMobiles, setTestMobiles] = useState<string[]>([]);
   const [testSending, setTestSending] = useState(false);
   const [testResults, setTestResults] = useState<{ channel: "email" | "wa"; address: string; success: boolean; error?: string }[] | null>(null);
+  const [testSchoolName, setTestSchoolName] = useState<string | null>(null);
 
   // Load templates
   const { templates: emailTemplates } = useCommunicationTemplates(projectId, "marketing");
@@ -287,14 +288,21 @@ export default function MarketingMessages() {
     if (!projectId) return;
     setTestSending(true); setTestResults(null);
 
-    // Get any school in this project for variable substitution
-    const { data: wfRow } = await supabase
+    // A school is needed only to fill {school_name} / {{1}} — delivery is
+    // controlled by emailOverride/mobileOverride, so nothing reaches this
+    // school. Prefer Test School (SS 0), which exists for exactly this.
+    // Previously this took .limit(1) with no ordering, so tests arrived
+    // addressed to whichever school Postgres returned first and read as if
+    // they had been sent to that school.
+    const { data: wfRows } = await supabase
       .from("school_project_workflow")
-      .select("school_id")
+      .select("school_id, schools(id,name,ss_no)")
       .eq("project_id", projectId)
-      .limit(1)
-      .single();
-    const schoolId = (wfRow as any)?.school_id;
+      .limit(200);
+    const rows = (wfRows ?? []) as any[];
+    const pick = rows.find(r => r.schools?.ss_no === 0) ?? rows[0];
+    const schoolId = pick?.school_id;
+    setTestSchoolName(pick?.schools?.name ?? null);
     const { data: { user } } = await supabase.auth.getUser();
     const results: { channel: "email" | "wa"; address: string; success: boolean; error?: string }[] = [];
 
@@ -516,6 +524,11 @@ export default function MarketingMessages() {
                 {/* Test results */}
                 {testResults && testResults.length > 0 && (
                   <div className="space-y-1">
+                    {testSchoolName && (
+                      <p className="text-xs text-muted-foreground px-1 pb-1">
+                        Sent to the addresses above. School details in the message are {testSchoolName}'s — used only to fill the template's variables.
+                      </p>
+                    )}
                     {testResults.map((r, i) => (
                       <div key={i} className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm ${r.success ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
                         {r.success ? <CheckCircle2 className="h-4 w-4 flex-shrink-0" /> : <XCircle className="h-4 w-4 flex-shrink-0" />}
