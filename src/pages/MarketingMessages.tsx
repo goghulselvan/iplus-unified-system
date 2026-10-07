@@ -1,4 +1,4 @@
-import { useState, useEffect, KeyboardEvent } from "react";
+import { useState, useEffect, useMemo, KeyboardEvent } from "react";
 import Navbar from "@/components/layout/Navbar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -42,6 +42,7 @@ interface School {
   district: string;
   email: string | null;
   mobile1: string | null;
+  mobile2: string | null;
   registration_status: string | null;
   payment_status: string | null;
   portal_registered: boolean | null;
@@ -50,6 +51,18 @@ interface School {
 const REG_STATUSES = ["Pending", "Confirmed", "In Progress"] as const;
 const PAY_STATUSES = ["Pending", "Partial", "Received"] as const;
 const SOURCE_OPTIONS = ["Portal", "Manual"] as const;
+const SLOT_NONE = "__unassigned__";
+
+// 55 of 153 CRM schools have no exam_slots row at all, so a slot filter without
+// an explicit "not assigned" bucket would silently make them unreachable.
+// Returns the last 10 digits only if they form a real Indian mobile — never
+// regex a number out of a raw string without this, a +91 prefix or a landline
+// otherwise splices into a number that does not exist.
+function normalizeMobile(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const ten = String(raw).replace(/\D/g, "").slice(-10);
+  return /^[6-9]\d{9}$/.test(ten) ? ten : null;
+}
 
 export default function MarketingMessages() {
   const { toast } = useToast();
@@ -72,6 +85,9 @@ export default function MarketingMessages() {
   const [regStatuses, setRegStatuses] = useState<string[]>([]);
   const [payStatuses, setPayStatuses] = useState<string[]>([]);
   const [sources, setSources] = useState<string[]>([]);
+  const [slots, setSlots] = useState<string[]>([]);
+  const [slotOptions, setSlotOptions] = useState<{ id: string; name: string }[]>([]);
+  const [schoolSlot, setSchoolSlot] = useState<Record<string, string>>({});
   const [requireContact, setRequireContact] = useState(true);
   const [matched, setMatched] = useState<School[]>([]);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -92,6 +108,29 @@ export default function MarketingMessages() {
   // Load templates
   const { templates: emailTemplates } = useCommunicationTemplates(projectId, "marketing");
   const { templates: waTemplates } = useWhatsAppTemplates(projectId, "marketing");
+
+  // Load exam slots for this project, plus each school's assigned slot
+  useEffect(() => {
+    if (!projectId) return;
+    supabase
+      .from("exam_slot_templates")
+      .select("id,slot_name")
+      .eq("project_id", projectId)
+      .eq("is_active", true)
+      .order("slot_name")
+      .then(({ data }) => setSlotOptions((data ?? []).map((t: any) => ({ id: t.id, name: t.slot_name }))));
+    supabase
+      .from("exam_slots")
+      .select("school_id,slot_template_id")
+      .eq("project_id", projectId)
+      .then(({ data }) => {
+        const map: Record<string, string> = {};
+        for (const r of (data ?? []) as any[]) {
+          if (r.school_id && r.slot_template_id) map[r.school_id] = r.slot_template_id;
+        }
+        setSchoolSlot(map);
+      });
+  }, [projectId]);
 
   // Load state options on mount
   useEffect(() => {
@@ -127,6 +166,25 @@ export default function MarketingMessages() {
   const currentEmailTemplate = emailTemplates.find(t => t.template_type === emailTemplateType);
   const currentWaTemplate = waTemplates.find(t => t.template_key === waTemplateKey);
 
+  // One WhatsApp message per distinct valid number, not per school: a school
+  // carries a primary and a secondary mobile and they are usually two different
+  // people. Deduped within a school; the same number appearing under two
+  // different schools still gets one message each, because the template content
+  // is school-specific and resolved server-side from schoolId.
+  const waRecipients = useMemo(() => {
+    const out: Array<{ id: string; school_name: string; mobile1: string }> = [];
+    for (const s of matched) {
+      const seen = new Set<string>();
+      for (const raw of [s.mobile1, s.mobile2]) {
+        const num = normalizeMobile(raw);
+        if (!num || seen.has(num)) continue;
+        seen.add(num);
+        out.push({ id: s.id, school_name: s.school_name, mobile1: num });
+      }
+    }
+    return out;
+  }, [matched]);
+
   const toggle = (arr: string[], val: string, set: (a: string[]) => void) =>
     set(arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val]);
 
@@ -136,7 +194,7 @@ export default function MarketingMessages() {
     setPreviewLoading(true);
     let q = supabase
       .from("school_project_workflow")
-      .select("schools(id,school_name,state,district,email,mobile1,registration_status,payment_status,portal_registered)")
+      .select("schools(id,school_name,state,district,email,mobile1,mobile2,registration_status,payment_status,portal_registered)")
       .eq("project_id", projectId);
 
     if (regStatuses.length) q = q.in("registration_status", regStatuses);
@@ -150,15 +208,19 @@ export default function MarketingMessages() {
       const wantPortal = sources.includes("Portal");
       schools = schools.filter(s => !!s.portal_registered === wantPortal);
     }
+    if (slots.length) schools = schools.filter(s => slots.includes(schoolSlot[s.id] ?? SLOT_NONE));
 
     // Filter by contact availability
     if (requireContact) {
+      // Reachable on WhatsApp means ANY valid mobile, primary or secondary —
+      // checking mobile1 alone would drop schools that only have a secondary.
+      const hasMobile = (s: School) => !!(normalizeMobile(s.mobile1) || normalizeMobile(s.mobile2));
       if (sendEmail && sendWhatsApp) {
-        schools = schools.filter(s => s.email || s.mobile1); // Either is fine if sending both
+        schools = schools.filter(s => s.email || hasMobile(s)); // Either is fine if sending both
       } else if (sendEmail) {
         schools = schools.filter(s => s.email);
       } else if (sendWhatsApp) {
-        schools = schools.filter(s => s.mobile1);
+        schools = schools.filter(hasMobile);
       }
     }
 
@@ -168,6 +230,7 @@ export default function MarketingMessages() {
 
   const handleSend = async () => {
     if (matched.length === 0) return;
+    if (sendWhatsApp && waRecipients.length === 0 && !sendEmail) return;
 
     const tasks: Promise<any>[] = [];
 
@@ -176,7 +239,7 @@ export default function MarketingMessages() {
     }
 
     if (sendWhatsApp && waTemplateKey) {
-      tasks.push(whatsappSend.run(matched, waTemplateKey));
+      tasks.push(whatsappSend.run(waRecipients, waTemplateKey));
     }
 
     const [emailResult, waResult] = await Promise.all(tasks);
@@ -595,6 +658,31 @@ export default function MarketingMessages() {
                   ))}
                 </div>
               </div>
+
+              {/* Exam Slot — includes an explicit unassigned bucket, otherwise
+                  schools with no exam_slots row drop out of every slot campaign */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="text-sm font-semibold">Exam Slot</Label>
+                  <div className="space-x-1">
+                    <button onClick={() => setSlots([...slotOptions.map(o => o.id), SLOT_NONE])} className="text-xs text-indigo-600 hover:underline font-medium">All</button>
+                    <span className="text-xs text-muted-foreground">•</span>
+                    <button onClick={() => setSlots([])} className="text-xs text-indigo-600 hover:underline font-medium">Clear</button>
+                  </div>
+                </div>
+                <div className="space-y-1.5 border rounded-lg p-2 bg-white">
+                  {slotOptions.map(o => (
+                    <div key={o.id} className="flex items-center gap-2">
+                      <Checkbox id={`slot-${o.id}`} checked={slots.includes(o.id)} onCheckedChange={() => toggle(slots, o.id, setSlots)} />
+                      <label htmlFor={`slot-${o.id}`} className="text-sm cursor-pointer">{o.name}</label>
+                    </div>
+                  ))}
+                  <div className="flex items-center gap-2">
+                    <Checkbox id="slot-none" checked={slots.includes(SLOT_NONE)} onCheckedChange={() => toggle(slots, SLOT_NONE, setSlots)} />
+                    <label htmlFor="slot-none" className="text-sm cursor-pointer">Not assigned</label>
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Contact requirement */}
@@ -662,6 +750,11 @@ export default function MarketingMessages() {
                 <div className="p-4 rounded-lg bg-white border">
                   <p className="text-xs text-muted-foreground font-semibold uppercase mb-1">Recipients</p>
                   <p className="text-base font-semibold text-foreground">{totalMatchedCount} schools</p>
+                  {sendWhatsApp && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {waRecipients.length} WhatsApp message{waRecipients.length !== 1 ? "s" : ""} (primary + secondary mobiles)
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -674,7 +767,7 @@ export default function MarketingMessages() {
                       <TableHead>State</TableHead>
                       <TableHead>District</TableHead>
                       {sendEmail && <TableHead>Email</TableHead>}
-                      {sendWhatsApp && <TableHead>Mobile</TableHead>}
+                      {sendWhatsApp && <TableHead>Mobile(s)</TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -684,7 +777,14 @@ export default function MarketingMessages() {
                         <TableCell className="text-sm text-muted-foreground">{s.state ?? "—"}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">{s.district}</TableCell>
                         {sendEmail && <TableCell className="text-xs">{s.email ?? "—"}</TableCell>}
-                        {sendWhatsApp && <TableCell className="text-xs">{s.mobile1 ?? "—"}</TableCell>}
+                        {sendWhatsApp && (
+                          <TableCell className="text-xs">
+                            {(() => {
+                              const nums = [...new Set([s.mobile1, s.mobile2].map(normalizeMobile).filter(Boolean) as string[])];
+                              return nums.length ? nums.join(", ") : "—";
+                            })()}
+                          </TableCell>
+                        )}
                       </TableRow>
                     ))}
                   </TableBody>
