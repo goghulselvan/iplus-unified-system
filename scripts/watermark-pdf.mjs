@@ -39,13 +39,13 @@ for (const [i, page] of pages.entries()) {
   if (!wanted.has(i + 1)) continue;
   const { width, height } = page.getSize();
 
-  // Three passes down the diagonal: one large mark can be cropped out or
-  // missed on a partial print, three cannot.
+  // One mark, centred. Three were tried first; Goghul's call after seeing it
+  // printed was that the middle one alone is enough and three crowd the form.
   const size = Math.min(width, height) * 0.22;
   const textW = font.widthOfTextAtSize(TEXT, size);
   const rad = (ANGLE * Math.PI) / 180;
 
-  for (const frac of [0.26, 0.5, 0.74]) {
+  for (const frac of [0.5]) {
     const cx = width / 2;
     const cy = height * frac;
     // drawText anchors at the baseline start, so step back along the rotated
