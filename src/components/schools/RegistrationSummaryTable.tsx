@@ -22,6 +22,10 @@ const OLYMPIAD_LABELS: Record<OlympiadCode, string> = {
 };
 
 const CLASS_ORDER = ['14', '15', '01', '02', '03', '04', '05', '06', '07', '08'];
+// OMR sheets are used from Class 3 up; LKG-Class 2 answer directly in the
+// question paper. One sheet is consumed per registration, not per student —
+// a Class 5 child sitting three subjects uses three sheets.
+const OMR_CLASSES = ['03', '04', '05', '06', '07', '08'];
 const CLASS_LABELS: Record<string, string> = {
   '14': 'LKG', '15': 'UKG',
   ...Object.fromEntries(
@@ -71,8 +75,10 @@ export const RegistrationSummaryTable = ({ schoolId, schoolName }: Props) => {
       (a, b) => CLASS_ORDER.indexOf(a) - CLASS_ORDER.indexOf(b)
     );
     const grandTotal = OLYMPIADS.reduce((s, c) => s + totals[c], 0);
+    const omrSheets = OMR_CLASSES.reduce(
+      (sum, cls) => sum + (grid[cls] ? OLYMPIADS.reduce((a, c) => a + (grid[cls][c] ?? 0), 0) : 0), 0);
 
-    return { grid, totals, sortedClasses, grandTotal };
+    return { grid, totals, sortedClasses, grandTotal, omrSheets };
   }, [students]);
 
   const handleExportPdf = () => {
@@ -85,6 +91,11 @@ export const RegistrationSummaryTable = ({ schoolId, schoolName }: Props) => {
     doc.text(name, 148, 22, { align: 'center' });
     doc.setFontSize(10);
     doc.text(`Total Registrations: ${grandTotal} · Total Students: ${students.length}`, 148, 28, { align: 'center' });
+    doc.setFontSize(13);
+    doc.setFont(undefined, 'bold');
+    doc.text(`No. of OMR Sheets: ${omrSheets}`, 148, 36, { align: 'center' });
+    doc.setFont(undefined, 'normal');
+    doc.setFontSize(10);
 
     const headers = ['Class', ...OLYMPIADS.map(c => OLYMPIAD_LABELS[c]), 'Total'];
     const rows = sortedClasses.map(cls => {
@@ -97,7 +108,7 @@ export const RegistrationSummaryTable = ({ schoolId, schoolName }: Props) => {
     autoTable(doc, {
       head: [headers],
       body: rows,
-      startY: 35,
+      startY: 41,
       theme: 'grid',
       headStyles: { fillColor: [79, 70, 229], fontStyle: 'bold', halign: 'center' },
       bodyStyles: { halign: 'center' },
@@ -148,6 +159,10 @@ export const RegistrationSummaryTable = ({ schoolId, schoolName }: Props) => {
             <CardDescription>
               {students.length} students · {grandTotal} total registrations
             </CardDescription>
+            <p className="mt-1 text-sm font-bold text-foreground">
+              No. of OMR Sheets: {omrSheets}
+              <span className="ml-2 font-normal text-xs text-muted-foreground">Class 3 and above</span>
+            </p>
           </div>
           <Button onClick={handleExportPdf} variant="outline">
             <Download className="mr-2 h-4 w-4" />
