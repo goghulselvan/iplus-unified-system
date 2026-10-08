@@ -37,6 +37,20 @@ type LabelSchool = {
   phones: string[];
 };
 
+// address1/address2 are free text and 2 of 154 CRM schools have a phone number
+// sitting in address2 instead of an address line. Joining them blindly made the
+// result truthy, which short-circuited the `|| school_address` fallback and put
+// "+91044-22780574" on St Paul's parcel in place of its real address. Anything
+// that is only digits and phone punctuation is dropped before the join.
+const isPhoneLike = (v?: string | null) => !!v && /^[0-9+()\s-]+$/.test(v.trim());
+
+function composeAddress(
+  address1?: string | null, address2?: string | null, schoolAddress?: string | null,
+): string | null {
+  const parts = [address1, address2].filter(p => p && !isPhoneLike(p));
+  return parts.join(', ') || schoolAddress || null;
+}
+
 // Valid Indian mobile from any raw format (strips +91/0/spaces, keeps last 10)
 function cleanMobile(raw?: string | null): string {
   const d = String(raw ?? '').replace(/\D/g, '').slice(-10);
@@ -513,7 +527,7 @@ function CrmLabelMode({ activeProject }: { activeProject: any }) {
           id: r.schools.id,
           ss_no: r.schools.ss_no,
           school_name: r.schools.school_name,
-          address: [r.schools.address1, r.schools.address2].filter(Boolean).join(', ') || r.schools.school_address || null,
+          address: composeAddress(r.schools.address1, r.schools.address2, r.schools.school_address),
           district: r.schools.district,
           state: r.schools.state,
           pincode: r.schools.pincode,
