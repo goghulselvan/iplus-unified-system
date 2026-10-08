@@ -263,7 +263,11 @@ function generatePdf(
 // ─── A5 parcel stickers (2 per A4, iPlus "Important Material" artwork) ────────
 // The artwork is the office's pre-designed A5-landscape courier sticker; the
 // school address + phone are drawn inside its empty "TO" box. Geometry below is
-// measured from the source artwork (1290×917 px): TO box = x 598–1182, y 238–481.
+// measured from the source artwork (1520×1034 px): TO box = x 699–1451, y 245–521.
+// Re-measured 2026-10-08 when the artwork was replaced — the new design has a
+// different aspect (1.470 vs the old 1.407) AND a different TO box, so these
+// numbers are not interchangeable with the previous set. If the artwork changes
+// again, re-detect the box rather than reusing these.
 
 const loadImage = (url: string) => new Promise<HTMLImageElement>((resolve, reject) => {
   const img = new Image();
@@ -295,12 +299,12 @@ async function generateParcelPdf(
   }
 
   const A4W = 595.28, A4H = 841.89;
-  const SW = 585.3, SH = SW * 917 / 1290;          // sticker size on page (pt)
+  const SW = 585.3, SH = SW * 1034 / 1520;         // sticker size on page (pt)
   const SX = (A4W - SW) / 2;
   const slotY = [4.5, A4H - 4.5 - SH];             // top + bottom sticker
-  const S = SW / 1290;                             // pt per artwork pixel
-  const bx = SX + 598 * S, bw = (1182 - 598) * S;  // TO box on page
-  const byRel = 238 * S, bh = (481 - 238) * S;
+  const S = SW / 1520;                             // pt per artwork pixel
+  const bx = SX + 699 * S, bw = (1451 - 699) * S;  // TO box on page
+  const byRel = 245 * S, bh = (521 - 245) * S;
   const pad = 10;
   const LH = 1.3;
 
