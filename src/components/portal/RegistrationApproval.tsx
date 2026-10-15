@@ -43,7 +43,7 @@ interface CandidateMatch {
 }
 
 // Finds likely-existing prospect_schools matches for a portal registration by
-// SS No, phone, or email — so staff aren't relying on a blank manual search
+// SS No, phone, email, or name + pincode — so staff aren't relying on a blank manual search
 // and don't accidentally create a duplicate school for someone already in CRM.
 async function findCandidateMatches(reg: PortalRegistration): Promise<CandidateMatch[]> {
   const found = new Map<string, CandidateMatch>();
@@ -62,7 +62,34 @@ async function findCandidateMatches(reg: PortalRegistration): Promise<CandidateM
     const { data } = await supabase.from("prospect_schools").select(cols).ilike("mobile", `%${phoneDigits}%`).eq("is_active", true).limit(5);
     (data || []).forEach((s: any) => { if (!found.has(s.id)) found.set(s.id, { ...s, matchedOn: "Phone" }); });
   }
+  // Name + pincode (or name + district when there is no pincode): catches a school that comes
+  // back next year with a new email, phone and contact person and doesn't know its SS No.
+  const pin = (reg.pincode ?? "").replace(/\D/g, "");
+  if (reg.school_name && (pin.length === 6 || reg.district)) {
+    let q = supabase.from("prospect_schools").select(cols).eq("is_active", true).limit(200);
+    q = pin.length === 6 ? q.eq("pincode", pin) : q.ilike("district", reg.district!);
+    const { data } = await q;
+    (data || []).forEach((s: any) => {
+      if (!found.has(s.id) && sameSchoolName(reg.school_name, s.school_name)) {
+        found.set(s.id, { ...s, matchedOn: pin.length === 6 ? "Name + pincode" : "Name + district" });
+      }
+    });
+  }
   return Array.from(found.values());
+}
+
+// Loose school-name comparison: ignores case, punctuation and words every school name shares.
+const NAME_NOISE = new Set(["school", "schools", "the", "and", "of", "matric", "matriculation", "hr", "higher", "sec",
+  "secondary", "senior", "high", "hss", "mhss", "english", "medium", "public", "nursery", "primary", "cbse", "icse",
+  "international", "academy", "vidyalaya", "vidhyalaya", "st", "saint", "govt", "government", "aided"]);
+function nameTokens(n: string): string[] {
+  return n.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(t => t.length > 1 && !NAME_NOISE.has(t));
+}
+function sameSchoolName(a: string, b: string): boolean {
+  const ta = new Set(nameTokens(a)), tb = new Set(nameTokens(b));
+  if (ta.size === 0 || tb.size === 0) return false;
+  const shared = [...ta].filter(t => tb.has(t)).length;
+  return shared / Math.min(ta.size, tb.size) >= 0.6;
 }
 
 // Canonical district list for a state, sourced from the same district_codes /

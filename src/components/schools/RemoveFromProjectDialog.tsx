@@ -77,7 +77,7 @@ export default function RemoveFromProjectDialog({ open, onOpenChange, schoolId, 
           <div className="space-y-4 text-sm">
             <p className="text-gray-600">
               {schoolName} leaves the {projectLabel} lists. Its school record, SS No and communication history are kept.
-              Details the school entered on the portal fill any empty CRM fields, then its portal registration is archived and its portal login is switched off.
+              Details the school entered on the portal fill any empty CRM fields, then its portal registration and login are archived and deleted. Next year it registers again as a new school and is linked back to this record.
             </p>
             <RadioGroup value={reason} onValueChange={v => setReason(v as typeof reason)} className="space-y-2">
               <div className="flex items-start gap-2">
