@@ -52,6 +52,8 @@ export default function ReturnsPage() {
   const { profile } = useAuth();
   const { toast } = useToast();
   const canManage = profile?.role === 'superadmin' || profile?.role === 'accountant';
+  // Managers may also mark a returned book received (mark_return_received allows manager since 20261015).
+  const canReceive = canManage || profile?.role === 'manager';
   const [rows, setRows] = useState<ReturnRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [creditTarget, setCreditTarget] = useState<{ returnId: string; schoolName: string; itemName: string; quantity: number; amount: number } | null>(null);
@@ -221,7 +223,7 @@ export default function ReturnsPage() {
                           Issue Credit
                         </Button>
                       )}
-                      {canManage && opts.markReceived && (
+                      {canReceive && opts.markReceived && (
                         <Button size="sm" variant={opts.issueCredit ? 'outline' : 'default'}
                           onClick={() => setConfirmTarget({ id: r.id, itemName: r.invoice_line_items?.item_name ?? 'item' })}>
                           Mark Received
