@@ -224,7 +224,7 @@ export const ExportFilteredSchools: React.FC<ExportFilteredSchoolsProps> = ({
         school.school_name,
         school.district,
         school.board,
-        school.school_address,
+        [school.address1, school.address2].filter(Boolean).join(', '),
         school.pincode,
         school.contact_person_name || '',
         school.mobile1 || '',

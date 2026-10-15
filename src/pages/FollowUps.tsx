@@ -114,7 +114,7 @@ const FollowUps = () => {
             followUp.follow_up_time || '',
             followUp.status || '',
             priority,
-            school.school_address || '',
+            [school.address1, school.address2].filter(Boolean).join(', '),
             school.courier_status || '',
             school.contacted || '',
             school.registration_status || '',

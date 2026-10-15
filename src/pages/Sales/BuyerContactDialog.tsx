@@ -6,7 +6,8 @@ import { supabase } from '@/integrations/supabase/client';
 type SchoolContact = {
   id: string;
   school_name: string;
-  school_address: string | null;
+  address1: string | null;
+  address2: string | null;
   district: string | null;
   state: string | null;
   pincode: string | null;
@@ -59,7 +60,7 @@ export default function BuyerContactDialog({ open, onOpenChange, schoolId }: Pro
     if (!open || !schoolId) { setContact(null); return; }
     setLoading(true);
     supabase.from('schools' as any)
-      .select('id, school_name, school_address, district, state, pincode, email, mobile1, mobile2, corr_name, corr_mobile, principal_name, principal_mobile, coord_mobile')
+      .select('id, school_name, address1, address2, district, state, pincode, email, mobile1, mobile2, corr_name, corr_mobile, principal_name, principal_mobile, coord_mobile')
       .eq('id', schoolId).single()
       .then(({ data }) => { setContact(data as unknown as SchoolContact); setLoading(false); });
   }, [open, schoolId]);
@@ -75,11 +76,11 @@ export default function BuyerContactDialog({ open, onOpenChange, schoolId }: Pro
           <p className="text-sm text-muted-foreground py-4">No linked school record for this buyer.</p>
         ) : (
           <div className="space-y-4">
-            {(contact.school_address || contact.district || contact.state || contact.pincode) && (
+            {(contact.address1 || contact.address2 || contact.district || contact.state || contact.pincode) && (
               <div className="flex items-start gap-2 text-sm text-muted-foreground bg-neutral-50 rounded-md p-3">
                 <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <span>
-                  {[contact.school_address, contact.district, contact.state, contact.pincode].filter(Boolean).join(', ')}
+                  {[contact.address1, contact.address2, contact.district, contact.state, contact.pincode].filter(Boolean).join(', ')}
                 </span>
               </div>
             )}

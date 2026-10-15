@@ -34,6 +34,7 @@ import { SchoolResultsSummary } from '@/components/results/SchoolResultsSummary'
 import { PortalRegistrationView } from '@/components/schools/PortalRegistrationView';
 import { SendEbrochureDialog } from '@/components/schools/SendEbrochureDialog';
 import SchoolBookOrders from '@/components/schools/SchoolBookOrders';
+import RemoveFromProjectDialog from '@/components/schools/RemoveFromProjectDialog';
 import { useToast } from '@/hooks/use-toast';
 
 const SchoolDetail = () => {
@@ -131,6 +132,7 @@ const SchoolDetail = () => {
   };
 
   const [ebrochureOpen, setEbrochureOpen] = useState(false);
+  const [removeOpen, setRemoveOpen] = useState(false);
 
   // Fetch school data when component mounts or ID changes
   useEffect(() => {
@@ -171,7 +173,6 @@ const SchoolDetail = () => {
       setEditForm({
         school_name: school.school_name,
         ss_no: school.ss_no,
-        school_address: school.school_address,
         district: school.district,
         state: school.state,
         board: school.board,
@@ -302,7 +303,6 @@ const SchoolDetail = () => {
       // Check each field and only include if it's different from the original
       if (hasChanged(editForm.ss_no, school.ss_no)) updates.ss_no = editForm.ss_no;
       if (hasChanged(editForm.school_name, school.school_name)) updates.school_name = editForm.school_name;
-      if (hasChanged(editForm.school_address, school.school_address)) updates.school_address = editForm.school_address;
       if (hasChanged(editForm.pincode, school.pincode)) updates.pincode = editForm.pincode;
       
       // For state, district, board - only update if explicitly changed and not empty
@@ -528,7 +528,7 @@ const SchoolDetail = () => {
                     const schoolData = [
                       ['SS No', school.ss_no],
                       ['School Name', school.school_name],
-                      ['Address', school.school_address],
+                      ['Address', [school.address1, school.address2].filter(Boolean).join(', ')],
                       ['District', school.district],
                       ['Board', school.board],
                       ['Pincode', school.pincode],
@@ -599,6 +599,12 @@ const SchoolDetail = () => {
                 <Send className="h-4 w-4 mr-2" />
                 Send Message
               </Button>
+              {activeProject && (
+                <Button variant="outline" className="border-red-200 text-red-600 hover:bg-red-50" onClick={() => setRemoveOpen(true)}>
+                  <X className="h-4 w-4 mr-2" />
+                  Remove from project
+                </Button>
+              )}
               <WorkflowStatusBadge school={school} />
             </div>
           </div>
@@ -607,6 +613,19 @@ const SchoolDetail = () => {
         <WorkflowPipeline school={school} />
 
         {school.portal_registered && <PortalRegistrationJourney school={school} />}
+
+        {activeProject && (
+          <RemoveFromProjectDialog
+            open={removeOpen}
+            onOpenChange={setRemoveOpen}
+            schoolId={id!}
+            schoolName={school.school_name}
+            projectId={activeProject.id}
+            projectLabel={`${activeProject.project_name} ${activeProject.project_year}`}
+            nextYear={activeProject.project_year + 1}
+            onRemoved={() => navigate('/schools')}
+          />
+        )}
 
         <SendEbrochureDialog
           open={ebrochureOpen}
@@ -779,7 +798,7 @@ const SchoolDetail = () => {
                         </div>
                         <div className="md:col-span-2">
                           <Label className="text-sm font-medium text-muted-foreground">Address 1</Label>
-                          <p className="text-sm font-medium mt-1">{school.address1 || school.school_address || 'N/A'}</p>
+                          <p className="text-sm font-medium mt-1">{school.address1 || 'N/A'}</p>
                         </div>
                         <div>
                           <Label className="text-sm font-medium text-muted-foreground">Address 2</Label>

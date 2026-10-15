@@ -460,7 +460,7 @@ const Communication = () => {
                           <p className="text-sm text-muted-foreground">
                             SS No: {school.ss_no} | District: {school.district}
                           </p>
-                          <p className="text-sm">{school.school_address}</p>
+                          <p className="text-sm">{[school.address1, school.address2].filter(Boolean).join(', ')}</p>
                           
                           <div className="flex space-x-4 text-sm">
                             {school.mobile1 && (

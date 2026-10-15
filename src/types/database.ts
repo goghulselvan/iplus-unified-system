@@ -16,7 +16,6 @@ export type School = {
   id: string;
   ss_no: number;
   school_name: string;
-  school_address: string;
   district: string;
   state: string;
   board: string;

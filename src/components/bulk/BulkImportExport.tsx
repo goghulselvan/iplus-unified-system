@@ -116,7 +116,7 @@ const BulkImportExport = () => {
         ...allSchools.map(school => [
           school.ss_no,
           school.school_name,
-          school.school_address,
+          [school.address1, school.address2].filter(Boolean).join(', '),
           school.district,
           school.board,
           school.pincode || '',

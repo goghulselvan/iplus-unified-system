@@ -195,7 +195,7 @@ const BulkSchoolImport = () => {
         const rawSchoolData = {
           ss_no: ssNo,
           school_name: toTitleCase(values[1]),
-          school_address: toTitleCase(values[2]),
+          address1: toTitleCase(values[2]),
           state: toTitleCase(values[3]),
           district: toTitleCase(values[4]),
           board: rawBoard,
@@ -266,7 +266,7 @@ const BulkSchoolImport = () => {
       
       for (let i = 0; i < schools.length; i++) {
         const school = schools[i];
-        if (!school.school_name || !school.school_address || !school.state || !school.district || !school.board) {
+        if (!school.school_name || !school.address1 || !school.state || !school.district || !school.board) {
           throw new Error(`Row ${i + 2}: Missing required fields (School Name, Address, State, District, or Board)`);
         }
       }
@@ -295,7 +295,7 @@ const BulkSchoolImport = () => {
             // Normalize the update data
             const updateData = normalizeSchoolData({
               school_name: school.school_name,
-              school_address: school.school_address,
+              address1: school.address1,
               state: school.state,
               district: school.district,
               board: school.board,

@@ -405,7 +405,6 @@ export const useSchoolsPaginated = (scopeProjectId?: string) => {
         email:                'email',
         contact_person_name:  'principal_name',
         pincode:              'pincode',
-        school_address:       'address',
       };
       const prospectUpdate: Record<string, any> = {};
       for (const [schoolField, prospectField] of Object.entries(PROSPECT_SYNC_FIELD_MAP)) {

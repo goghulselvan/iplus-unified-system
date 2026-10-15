@@ -5,7 +5,7 @@ import ProspectLayout from '@/components/prospect/ProspectLayout';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -16,6 +16,9 @@ import { useAuth } from '@/hooks/useAuth';
 import ProspectUploadSchools from '@/components/prospect/ProspectUploadSchools';
 import { SendEbrochureDialog } from '@/components/schools/SendEbrochureDialog';
 import { toCSV } from '@/utils/csvExport';
+import ProspectSchoolDetailsEditor from '@/components/prospect/ProspectSchoolDetailsEditor';
+import ProspectProjectHistory from '@/components/prospect/ProspectProjectHistory';
+import ProspectCommunications from '@/components/prospect/ProspectCommunications';
 
 type ProspectContact = { name: string; role: string; mobile: string };
 
@@ -66,6 +69,9 @@ export default function ProspectSchoolsPage() {
   const [uploadOpen, setUploadOpen]   = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [editingContact, setEditingContact] = useState(false);
+  const [editingDetails, setEditingDetails] = useState(false);
+  const [popupTab, setPopupTab] = useState('details');
+  const [markingNextYear, setMarkingNextYear] = useState(false);
   const [contactForm, setContactForm] = useState<{ email: string; mobile: string; website: string; principal_name: string; contacts: ProspectContact[] }>({ email: '', mobile: '', website: '', principal_name: '', contacts: [] });
   const [savingContact, setSavingContact] = useState(false);
 
@@ -261,6 +267,16 @@ export default function ProspectSchoolsPage() {
     setEditingContact(true);
   };
 
+  const markInterestedNextYear = async () => {
+    if (!selected) return;
+    setMarkingNextYear(true);
+    const { data, error } = await supabase.rpc('mark_interested_next_year' as any, { p_prospect_school_id: selected.id });
+    setMarkingNextYear(false);
+    if (error) { toast({ title: 'Could not mark interested for next year', description: error.message, variant: 'destructive' }); return; }
+    const year = (data as { for_year?: number } | null)?.for_year;
+    toast({ title: `Added to Interest Leads for ${year ?? 'next year'}`, description: 'Find it under Prospect → Interest Leads. Import it when that project is set up.' });
+  };
+
   const saveContact = async () => {
     if (!selected) return;
     setSavingContact(true);
@@ -353,7 +369,7 @@ export default function ProspectSchoolsPage() {
         const { data: newSchool, error: schoolErr } = await supabase.from('schools').insert({
           school_name: school.school_name, ss_no: school.ss_no, district: school.district,
           state: school.state, board: school.board, mobile1: school.mobile,
-          email: school.email, school_address: school.address, pincode: school.pincode,
+          email: school.email, address1: school.address, pincode: school.pincode,
           prospect_school_id: school.id, current_project_id: activeProject.id,
         }).select('id').single();
         if (schoolErr) throw schoolErr;
@@ -417,7 +433,7 @@ export default function ProspectSchoolsPage() {
       const { data: newSchool, error: schoolErr } = await supabase.from('schools').insert({
         school_name: school.school_name, ss_no: school.ss_no, district: school.district,
         state: school.state, board: school.board, mobile1: school.mobile,
-        email: school.email, school_address: school.address, pincode: school.pincode,
+        email: school.email, address1: school.address, pincode: school.pincode,
         prospect_school_id: school.id,
       }).select('id').single();
       if (schoolErr) throw schoolErr;
@@ -655,13 +671,13 @@ export default function ProspectSchoolsPage() {
         </div>
       </div>
 
-      {/* Side panel */}
-      <Sheet open={!!selected} onOpenChange={open => !open && setSelected(null)}>
-        <SheetContent className="w-96 overflow-y-auto">
+      {/* School popup — 75% of the screen: details, project history, communications */}
+      <Dialog open={!!selected} onOpenChange={open => { if (!open) { setSelected(null); setEditingDetails(false); setPopupTab('details'); } }}>
+        <DialogContent className="max-w-none w-[95vw] md:w-[75vw] h-[90vh] md:h-[85vh] flex flex-col overflow-hidden">
           {selected && (
             <>
-              <SheetHeader className="mb-4">
-                <SheetTitle className="text-base leading-snug pr-4">{selected.school_name}</SheetTitle>
+              <DialogHeader className="mb-2">
+                <DialogTitle className="text-lg leading-snug pr-6">{selected.school_name}</DialogTitle>
                 <div className="flex items-center gap-2 flex-wrap mt-1">
                   <span className="font-mono text-xs text-gray-400">SS #{String(selected.ss_no).padStart(4, '0')}</span>
                   <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STAGE_COLORS[selected.stage] || 'bg-gray-100 text-gray-600'}`}>
@@ -673,20 +689,49 @@ export default function ProspectSchoolsPage() {
                     </span>
                   )}
                 </div>
-              </SheetHeader>
+              </DialogHeader>
 
-              <div className="space-y-4 text-sm">
+              <Tabs value={popupTab} onValueChange={setPopupTab} className="flex-1 flex flex-col min-h-0">
+                <TabsList className="self-start">
+                  <TabsTrigger value="details">School details</TabsTrigger>
+                  <TabsTrigger value="history">Project history</TabsTrigger>
+                  <TabsTrigger value="comms">Communications</TabsTrigger>
+                </TabsList>
+                <TabsContent value="history" className="flex-1 overflow-y-auto pr-1">
+                  <ProspectProjectHistory prospectId={selected.id} />
+                </TabsContent>
+                <TabsContent value="comms" className="flex-1 overflow-y-auto pr-1">
+                  <ProspectCommunications prospectId={selected.id} />
+                </TabsContent>
+                <TabsContent value="details" className="flex-1 overflow-y-auto pr-1">
+              <div className="text-sm md:columns-2 md:gap-10 [&>*]:break-inside-avoid [&>*]:mb-4">
                 {/* Location */}
+                {editingDetails ? (
+                  <ProspectSchoolDetailsEditor
+                    prospect={selected}
+                    onCancel={() => setEditingDetails(false)}
+                    onSaved={(p) => {
+                      const updated = { ...selected, ...p };
+                      setSelected(updated);
+                      setSchools(prev => prev.map(s => s.id === selected.id ? updated : s));
+                      setEditingDetails(false);
+                    }}
+                  />
+                ) : (
                 <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Location</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Location</p>
+                    <button onClick={() => setEditingDetails(true)} className="text-xs text-indigo-600 hover:underline">Edit details</button>
+                  </div>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                     <span className="text-gray-500">District</span><span className="text-gray-900 font-medium">{selected.district}</span>
                     <span className="text-gray-500">State</span><span className="text-gray-900">{selected.state}</span>
                     {selected.pincode && <><span className="text-gray-500">Pincode</span><span className="text-gray-900">{selected.pincode}</span></>}
                     {selected.school_location && <><span className="text-gray-500">Location</span><span className="text-gray-900">{selected.school_location}</span></>}
                   </div>
-                  {selected.address && <p className="text-gray-600 text-xs leading-relaxed mt-1">{selected.address}</p>}
+                  {selected.address && <p className="text-gray-600 text-xs leading-relaxed mt-1 whitespace-pre-line">{selected.address}</p>}
                 </div>
+                )}
 
                 {/* School info */}
                 <div className="space-y-1.5">
@@ -917,13 +962,22 @@ export default function ProspectSchoolsPage() {
                 {/* History — only show if school has actual participation */}
                 {selected.has_history && (
                   <button
-                    onClick={() => navigate(`/prospect/schools/${selected.id}/history`)}
+                    onClick={() => setPopupTab('history')}
                     className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 text-sm font-semibold hover:bg-indigo-100 transition-colors"
                   >
                     <History className="h-4 w-4" />
                     View Participation History
                   </button>
                 )}
+
+                <button
+                  onClick={markInterestedNextYear}
+                  disabled={markingNextYear}
+                  className="w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-amber-300 bg-white text-amber-700 text-sm font-medium hover:bg-amber-50 disabled:opacity-50 transition-colors"
+                >
+                  <Star className="h-4 w-4" />
+                  {markingNextYear ? 'Saving…' : 'Interested for next year'}
+                </button>
 
                 {/* Active/Inactive toggle */}
                 <button
@@ -968,10 +1022,12 @@ export default function ProspectSchoolsPage() {
                   </div>
                 )}
               </div>
+                </TabsContent>
+              </Tabs>
             </>
           )}
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
 
       {/* Upload dialog */}
       <ProspectUploadSchools

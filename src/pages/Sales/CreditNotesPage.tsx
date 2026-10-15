@@ -24,7 +24,7 @@ type CreditNoteRow = {
   payment_mode: string | null;
   payment_date: string | null;
   payment_reference: string | null;
-  schools: { school_name: string; ss_no: number | null; school_address: string | null; state: string | null } | null;
+  schools: { school_name: string; ss_no: number | null; address1: string | null; address2: string | null; state: string | null } | null;
 };
 
 type ApplicationHistoryRow = {
@@ -53,7 +53,7 @@ export default function CreditNotesPage() {
     setLoading(true);
     Promise.all([
       supabase.from('credit_notes_with_balance' as any)
-        .select('id, credit_note_number, fy, amount, remaining_balance, created_at, source, note, payment_mode, payment_date, payment_reference, schools ( school_name, ss_no, school_address, state )')
+        .select('id, credit_note_number, fy, amount, remaining_balance, created_at, source, note, payment_mode, payment_date, payment_reference, schools ( school_name, ss_no, address1, address2, state )')
         .order('fy', { ascending: false }).order('credit_note_number', { ascending: false }),
       supabase.from('credit_note_applications' as any)
         .select('id, application_type, amount, refund_mode, refund_reference, recorded_at, credit_notes ( credit_note_number, fy, schools ( school_name ) ), invoices ( invoice_number, fy )')
@@ -80,7 +80,7 @@ export default function CreditNotesPage() {
         source: c.source ?? 'return',
         buyerName: c.schools?.school_name ?? 'School',
         buyerSsNo: c.schools?.ss_no ?? null,
-        buyerAddress: c.schools?.school_address ?? null,
+        buyerAddress: [c.schools?.address1, c.schools?.address2].filter(Boolean).join(', ') || null,
         buyerState: c.schools?.state ?? null,
         amount: c.amount,
         remainingBalance: c.remaining_balance,

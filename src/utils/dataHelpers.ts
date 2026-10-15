@@ -239,7 +239,8 @@ export const normalizeSchoolData = (schoolData: any) => {
     if ('board' in schoolData) result.board = normalizeBoard(schoolData.board || '', normalizedState);
   }
   if ('school_name' in schoolData) result.school_name = schoolData.school_name?.toString().trim() || '';
-  if ('school_address' in schoolData) result.school_address = schoolData.school_address?.toString().trim() || '';
+  if ('address1' in schoolData) result.address1 = schoolData.address1?.toString().trim() || null;
+  if ('address2' in schoolData) result.address2 = schoolData.address2?.toString().trim() || null;
   if ('contact_person_name' in schoolData) result.contact_person_name = schoolData.contact_person_name?.toString().trim() || '';
   if ('email' in schoolData) result.email = schoolData.email?.toString().trim().toLowerCase() || null;
   if ('mobile1' in schoolData) result.mobile1 = schoolData.mobile1?.toString().trim() || null;

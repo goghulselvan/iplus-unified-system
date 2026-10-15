@@ -90,7 +90,6 @@ const Schools = () => {
   const [newSchool, setNewSchool] = useState({
     ss_no: '', // Will be auto-populated
     school_name: '',
-    school_address: '',
     state: '',
     district: '',
     board: '',
@@ -446,7 +445,6 @@ const Schools = () => {
       setNewSchool({
         ss_no: '',
         school_name: '',
-        school_address: '',
         state: '',
         district: '',
         board: '',
