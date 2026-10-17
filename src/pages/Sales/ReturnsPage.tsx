@@ -25,6 +25,7 @@ type ReturnRow = {
   replacement_sent_at: string | null;
   replacement_order_reference: string | null;
   actual_product: { name: string } | null;
+  credit_notes: { credit_note_number: number; fy: number | null }[] | null;
   invoice_line_items: {
     item_name: string;
     unit_price: number;
@@ -45,8 +46,11 @@ const shortDate = (iso: string) => new Date(iso).toLocaleDateString('en-IN', { d
 // Invoice lines snapshot the name at billing; the live product name is the one printed on today's books.
 const orderedName = (r: ReturnRow) => r.invoice_line_items?.products?.name ?? r.invoice_line_items?.item_name ?? 'item';
 
+// A return settled with a credit note never owes a replacement — check the credit note itself,
+// because marking the book received moves the status from 'credit_issued' to 'received'.
 const awaitsReplacement = (r: ReturnRow) =>
-  r.reason_category === 'wrong_item_shipped' && !r.replacement_sent_at && r.status !== 'credit_issued';
+  r.reason_category === 'wrong_item_shipped' && !r.replacement_sent_at && r.status !== 'credit_issued'
+  && !(r.credit_notes?.length);
 
 export default function ReturnsPage() {
   const { profile } = useAuth();
@@ -69,6 +73,7 @@ export default function ReturnsPage() {
         id, quantity, reason_category, reason_note, status, condition_on_receipt, requested_at,
         replacement_sent_at, replacement_order_reference,
         actual_product:products!product_returns_actual_product_id_fkey ( name ),
+        credit_notes ( credit_note_number, fy ),
         invoice_line_items ( item_name, unit_price, products ( name ), invoices ( invoice_number, fy, schools ( id, school_name, ss_no ) ) )
       `)
       .order('requested_at', { ascending: false })
@@ -134,7 +139,14 @@ export default function ReturnsPage() {
         </div>
       );
     }
-    if (r.status === 'credit_issued') return <span className="text-sm text-muted-foreground">Credit issued instead</span>;
+    if (r.status === 'credit_issued' || r.credit_notes?.length) {
+      const cn = r.credit_notes?.[0];
+      return (
+        <span className="text-sm text-muted-foreground">
+          Credit issued instead{cn ? ` (CN/${cn.fy}-${(cn.fy ?? 0) + 1}/${cn.credit_note_number})` : ''}
+        </span>
+      );
+    }
     return (
       <div>
         <p className="flex items-center gap-1 font-bold text-neutral-900">
