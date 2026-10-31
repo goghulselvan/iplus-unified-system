@@ -1,7 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import fs from "fs";
+import { buildLogo, buildWatermark, _resetImageCache } from "../pdf/common";
 import {
   generateScoreSheet, generateSkillReport, generateSchoolSummary, generateSchoolRanking, generateAwardLetter,
-  type StudentBlock,
+  generateMany, type StudentBlock,
 } from "../pdf";
 
 const student: StudentBlock = {
@@ -20,7 +22,49 @@ function expectPdf(b: Blob) {
   expect(b.size).toBeGreaterThan(1000);
 }
 
+const BIG_LOGO = fs.readFileSync("src/assets/iplus-logo.png");
+const WM = fs.readFileSync("src/assets/watermark-bg.jpg");
+afterEach(() => { vi.unstubAllGlobals(); _resetImageCache(); });
+
+describe("images", () => {
+  it("logo is always downscaled by the scaler, never embedded raw", async () => {
+    let called = false;
+    const img = await buildLogo(new Uint8Array(BIG_LOGO), async () => { called = true; return { dataUrl: "data:image/jpeg;base64," + WM.toString("base64"), w: 200, h: 82, format: "JPEG" }; });
+    expect(called).toBe(true);
+    expect(img?.w).toBe(200);
+    expect(buildWatermark(new Uint8Array(WM))?.w).toBe(707);
+  });
+
+  it("stubbed fetch with real bytes: watermark embeds as an /Image and PDF stays small", async () => {
+    vi.stubGlobal("fetch", async (u: string) => ({ ok: true, arrayBuffer: async () => (String(u).includes("watermark") ? WM : BIG_LOGO).buffer.slice(0) }));
+    const b = await generateAwardLetter({ school: { name: "S" }, awardees: [{ name: "A", className: "C1", olympiad: "M", award: "Gold" }], date: new Date(2026, 9, 31) });
+    const text = Buffer.from(await b.arrayBuffer()).toString("latin1");
+    expect(text).toMatch(/\/Subtype\s*\/Image/);
+    expect(b.size).toBeLessThan(60_000);
+  });
+
+  it("failed fetch is not cached: a later success is picked up", async () => {
+    vi.stubGlobal("fetch", async () => { throw new Error("offline"); });
+    const a = await generateAwardLetter({ school: { name: "S" }, awardees: [] });
+    expect(a.size).toBeGreaterThan(1000);
+    vi.stubGlobal("fetch", async () => ({ ok: true, arrayBuffer: async () => WM.buffer.slice(0) }));
+    const b = await generateAwardLetter({ school: { name: "S" }, awardees: [] });
+    expect(Buffer.from(await b.arrayBuffer()).toString("latin1")).toMatch(/\/Subtype\s*\/Image/);
+  });
+});
+
 describe("pdf generators", () => {
+  it("60 questions fit one page; generateMany yields and reports", async () => {
+    const mk = (n: number) => Array.from({ length: n }, (_, i) => ({ number: i + 1, studentAnswer: "B", correctAnswer: "C", result: "✗" as const, skill: "Logical Reasoning" }));
+    const base = { student, score: { total: 1, max: 60, percentage: 2, ranks: { school: rk, district: rk, state: rk, allIndia: rk } } };
+    const b = await generateScoreSheet({ ...base, questions: mk(60) });
+    expect(await pagesOf(b)).toBe(1);
+    const pcts: number[] = [];
+    const out = await generateMany([60, 61], (n) => generateScoreSheet({ ...base, questions: mk(n) }), (p) => pcts.push(p));
+    expect(pcts).toEqual([0, 50, 100]);
+    expect(await pagesOf(out[1])).toBe(2);
+  });
+
   it("score sheet, 120 questions spans several pages", async () => {
     const questions = Array.from({ length: 120 }, (_, i) => ({
       number: i + 1, studentAnswer: i % 7 === 0 ? null : "B", correctAnswer: i % 11 === 0 ? "Grace" : "C",

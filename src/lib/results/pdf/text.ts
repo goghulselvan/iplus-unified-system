@@ -52,3 +52,10 @@ export function pdfSafe(input: unknown): string {
   }
   return out;
 }
+
+/** True when pdfSafe has to replace letters with "?" (e.g. Tamil/Hindi names). Known limit: no font embedding. */
+export function lossyText(input: unknown): boolean {
+  const before = (String(input ?? "").match(/\?/g) ?? []).length;
+  const after = (pdfSafe(input).match(/\?/g) ?? []).length;
+  return after > before;
+}

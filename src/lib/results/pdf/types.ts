@@ -67,6 +67,7 @@ export interface SchoolSummaryInput {
   aiAnalysis?: string | null;
 }
 
+/** Rows must already be in rank order: the caller sorts. */
 export interface SchoolRankingInput {
   school: { name: string };
   rows: {
@@ -85,6 +86,8 @@ export interface SchoolRankingInput {
 }
 
 export interface AwardLetterInput {
+  /** Letter date; defaults to today (pass for deterministic output) */
+  date?: Date;
   school: { name: string; city?: string; principal?: string };
   awardees: { name: string; className: string; olympiad: string; award: string }[];
 }

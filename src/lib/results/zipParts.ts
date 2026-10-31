@@ -2,13 +2,16 @@ import JSZip from "jszip";
 
 export interface ZipFileInput {
   name: string;
-  blob: Blob;
+  /** Eager blob, or a lazy producer (preferred for hundreds of PDFs: made, zipped, then released). */
+  blob?: Blob;
+  make?: () => Promise<Blob>;
 }
 
 export interface ZipPart {
   /** 1-based part number */
   index: number;
-  total: number;
+  /** Total parts, only known when `totalHint` was given or via the buildZipParts wrapper */
+  total?: number;
   name: string;
   blob: Blob;
   fileNames: string[];
@@ -17,72 +20,104 @@ export interface ZipPart {
 }
 
 export const DEFAULT_ZIP_MAX_BYTES = 25 * 1024 * 1024;
-/** Conservative per-file zip overhead (local header + central directory entry). */
-const PER_FILE_OVERHEAD = 1024;
-const BASE_OVERHEAD = 1024;
-
-export function defaultPartName(i: number, n: number): string {
-  return `Part ${i} of ${n}.zip`;
-}
+const encoder = new TextEncoder();
+const FIXED_PER_FILE = 76; // local header 30 + central entry 46
+const END_RECORD = 22;
 
 /**
- * Pack files, in input order, into zip parts no larger than maxBytes.
- * A new part starts before the cap would be exceeded. A single file larger than the cap
- * goes alone in its own part (flagged `oversize`). PDFs are stored, not deflated.
+ * Conservative size of one stored entry: headers (name appears twice) + data.
+ * JSZip also writes a Unicode-path extra field for non-ASCII names (name twice more), so count 4x then.
  */
+export function entryCost(name: string, dataBytes: number): number {
+  const n = encoder.encode(name).length;
+  const copies = n === name.length ? 2 : 4;
+  return FIXED_PER_FILE + 16 + copies * n + dataBytes;
+}
+
+export function defaultPartName(i: number, n?: number): string {
+  return n ? `Part ${i} of ${n}.zip` : `Part ${i}.zip`;
+}
+
+const sanitize = (s: string) => s.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "-").replace(/\s+/g, " ").trim();
+/** "School name - Score sheets - Part 1 of 2.zip" */
+export const zipPartName = (...labels: string[]) => (i: number, n?: number) =>
+  `${labels.map(sanitize).filter(Boolean).join(" - ")} - ${n ? `Part ${i} of ${n}` : `Part ${i}`}.zip`;
+
+export interface StreamOptions {
+  maxBytes?: number;
+  /** Receives each finished part; caller downloads/uploads it and drops it. */
+  onPart: (part: ZipPart) => void | Promise<void>;
+  onProgress?: (pct: number) => void;
+  partName?: (i: number, n?: number) => string;
+  /** Number of inputs, for progress when `inputs` is an async iterable */
+  count?: number;
+  /** Expected number of parts, only used to name them "Part i of N" */
+  totalHint?: number;
+}
+
+/** Streaming core: packs in input order, keeps a running size, flushes a part before the cap would be exceeded. */
+export async function streamZipParts(
+  inputs: Iterable<ZipFileInput> | AsyncIterable<ZipFileInput>,
+  o: StreamOptions,
+): Promise<{ parts: number; files: number }> {
+  const max = o.maxBytes ?? DEFAULT_ZIP_MAX_BYTES;
+  const nameFn = o.partName ?? defaultPartName;
+  const count = o.count ?? (Array.isArray(inputs) ? inputs.length : undefined);
+  let zip = new JSZip();
+  let names: string[] = [];
+  let used = new Set<string>();
+  let size = END_RECORD;
+  let parts = 0;
+  let files = 0;
+
+  const flush = async () => {
+    if (names.length === 0) return;
+    const bytes = await zip.generateAsync({ type: "uint8array", compression: "STORE" });
+    parts++;
+    const part: ZipPart = {
+      index: parts,
+      total: o.totalHint,
+      name: nameFn(parts, o.totalHint),
+      blob: new Blob([bytes], { type: "application/zip" }),
+      fileNames: names,
+      oversize: names.length === 1 && size > max,
+    };
+    zip = new JSZip(); names = []; used = new Set(); size = END_RECORD;
+    await o.onPart(part);
+  };
+
+  o.onProgress?.(0);
+  for await (const f of inputs as AsyncIterable<ZipFileInput>) {
+    const blob = f.blob ?? (await f.make!());
+    let name = f.name;
+    let n = 1;
+    while (used.has(name)) {
+      const dot = f.name.lastIndexOf(".");
+      name = dot > 0 ? `${f.name.slice(0, dot)} (${++n})${f.name.slice(dot)}` : `${f.name} (${++n})`;
+    }
+    const cost = entryCost(name, blob.size);
+    if (names.length > 0 && size + cost > max) await flush();
+    used.add(name);
+    zip.file(name, await blob.arrayBuffer(), { compression: "STORE" });
+    names.push(f.name);
+    size += cost;
+    files++;
+    if (count) o.onProgress?.(Math.min(99, Math.round((files / count) * 100)));
+  }
+  await flush();
+  o.onProgress?.(100);
+  return { parts, files };
+}
+
+/** Convenience wrapper: retains every part. Prefer streamZipParts for large sets. */
 export async function buildZipParts(
   files: ZipFileInput[],
   maxBytes: number = DEFAULT_ZIP_MAX_BYTES,
   onProgress?: (pct: number) => void,
-  partName: (i: number, n: number) => string = defaultPartName,
+  partName: (i: number, n?: number) => string = defaultPartName,
 ): Promise<ZipPart[]> {
-  const groups: ZipFileInput[][] = [];
-  let current: ZipFileInput[] = [];
-  let size = BASE_OVERHEAD;
-  for (const f of files) {
-    const cost = f.blob.size + PER_FILE_OVERHEAD;
-    if (current.length > 0 && size + cost > maxBytes) {
-      groups.push(current);
-      current = [];
-      size = BASE_OVERHEAD;
-    }
-    current.push(f);
-    size += cost;
-  }
-  if (current.length > 0) groups.push(current);
-
-  const total = groups.length;
-  const totalFiles = files.length || 1;
-  let done = 0;
-  const parts: ZipPart[] = [];
-  onProgress?.(0);
-  for (let g = 0; g < groups.length; g++) {
-    const zip = new JSZip();
-    // De-duplicate names within a part so nothing is silently overwritten.
-    const used = new Set<string>();
-    for (const f of groups[g]) {
-      let name = f.name;
-      let n = 1;
-      while (used.has(name)) {
-        const dot = f.name.lastIndexOf(".");
-        name = dot > 0 ? `${f.name.slice(0, dot)} (${++n})${f.name.slice(dot)}` : `${f.name} (${++n})`;
-      }
-      used.add(name);
-      zip.file(name, await f.blob.arrayBuffer(), { compression: "STORE" });
-      done++;
-      onProgress?.(Math.round((done / totalFiles) * 90));
-    }
-    const bytes = await zip.generateAsync({ type: "uint8array", compression: "STORE" });
-    const blob = new Blob([bytes], { type: "application/zip" });
-    parts.push({
-      index: g + 1,
-      total,
-      name: partName(g + 1, total),
-      blob,
-      fileNames: groups[g].map((f) => f.name),
-      oversize: groups[g].length === 1 && groups[g][0].blob.size + BASE_OVERHEAD + PER_FILE_OVERHEAD > maxBytes,
-    });
-  }
-  onProgress?.(100);
-  return parts;
+  const out: ZipPart[] = [];
+  await streamZipParts(files, { maxBytes, onProgress, partName, onPart: (p) => { out.push(p); } });
+  for (const p of out) { p.total = out.length; p.name = partName(p.index, out.length); }
+  return out;
 }

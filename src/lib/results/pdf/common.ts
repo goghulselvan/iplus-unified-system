@@ -1,6 +1,7 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import logoUrl from "@/assets/iplus-logo.png";
+import watermarkUrl from "@/assets/watermark-bg.jpg";
 import { pdfSafe } from "./text";
 
 export type RGB = [number, number, number];
@@ -37,40 +38,105 @@ export function schoolGrade(pct: number): GradeInfo {
   return { grade: "D", label: "Needs Improvement", color: [220, 38, 38] };
 }
 
-// --- logo ---
-interface Logo { dataUrl: string; w: number; h: number }
-let logoPromise: Promise<Logo | null> | null = null;
+// --- images (logo + page watermark), loaded once per session ---
+export interface Img { dataUrl: string; w: number; h: number; format: "PNG" | "JPEG" }
+export type Scaler = (bytes: Uint8Array, mime: string, targetW: number) => Promise<Img | null>;
 
-function loadLogo(): Promise<Logo | null> {
-  if (logoPromise) return logoPromise;
-  logoPromise = (async () => {
-    try {
-      const res = await fetch(logoUrl);
-      if (!res.ok) return null;
-      const buf = new Uint8Array(await res.arrayBuffer());
-      // PNG signature + IHDR width/height
-      if (buf.length < 24 || buf[0] !== 0x89 || buf[1] !== 0x50) return null;
-      const dv = new DataView(buf.buffer, buf.byteOffset);
-      const w = dv.getUint32(16);
-      const h = dv.getUint32(20);
-      let bin = "";
-      for (let i = 0; i < buf.length; i += 0x8000) {
-        bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
-      }
-      return { dataUrl: "data:image/png;base64," + btoa(bin), w, h };
-    } catch {
-      return null;
+function pngSize(buf: Uint8Array): { w: number; h: number } | null {
+  if (buf.length < 24 || buf[0] !== 0x89 || buf[1] !== 0x50) return null;
+  const dv = new DataView(buf.buffer, buf.byteOffset);
+  return { w: dv.getUint32(16), h: dv.getUint32(20) };
+}
+function jpegSize(buf: Uint8Array): { w: number; h: number } | null {
+  if (buf[0] !== 0xff || buf[1] !== 0xd8) return null;
+  let i = 2;
+  while (i + 9 < buf.length) {
+    if (buf[i] !== 0xff) { i++; continue; }
+    const m = buf[i + 1];
+    if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) {
+      return { h: (buf[i + 5] << 8) | buf[i + 6], w: (buf[i + 7] << 8) | buf[i + 8] };
     }
-  })();
-  return logoPromise;
+    i += 2 + ((buf[i + 2] << 8) | buf[i + 3]);
+  }
+  return null;
+}
+function toBase64(buf: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+  return btoa(bin);
 }
 
+/** Browser: downscale through a canvas to targetW wide (small opaque JPEG). Returns null when no canvas exists (node/jsdom). */
+export const canvasScaler: Scaler = async (bytes, mime, targetW) => {
+  try {
+    if (typeof createImageBitmap !== "function" || typeof document === "undefined") return null;
+    const bmp = await createImageBitmap(new Blob([bytes], { type: mime }));
+    const w = Math.min(targetW, bmp.width);
+    const h = Math.round((bmp.height / bmp.width) * w);
+    const c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    const g = c.getContext("2d");
+    if (!g) return null;
+    g.fillStyle = "#ffffff"; // header sits on white; opaque JPEG avoids a per-PDF alpha mask
+    g.fillRect(0, 0, w, h);
+    g.drawImage(bmp, 0, 0, w, h);
+    return { dataUrl: c.toDataURL("image/jpeg", 0.85), w, h, format: "JPEG" };
+  } catch {
+    return null;
+  }
+};
+
+/** Exported for tests. Logo is always downscaled (never embed the 213 KB source per PDF). */
+export async function buildLogo(bytes: Uint8Array, scale: Scaler = canvasScaler): Promise<Img | null> {
+  return scale(bytes, "image/png", 200);
+}
+/** Watermark is already a ~6 KB JPEG: embed as is. */
+export function buildWatermark(bytes: Uint8Array): Img | null {
+  const sz = jpegSize(bytes);
+  return sz ? { dataUrl: "data:image/jpeg;base64," + toBase64(bytes), ...sz, format: "JPEG" } : null;
+}
+
+async function fetchBytes(url: string): Promise<Uint8Array | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return new Uint8Array(await res.arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
+let logoPromise: Promise<Img | null> | null = null;
+let wmPromise: Promise<Img | null> | null = null;
+const cached = (get: () => Promise<Img | null>, slot: "logo" | "wm") => {
+  const cur = slot === "logo" ? logoPromise : wmPromise;
+  if (cur) return cur;
+  const p = get().then((v) => {
+    if (!v) { if (slot === "logo") logoPromise = null; else wmPromise = null; } // retry next time
+    return v;
+  });
+  if (slot === "logo") logoPromise = p; else wmPromise = p;
+  return p;
+};
+const loadLogo = () => cached(async () => { const b = await fetchBytes(logoUrl); return b && pngSize(b) ? buildLogo(b, activeScaler) : null; }, "logo");
+const loadWatermark = () => cached(async () => { const b = await fetchBytes(watermarkUrl); return b ? buildWatermark(b) : null; }, "wm");
+let activeScaler: Scaler = canvasScaler;
+export function _setScaler(s: Scaler) { activeScaler = s; }
+export function _resetImageCache() { logoPromise = null; wmPromise = null; }
+
 // --- document ---
-export interface Ctx { doc: jsPDF; logo: Logo | null; title: string; y: number }
+export interface Ctx { doc: jsPDF; logo: Img | null; title: string; y: number }
 
 export async function newDoc(title: string): Promise<Ctx> {
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-  const logo = await loadLogo();
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
+  const [logo, wm] = await Promise.all([loadLogo(), loadWatermark()]);
+  if (wm) {
+    // Pale full-page background drawn first on every page (before content), embedded once via alias.
+    const draw = () => { try { doc.addImage(wm.dataUrl, "JPEG", 0, 0, PAGE_W, PAGE_H, "iplus-wm", "FAST"); } catch { /* ignore */ } };
+    draw();
+    const orig = doc.addPage.bind(doc);
+    (doc as unknown as { addPage: typeof doc.addPage }).addPage = (...a: Parameters<typeof doc.addPage>) => { const r = orig(...a); draw(); return r; };
+  }
   return { doc, logo, title, y: TOP };
 }
 
@@ -158,7 +224,7 @@ export function tiles(ctx: Ctx, items: Tile[], perRow = 3) {
     }
     ctx.y += h + gap;
   }
-  ctx.y += 2;
+  ctx.y += 4;
 }
 
 export interface TableOpts {
@@ -168,20 +234,31 @@ export interface TableOpts {
   fontSize?: number;
   /** Optional per-cell colouring */
   cellColor?: (row: number, col: number, raw: string) => RGB | null;
+  /** Side-by-side tables: left/right margins and explicit start row */
+  margin?: { left: number; right: number };
+  startY?: number;
+  padding?: number;
+  ellipsize?: boolean;
+  /** Draw extra content over a body cell (e.g. bars) */
+  drawCell?: (doc: jsPDF, row: number, col: number, x: number, y: number, w: number, h: number) => void;
+  /** Do not move ctx.y; return finalY instead */
+  noAdvance?: boolean;
 }
 
-export function table(ctx: Ctx, o: TableOpts) {
+export function table(ctx: Ctx, o: TableOpts): number {
   const body = o.body.map((r) => r.map((c) => pdfSafe(c)));
   autoTable(ctx.doc, {
-    startY: ctx.y,
+    startY: o.startY ?? ctx.y,
     head: [o.head.map((h) => pdfSafe(h))],
     body,
-    margin: { top: TOP, left: MARGIN, right: MARGIN, bottom: 20 },
+    margin: { top: TOP, left: o.margin?.left ?? MARGIN, right: o.margin?.right ?? MARGIN, bottom: 20 },
     theme: "grid",
-    styles: { font: "helvetica", fontSize: o.fontSize ?? 10, cellPadding: 1.8, textColor: DARK, lineColor: LINE, lineWidth: 0.2, overflow: "linebreak" },
+    styles: { font: "helvetica", fontSize: o.fontSize ?? 10, cellPadding: o.padding ?? 1.8, textColor: DARK, lineColor: LINE, lineWidth: 0.2, overflow: o.ellipsize ? "ellipsize" : "linebreak" },
     headStyles: { fillColor: BLUE, textColor: [255, 255, 255], fontStyle: "bold" },
-    alternateRowStyles: { fillColor: [248, 249, 252] },
     columnStyles: o.columnStyles,
+    didDrawCell: (d) => {
+      if (d.section === "body" && o.drawCell) o.drawCell(ctx.doc, d.row.index, d.column.index, d.cell.x, d.cell.y, d.cell.width, d.cell.height);
+    },
     didParseCell: (d) => {
       if (d.section !== "body" || !o.cellColor) return;
       const c = o.cellColor(d.row.index, d.column.index, body[d.row.index]?.[d.column.index] ?? "");
@@ -189,7 +266,9 @@ export function table(ctx: Ctx, o: TableOpts) {
     },
   });
   const last = (ctx.doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable;
-  ctx.y = (last?.finalY ?? ctx.y) + 6;
+  const fy = (last?.finalY ?? ctx.y) + 6;
+  if (!o.noAdvance) ctx.y = fy;
+  return fy;
 }
 
 /** Draw the header and "Page i of n" footer on every page, then return the PDF as a Blob. */
@@ -203,7 +282,7 @@ export function finish(ctx: Ctx, subtitle?: string): Blob {
       try {
         const h = 11;
         const w = (logo.w / logo.h) * h;
-        doc.addImage(logo.dataUrl, "PNG", MARGIN, 8, w, h);
+        doc.addImage(logo.dataUrl, logo.format, MARGIN, 8, w, h, "iplus-logo", "FAST");
         textX = MARGIN + w + 4;
       } catch { /* fall back to text header */ }
     }
@@ -225,4 +304,18 @@ export function finish(ctx: Ctx, subtitle?: string): Blob {
 
 export const ordinalOf = (rank: number | null | undefined, of: number | null | undefined): string =>
   rank == null ? "-" : of != null ? `${rank} of ${of}` : String(rank);
-export const pct1 = (n: number | null | undefined): string => (n == null || Number.isNaN(n) ? "-" : `${(Math.round(n * 10) / 10).toFixed(1)}%`);
+/** Whole-number percentage, e.g. "73%". */
+export const pct = (n: number | null | undefined): string => (n == null || Number.isNaN(n) ? "-" : `${Math.round(n)}%`);
+
+export function bandColor(p: number): RGB {
+  return p >= 80 ? [21, 128, 61] : p >= 50 ? [217, 119, 6] : [220, 38, 38];
+}
+
+/** "7 points above state average" etc. (whole numbers). */
+export function vsState(avg: number, state: number | null | undefined, short = false): string {
+  if (state == null || Number.isNaN(state)) return short ? "-" : "State average not available";
+  const d = Math.round(avg) - Math.round(state);
+  if (d === 0) return short ? "Same" : "Same as state average";
+  const n = Math.abs(d);
+  return short ? `${n} pts ${d > 0 ? "above" : "below"}` : `${n} point${n === 1 ? "" : "s"} ${d > 0 ? "above" : "below"} state average`;
+}

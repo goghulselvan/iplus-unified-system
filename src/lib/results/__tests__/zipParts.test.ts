@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import JSZip from "jszip";
-import { buildZipParts } from "../zipParts";
+import { buildZipParts, streamZipParts, entryCost, zipPartName } from "../zipParts";
 
 const MB = 1024 * 1024;
 const fake = (n: number, mb: number) => ({ name: `f${n}.pdf`, blob: new Blob([new Uint8Array(mb * MB)]) });
@@ -27,5 +27,31 @@ describe("buildZipParts", () => {
 
   it("returns no parts for no files", async () => {
     expect(await buildZipParts([])).toEqual([]);
+  });
+
+  it("tight cap with a long non-ASCII name still stays under the cap", async () => {
+    const name = "தமிழ்-".repeat(40) + ".pdf";
+    const blob = new Blob([new Uint8Array(5000)]);
+    const cap = 22 + entryCost(name, 5000);
+    const parts = await buildZipParts([{ name, blob }], cap);
+    expect(parts).toHaveLength(1);
+    expect(parts[0].blob.size).toBeLessThanOrEqual(cap);
+    const two = await buildZipParts([{ name, blob }, { name: name + "2.pdf", blob }], cap);
+    expect(two).toHaveLength(2);
+    for (const p of two) expect(p.blob.size).toBeLessThanOrEqual(cap);
+  });
+
+  it("streams lazy inputs, emitting each part via onPart", async () => {
+    let made = 0;
+    const inputs = [1, 2, 3, 4].map((n) => ({ name: `s${n}.pdf`, make: async () => { made++; return new Blob([new Uint8Array(4 * MB)]); } }));
+    const seen: string[][] = [];
+    const r = await streamZipParts(inputs, { maxBytes: 9 * MB, onPart: (p) => { seen.push(p.fileNames); } });
+    expect(made).toBe(4);
+    expect(r.parts).toBe(2);
+    expect(seen).toEqual([["s1.pdf", "s2.pdf"], ["s3.pdf", "s4.pdf"]]);
+  });
+
+  it("zipPartName builds a sanitised name", () => {
+    expect(zipPartName("St/Mary: School", "Score sheets")(1, 2)).toBe("St-Mary- School - Score sheets - Part 1 of 2.zip");
   });
 });

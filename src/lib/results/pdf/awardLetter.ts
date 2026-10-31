@@ -5,7 +5,7 @@ export async function generateAwardLetter(input: AwardLetterInput): Promise<Blob
   const { school, awardees } = input;
   const ctx = await newDoc("Award Letter");
   setFont(ctx.doc, 11, false, DARK);
-  txt(ctx.doc, new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" }), MARGIN, ctx.y);
+  txt(ctx.doc, (input.date ?? new Date()).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" }), MARGIN, ctx.y);
   ctx.y += 9;
   paragraph(ctx, "To,", { gap: 0.5 });
   paragraph(ctx, school.principal ? `The Principal (${school.principal})` : "The Principal", { gap: 0.5 });

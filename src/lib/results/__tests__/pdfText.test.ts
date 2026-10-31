@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { pdfSafe } from "../pdf/text";
+import { pdfSafe, lossyText } from "../pdf/text";
 
 describe("pdfSafe", () => {
   it("strips U+202F and U+00A0 to plain spaces", () => {
@@ -15,5 +15,10 @@ describe("pdfSafe", () => {
     expect(pdfSafe("✓")).toBe("Correct");
     expect(pdfSafe("✗")).toBe("Wrong");
     expect(pdfSafe(null)).toBe("");
+  });
+  it("lossyText flags names that would print as ?", () => {
+    expect(lossyText("தமிழ்")).toBe(true);
+    expect(lossyText("José Núñez")).toBe(false);
+    expect(lossyText("What?")).toBe(false);
   });
 });
