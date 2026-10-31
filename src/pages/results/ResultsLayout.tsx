@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { RESULTS_NAV, isNavLive } from "@/lib/results/nav";
 import ComingSoon from "./ComingSoon";
 import ResultsDashboard from "./ResultsDashboard";
+import QuestionPapersPage, { PaperEditorRoute } from "./QuestionPapersPage";
 
 const linkClass = (active: boolean) =>
   `flex items-center whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
@@ -54,7 +55,9 @@ export default function ResultsLayout() {
               {current && <h2 className="mb-4 text-xl font-semibold">{current.label}</h2>}
               <Routes>
                 <Route index element={<ResultsDashboard />} />
-                {RESULTS_NAV.filter((n) => n.path !== "/results").map((n) => (
+                <Route path="papers" element={<QuestionPapersPage />} />
+                <Route path="papers/:paperId" element={<PaperEditorRoute />} />
+                {RESULTS_NAV.filter((n) => n.path !== "/results" && n.key !== "papers").map((n) => (
                   <Route
                     key={n.key}
                     path={n.path.replace("/results/", "") + (n.key === "schools" || n.key === "student" ? "/*" : "")}

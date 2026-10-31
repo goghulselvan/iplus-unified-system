@@ -184,7 +184,8 @@ export function useSetPaperStatus(projectId?: string) {
 export function useCopyPaperFromSlot(sourceId: string, targetId: string, opts: { replace: boolean }, projectId?: string) {
   const invalidate = useInvalidate();
   return useMutation({
-    mutationFn: async () => {
+    mutationFn: async (override?: { replace?: boolean }) => {
+      const replace = override?.replace ?? opts.replace;
       const count = async (id: string) => {
         const { count: c, error } = await supabase
           .from("questions").select("id", { count: "exact", head: true }).eq("paper_id", id);
@@ -192,7 +193,7 @@ export function useCopyPaperFromSlot(sourceId: string, targetId: string, opts: {
         return c ?? 0;
       };
       const [sc, tc] = await Promise.all([count(sourceId), count(targetId)]);
-      const plan = copyPlan({ questionCount: sc }, { questionCount: tc }, opts.replace);
+      const plan = copyPlan({ questionCount: sc }, { questionCount: tc }, replace);
 
       const { data: src, error: sErr } = await supabase
         .from("question_papers").select("pdf_r2_key, pdf_file_name").eq("id", sourceId).single();
