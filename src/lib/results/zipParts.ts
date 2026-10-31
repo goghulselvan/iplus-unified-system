@@ -31,14 +31,14 @@ const END_RECORD = 22;
 export function entryCost(name: string, dataBytes: number): number {
   const n = encoder.encode(name).length;
   const copies = n === name.length ? 2 : 4;
-  return FIXED_PER_FILE + 16 + copies * n + dataBytes;
+  return FIXED_PER_FILE + 16 + (copies === 4 ? 32 : 0) + copies * n + dataBytes; // +32: two extra-field headers + slack
 }
 
 export function defaultPartName(i: number, n?: number): string {
   return n ? `Part ${i} of ${n}.zip` : `Part ${i}.zip`;
 }
 
-const sanitize = (s: string) => s.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "-").replace(/\s+/g, " ").trim();
+const sanitize = (s: string) => s.replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, " ").trim();
 /** "School name - Score sheets - Part 1 of 2.zip" */
 export const zipPartName = (...labels: string[]) => (i: number, n?: number) =>
   `${labels.map(sanitize).filter(Boolean).join(" - ")} - ${n ? `Part ${i} of ${n}` : `Part ${i}`}.zip`;
