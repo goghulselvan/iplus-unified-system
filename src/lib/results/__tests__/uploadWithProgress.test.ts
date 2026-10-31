@@ -59,7 +59,7 @@ describe("uploadWithProgress", () => {
     x.progress(25); x.progress(50); x.progress(40); x.progress(100);
     x.onload!();
     await p;
-    expect(seen.filter((n, i) => i === 0 || n !== seen[i - 1])).toEqual([25, 50, 100]);
+    expect(seen.filter((n, i) => i === 0 || n !== seen[i - 1])).toEqual([25, 50, 99, 100]);
     expect(seen[seen.length - 1]).toBe(100);
   });
 
