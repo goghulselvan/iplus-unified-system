@@ -22,7 +22,9 @@ class FakeXHR {
   constructor() { FakeXHR.last = this; FakeXHR.count++; }
   open(m: string, u: string) { this.method = m; this.url = u; }
   setRequestHeader(k: string, v: string) { this.headers[k] = v; }
-  send(b: unknown) { this.sent = b; }
+  throwOnSend = false;
+  send(b: unknown) { if (FakeXHR.throwOnSend) throw new Error("boom"); this.sent = b; }
+  static throwOnSend = false;
   abort() { this.aborted = true; this.onabort?.(); }
   progress(loaded: number, total = 100) {
     this.upload.onprogress?.({ lengthComputable: true, loaded, total });
@@ -39,7 +41,7 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 describe("uploadWithProgress", () => {
   const presign = vi.fn();
   beforeEach(() => {
-    FakeXHR.last = null; FakeXHR.count = 0;
+    FakeXHR.last = null; FakeXHR.count = 0; FakeXHR.throwOnSend = false;
     presign.mockReset();
     presign.mockResolvedValue({ data: { url: "https://r2.example/put", expiresIn: 900 }, error: null });
     vi.stubGlobal("XMLHttpRequest", FakeXHR);
@@ -151,5 +153,38 @@ describe("uploadWithProgress", () => {
     presign.mockResolvedValue({ data: {}, error: null });
     await expect(uploadWithProgress(file("a.pdf"), "k", () => {}, undefined, ["pdf"], { presign }))
       .rejects.toThrow("Upload failed");
+  });
+
+  it("maps a rejected presign call to Upload failed (no raw text)", async () => {
+    presign.mockRejectedValue(new Error("TypeError: Failed to fetch"));
+    await expect(uploadWithProgress(file("a.pdf"), "k", () => {}, undefined, ["pdf"], { presign }))
+      .rejects.toThrow("Upload failed — check the internet connection and try again");
+  });
+
+  it("maps a rejected presign to Upload cancelled when aborted", async () => {
+    const ac = new AbortController();
+    presign.mockImplementation(async () => { ac.abort(); throw new Error("net"); });
+    await expect(uploadWithProgress(file("a.pdf"), "k", () => {}, ac.signal, ["pdf"], { presign }))
+      .rejects.toThrow("Upload cancelled");
+  });
+
+  it("maps a synchronous xhr.send throw to Upload failed and removes the abort listener", async () => {
+    FakeXHR.throwOnSend = true;
+    const ac = new AbortController();
+    const remove = vi.spyOn(ac.signal, "removeEventListener");
+    await expect(uploadWithProgress(file("a.pdf"), "k", () => {}, ac.signal, ["pdf"], { presign }))
+      .rejects.toThrow("Upload failed — check the internet connection and try again");
+    expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
+  });
+
+  it("caps progress at 99 until onload, then reports 100", async () => {
+    const seen: number[] = [];
+    const p = uploadWithProgress(file("a.pdf"), "k", (n) => seen.push(n), undefined, ["pdf"], { presign });
+    await flush();
+    FakeXHR.last!.progress(100, 100);
+    expect(seen).toEqual([99]);
+    FakeXHR.last!.onload!();
+    await p;
+    expect(seen).toEqual([99, 100]);
   });
 });

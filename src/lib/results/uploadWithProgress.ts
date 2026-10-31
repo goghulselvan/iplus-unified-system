@@ -60,7 +60,12 @@ export async function uploadWithProgress(
   if (signal?.aborted) throw new Error(CANCELLED);
 
   const contentType = CONTENT_TYPES[kind];
-  const presigned = await deps.presign({ action: "upload", key, contentType });
+  let presigned: PresignResult;
+  try {
+    presigned = await deps.presign({ action: "upload", key, contentType });
+  } catch {
+    throw new Error(signal?.aborted ? CANCELLED : FAILED);
+  }
   const problem = await presignMessage(presigned);
   if (problem) throw new Error(problem);
   if (signal?.aborted) throw new Error(CANCELLED);
@@ -70,7 +75,7 @@ export async function uploadWithProgress(
     const xhr = new XMLHttpRequest();
     let last = 0;
     const report = (pct: number) => {
-      const n = Math.max(0, Math.min(100, Math.floor(pct)));
+      const n = Math.max(0, Math.min(99, Math.floor(pct))); // 100 only after onload succeeds
       if (n > last) {
         last = n;
         onProgress(n);
@@ -98,8 +103,13 @@ export async function uploadWithProgress(
     xhr.onabort = () => { done(); reject(new Error(CANCELLED)); };
 
     signal?.addEventListener("abort", onAbortSignal);
-    xhr.open("PUT", url);
-    xhr.setRequestHeader("Content-Type", contentType);
-    xhr.send(file);
+    try {
+      xhr.open("PUT", url);
+      xhr.setRequestHeader("Content-Type", contentType);
+      xhr.send(file);
+    } catch {
+      done();
+      reject(new Error(FAILED));
+    }
   });
 }
