@@ -103,15 +103,20 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM result_audit_log WHERE table_name = 'question_papers' AND row_id = v_paper AND action = 'INSERT') THEN
     RAISE EXCEPTION 'FAIL 6c: paper INSERT not audited';
   END IF;
-  -- updated_at is maintained
-  IF (SELECT updated_at FROM questions WHERE id = v_q) < (SELECT created_at FROM question_papers WHERE id = v_paper) THEN
-    RAISE EXCEPTION 'FAIL 6d: updated_at not maintained';
-  END IF;
+  -- updated_at / updated_by touch triggers exist on both tables
+  SELECT count(*) INTO v_n FROM pg_trigger tg JOIN pg_proc p ON p.oid = tg.tgfoid
+   WHERE NOT tg.tgisinternal AND p.proname = 'result_touch_updated'
+     AND tg.tgrelid IN ('public.question_papers'::regclass, 'public.questions'::regclass)
+     AND (tg.tgtype & 2) = 2 AND (tg.tgtype & 16) = 16;   -- BEFORE, UPDATE
+  IF v_n <> 2 THEN RAISE EXCEPTION 'FAIL 6d: expected 2 BEFORE UPDATE touch triggers, got %', v_n; END IF;
 
   -- 7. Cascade: deleting a paper removes its questions
   DELETE FROM question_papers WHERE id = v_paper;
   SELECT count(*) INTO v_n FROM questions WHERE paper_id = v_paper;
   IF v_n <> 0 THEN RAISE EXCEPTION 'FAIL 7: questions not cascaded (%)', v_n; END IF;
+  IF NOT EXISTS (SELECT 1 FROM result_audit_log WHERE table_name = 'question_papers' AND row_id = v_paper AND action = 'DELETE') THEN
+    RAISE EXCEPTION 'FAIL 7b: paper DELETE not audited';
+  END IF;
 
   -- 8. Skill lists
   SELECT count(*) INTO v_n FROM result_skill_lists WHERE olympiad_code = 'LRPO' AND class_group = 'class_1_2';
@@ -135,9 +140,10 @@ BEGIN
 
   -- 9. Access policies exist and are manager/superadmin only
   FOREACH v_t IN ARRAY ARRAY['question_papers','questions'] LOOP
-    SELECT count(*) INTO v_n FROM pg_policies WHERE schemaname='public' AND tablename=v_t
+    SELECT count(DISTINCT cmd) INTO v_n FROM pg_policies WHERE schemaname='public' AND tablename=v_t
+      AND cmd IN ('SELECT','INSERT','UPDATE','DELETE')
       AND (qual ILIKE '%is_manager_or_superadmin%' OR with_check ILIKE '%is_manager_or_superadmin%');
-    IF v_n < 4 THEN RAISE EXCEPTION 'FAIL 9a: % has % role-checked policies (need 4)', v_t, v_n; END IF;
+    IF v_n <> 4 THEN RAISE EXCEPTION 'FAIL 9a: % has % role-checked policies (need 4)', v_t, v_n; END IF;
   END LOOP;
   FOREACH v_t IN ARRAY ARRAY['result_skill_lists','result_audit_log'] LOOP
     SELECT count(*) INTO v_n FROM pg_policies WHERE schemaname='public' AND tablename=v_t;
@@ -146,6 +152,20 @@ BEGIN
       RAISE EXCEPTION 'FAIL 9b: % must have exactly one SELECT policy gated on is_manager_or_superadmin', v_t;
     END IF;
   END LOOP;
+  -- 9c. The public (anon) key has no access to any of the 4 tables
+  FOREACH v_t IN ARRAY ARRAY['question_papers','questions','result_skill_lists','result_audit_log'] LOOP
+    IF has_table_privilege('anon', 'public.' || v_t, 'SELECT') OR has_table_privilege('anon', 'public.' || v_t, 'INSERT')
+       OR has_table_privilege('anon', 'public.' || v_t, 'UPDATE') OR has_table_privilege('anon', 'public.' || v_t, 'DELETE') THEN
+      RAISE EXCEPTION 'FAIL 9c: anon has privileges on %', v_t;
+    END IF;
+  END LOOP;
+  FOREACH v_t IN ARRAY ARRAY['result_skill_lists','result_audit_log'] LOOP
+    IF has_table_privilege('authenticated', 'public.' || v_t, 'INSERT') OR has_table_privilege('authenticated', 'public.' || v_t, 'UPDATE')
+       OR has_table_privilege('authenticated', 'public.' || v_t, 'DELETE') THEN
+      RAISE EXCEPTION 'FAIL 9d: authenticated can write %', v_t;
+    END IF;
+  END LOOP;
+
   -- 10. The live "Remove from project" check still works and no longer reads result_students
   IF (SELECT public.school_removal_blockers((SELECT id FROM schools LIMIT 1), v_proj)) IS NULL THEN
     RAISE EXCEPTION 'FAIL 10a: school_removal_blockers returned NULL';

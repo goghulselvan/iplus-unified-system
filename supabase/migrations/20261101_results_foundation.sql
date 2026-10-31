@@ -27,6 +27,11 @@
 -- public.is_manager_or_superadmin().
 BEGIN;
 
+-- (a0) Block writers on the old tables until COMMIT so a row cannot slip in between the check and the drop.
+LOCK TABLE public.question_papers, public.questions, public.student_responses, public.student_skill_analysis,
+           public.student_reports, public.analysis_jobs, public.result_students, public.olympiad_results,
+           public.school_analysis, public.awards, public.school_flags IN ACCESS EXCLUSIVE MODE;
+
 -- (a) Safety stop: refuse to drop anything that holds data.
 DO $$
 DECLARE
@@ -232,6 +237,11 @@ CREATE POLICY results_select_skill_lists ON public.result_skill_lists FOR SELECT
   USING (public.is_manager_or_superadmin());
 CREATE POLICY results_select_audit_log ON public.result_audit_log FOR SELECT
   USING (public.is_manager_or_superadmin());
+
+-- Privileges: the public (anon) key must not touch any of these; signed-in staff
+-- can only read the skill lists and the audit log (writes go via seed / trigger).
+REVOKE ALL ON public.result_audit_log, public.result_skill_lists, public.question_papers, public.questions FROM anon;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.result_audit_log, public.result_skill_lists FROM authenticated;
 
 -- (d) Seed the skill lists. EPO/MPO/SPO/GKSSPO for classes 1-8 and KidsPO for
 -- LKG/UKG are copied exactly from the old app's analyze-skills function
