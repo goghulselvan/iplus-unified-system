@@ -76,3 +76,16 @@ export function copyPlan(
   }
   return { replaceExisting: target.questionCount > 0, count: source.questionCount };
 }
+
+/** One plain-English reason a Ready paper must go back to Draft, or null when it is still ready. */
+export function draftReason(questions: ReadinessRow[], total: number): string | null {
+  if (!readinessProblems(questions, total).length) return null;
+  const sorted = [...questions].sort((a, b) => a.question_number - b.question_number);
+  const noAnswer = sorted.filter((q) => !q.is_grace && !q.correct_answer).map((q) => q.question_number);
+  const noSkill = sorted.filter((q) => !q.skill_category || !q.skill_category.trim()).map((q) => q.question_number);
+  const parts: string[] = [];
+  if (questions.length < total) parts.push(`only ${questions.length} of ${total} questions are entered`);
+  if (noAnswer.length) parts.push(`questions ${list(noAnswer)} need an answer`);
+  if (noSkill.length) parts.push(`questions ${list(noSkill)} need a skill`);
+  return parts.join(" and ");
+}

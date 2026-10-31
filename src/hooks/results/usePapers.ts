@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables, TablesInsert } from "@/integrations/supabase/types";
-import { copyPlan, readinessProblems, type ClassGroup, type QuestionRow } from "@/lib/results/paperRules";
+import { toast } from "sonner";
+import { copyPlan, draftReason, readinessProblems, type ClassGroup, type QuestionRow } from "@/lib/results/paperRules";
 
 export type PaperRow = Tables<"question_papers">;
 export type SlotTemplate = Pick<Tables<"exam_slot_templates">, "id" | "slot_name" | "project_id" | "created_at">;
@@ -34,6 +35,8 @@ export function useSlotTemplates(projectId?: string) {
     queryKey: ["results", "slots", projectId],
     enabled: !!projectId,
     queryFn: async () => {
+      // Slots are literally named "Slot 1" / "Slot 2" live, so ordering by slot_name is intended.
+      // Do not filter is_active: Slot 1 is inactive but its papers are still needed.
       const { data, error } = await supabase
         .from("exam_slot_templates")
         .select("id, slot_name, project_id, created_at")
@@ -138,6 +141,25 @@ export type EditableQuestion = Pick<
   "question_number" | "correct_answer" | "is_grace" | "skill_category" | "cognitive_level"
 >;
 
+/**
+ * A Ready paper that no longer passes the readiness check goes back to Draft.
+ * Returns the plain-English reason when it did, otherwise null.
+ */
+export async function revertIfNoLongerReady(paperId: string): Promise<string | null> {
+  const { data: paper } = await supabase
+    .from("question_papers").select("status, total_questions").eq("id", paperId).maybeSingle();
+  if (!paper || paper.status !== "ready") return null;
+  const { data: qs } = await supabase
+    .from("questions").select("question_number, correct_answer, is_grace, skill_category").eq("paper_id", paperId);
+  const reason = draftReason(qs ?? [], paper.total_questions);
+  if (!reason) return null;
+  const { error } = await supabase.from("question_papers").update({ status: "draft" }).eq("id", paperId);
+  if (error) return null;
+  const text = `This paper is back to Draft because ${reason}.`;
+  toast(text);
+  return text;
+}
+
 /** Batch upsert of edited rows. Marks them as human-edited so re-analysis keeps them. */
 export function useSaveQuestions(paperId: string, projectId?: string) {
   const invalidate = useInvalidate();
@@ -155,6 +177,7 @@ export function useSaveQuestions(paperId: string, projectId?: string) {
       }));
       const { error } = await supabase.from("questions").upsert(payload, { onConflict: "paper_id,question_number" });
       if (error) fail(error, "Your changes could not be saved. Please try again.");
+      await revertIfNoLongerReady(paperId);
     },
     onSuccess: () => invalidate(projectId, paperId),
   });
@@ -202,16 +225,20 @@ export function useCopyPaperFromSlot(sourceId: string, targetId: string, opts: {
         .from("questions").select("*").eq("paper_id", sourceId);
       if (rErr) fail(rErr);
 
-      if (plan.replaceExisting) {
-        const { error } = await supabase.from("questions").delete().eq("paper_id", targetId);
-        if (error) fail(error, "The old questions could not be cleared. Please try again.");
-      }
+      // Upsert first so the target is never empty part-way; then trim leftovers.
       const copies = (rows ?? []).map(({ id: _id, paper_id: _p, updated_at: _u, updated_by: _b, ...rest }) => ({
         ...rest,
         paper_id: targetId,
       }));
-      const { error: iErr } = await supabase.from("questions").insert(copies);
+      const { error: iErr } = await supabase
+        .from("questions").upsert(copies, { onConflict: "paper_id,question_number" });
       if (iErr) fail(iErr, "The questions could not be copied. Please try again.");
+      if (plan.replaceExisting) {
+        const keep = copies.map((c) => c.question_number).join(",");
+        const { error } = await supabase
+          .from("questions").delete().eq("paper_id", targetId).not("question_number", "in", `(${keep})`);
+        if (error) fail(error, "Some old questions could not be cleared. Please try copying again.");
+      }
       const { error: uErr } = await supabase
         .from("question_papers")
         .update({ pdf_r2_key: src!.pdf_r2_key, pdf_file_name: src!.pdf_file_name, status: "draft" })

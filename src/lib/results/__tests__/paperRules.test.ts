@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { olympiadsForClass, classGroup, readinessProblems, copyPlan } from "../paperRules";
+import { olympiadsForClass, classGroup, readinessProblems, copyPlan, draftReason } from "../paperRules";
 
 const full = (n: number) =>
   Array.from({ length: n }, (_, i) => ({
@@ -61,5 +61,15 @@ describe("copyPlan", () => {
   });
   it("refuses an empty source", () => {
     expect(() => copyPlan({ questionCount: 0 }, { questionCount: 0 }, false)).toThrow();
+  });
+});
+
+describe("draftReason", () => {
+  it("is null when still ready", () => expect(draftReason(full(50), 50)).toBeNull());
+  it("names the questions that need an answer", () => {
+    const q = full(50);
+    q[3].correct_answer = null;
+    q[16].correct_answer = null;
+    expect(draftReason(q, 50)).toBe("questions 4, 17 need an answer");
   });
 });

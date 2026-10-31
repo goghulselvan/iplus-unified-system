@@ -17,9 +17,11 @@ interface Props {
   /** How many questions a person has corrected already. */
   editedCount: number;
   onDone: () => void;
+  /** When set, Analyse is disabled and this text explains why. */
+  disabledReason?: string;
 }
 
-export function AnalyzeRunner({ paperId, totalQuestions, hasPdf, editedCount, onDone }: Props) {
+export function AnalyzeRunner({ paperId, totalQuestions, hasPdf, editedCount, onDone, disabledReason }: Props) {
   const [confirming, setConfirming] = useState(false);
   const [running, setRunning] = useState(false);
   const [percent, setPercent] = useState(0);
@@ -71,10 +73,11 @@ export function AnalyzeRunner({ paperId, totalQuestions, hasPdf, editedCount, on
 
   return (
     <div className="space-y-3">
-      <Button type="button" onClick={start} disabled={!hasPdf || running} className="min-h-11">
+      <Button type="button" onClick={start} disabled={!hasPdf || running || !!disabledReason} className="min-h-11">
         <Sparkles className="mr-2 h-4 w-4" aria-hidden="true" />
         Analyse with AI
       </Button>
+      {disabledReason && <p className="text-sm text-muted-foreground">{disabledReason}</p>}
       {!hasPdf && <p className="text-sm text-muted-foreground">Upload the PDF first.</p>}
       {running && (
         <ProgressPanel

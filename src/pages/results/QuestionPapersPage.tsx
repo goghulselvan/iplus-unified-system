@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useActiveProject } from "@/hooks/useOlympiadProjects";
 import {
   skillsFor, useClasses, useCopyPaperFromSlot, usePaper, usePapers, useSaveQuestions,
-  useSetPaperStatus, useSkillLists, useSlotTemplates,
+  useSetPaperStatus, useSkillLists, revertIfNoLongerReady, useSlotTemplates,
 } from "@/hooks/results/usePapers";
 import { OLYMPIAD_NAMES, classGroup, type OlympiadCode } from "@/lib/results/paperRules";
 import { PaperGrid, type CreateDefaults } from "@/components/results/papers/PaperGrid";
@@ -57,7 +57,8 @@ export function PaperEditorRoute() {
       onSave={async (rows) => { await save.mutateAsync(rows); }}
       onSetStatus={async (status) => { await setStatus.mutateAsync({ paperId: paper.id, status }); }}
       onCopy={async (replace) => { await copy.mutateAsync({ replace }); }}
-      onChanged={() => {
+      onChanged={async () => {
+        await revertIfNoLongerReady(paper.id);
         qc.invalidateQueries({ queryKey: ["results", "paper", paper.id] });
         qc.invalidateQueries({ queryKey: ["results", "papers"] });
       }}

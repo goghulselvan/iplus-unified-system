@@ -194,7 +194,8 @@ export default function PaperEditor(props: PaperEditorProps) {
 
           <PdfSection paper={paper} onChanged={onChanged} />
           <AnalyzeRunner paperId={paper.id} totalQuestions={paper.total_questions} hasPdf={!!paper.pdf_r2_key}
-            editedCount={editedCount} onDone={onChanged} />
+            editedCount={editedCount} disabledReason={dirtyCount ? "Save or discard your changes first" : undefined}
+            onDone={() => { setEdits({}); onChanged(); }} />
           {paper.analysis_status === "failed" && paper.analysis_error && (
             <p role="alert" className="text-sm font-medium text-destructive">{paper.analysis_error}</p>
           )}

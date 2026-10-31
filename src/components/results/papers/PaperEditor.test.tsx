@@ -66,4 +66,13 @@ describe("PaperEditor", () => {
     await waitFor(() => expect(document.activeElement).toBe(keep));
     expect(screen.getByText(/1 question has been corrected/)).toBeTruthy();
   });
+
+  it("disables Analyse while there are unsaved edits", async () => {
+    render(<PaperEditor {...base(five())} />);
+    const btn = screen.getByRole("button", { name: "Analyse with AI" }) as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+    await userEvent.click(screen.getByRole("switch", { name: "Grace for question 1" }));
+    expect(btn.disabled).toBe(true);
+    expect(screen.getByText("Save or discard your changes first")).toBeTruthy();
+  });
 });
