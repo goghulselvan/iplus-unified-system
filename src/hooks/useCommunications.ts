@@ -147,6 +147,24 @@ export const useCommunications = (schoolId?: string) => {
     }
   };
 
+  // Annotating an existing row, rather than logging a second communication for
+  // a call the system already recorded when Click2Call dialled it.
+  const saveStaffNote = async (communicationId: string, note: string) => {
+    const trimmed = note.trim();
+    const { error } = await supabase
+      .from('communications')
+      .update({ staff_note: trimmed || null })
+      .eq('id', communicationId);
+
+    if (error) {
+      toast({ title: 'Error', description: error.message || 'Failed to save the note', variant: 'destructive' });
+      return { error };
+    }
+    await fetchCommunications();
+    toast({ title: trimmed ? 'Note saved' : 'Note removed' });
+    return { error: null };
+  };
+
   useEffect(() => {
     fetchCommunications();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -156,7 +174,8 @@ export const useCommunications = (schoolId?: string) => {
     communications,
     loading,
     fetchCommunications,
-    addCommunication
+    addCommunication,
+    saveStaffNote
   };
 };
 

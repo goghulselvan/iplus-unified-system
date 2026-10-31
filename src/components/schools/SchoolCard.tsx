@@ -5,19 +5,19 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Eye, Trash2, Globe, Phone } from 'lucide-react';
+import { Eye, X, Globe, Phone } from 'lucide-react';
 import { formatForDisplay } from '@/utils/dataHelpers';
 import { isAwaitingNameList } from '@/utils/paymentStatusDisplay';
 
 interface SchoolCardProps {
   school: School;
-  onDelete: (id: string) => void;
-  showDeleteButton: boolean;
+  onRemoveFromProject: (school: School) => void;
+  showRemoveButton: boolean;
   selected?: boolean;
   onToggleSelect?: (id: string) => void;
 }
 
-export const SchoolCard: React.FC<SchoolCardProps> = ({ school, onDelete, showDeleteButton, selected, onToggleSelect }) => {
+export const SchoolCard: React.FC<SchoolCardProps> = ({ school, onRemoveFromProject, showRemoveButton, selected, onToggleSelect }) => {
   const navigate = useNavigate();
 
   const getStatusColor = (status: string) => {
@@ -41,12 +41,6 @@ export const SchoolCard: React.FC<SchoolCardProps> = ({ school, onDelete, showDe
         return 'destructive';
       default:
         return 'outline';
-    }
-  };
-
-  const handleDelete = () => {
-    if (confirm('Are you sure you want to delete this school?')) {
-      onDelete(school.id);
     }
   };
 
@@ -138,14 +132,16 @@ export const SchoolCard: React.FC<SchoolCardProps> = ({ school, onDelete, showDe
               <Eye className="h-4 w-4 mr-1" />
               View
             </Button>
-            {showDeleteButton && (
+            {showRemoveButton && (
               <Button 
                 variant="outline" 
                 size="sm" 
-                onClick={handleDelete}
+                onClick={() => onRemoveFromProject(school)}
+                title="Remove from project"
+                aria-label={`Remove ${school.school_name} from the project`}
                 className="text-destructive hover:text-destructive"
               >
-                <Trash2 className="h-4 w-4" />
+                <X className="h-4 w-4" />
               </Button>
             )}
           </div>

@@ -52,6 +52,23 @@ function normalizeMobile(raw: string | null | undefined): string | null {
   return null;
 }
 
+// Every template greets with "Hello {{1}}," so the name must not end in
+// punctuation or the comma doubles up ("...Hr.Sec.School,,"). The city stays —
+// "Kalaivani Matriculation School, Ramanathapuram" is how the school is known —
+// only the spacing around its comma is normalised ("School ,Sevalpatti").
+const greetingName = (...candidates: unknown[]) => {
+  for (const c of candidates) {
+    const cleaned = String(c ?? "")
+      .replace(/\s+/g, " ")
+      .replace(/\s+([,;:])/g, "$1")
+      .replace(/([,;:])(?=\S)/g, "$1 ")
+      .replace(/[\s,;:.]+$/, "")
+      .trim();
+    if (cleaned) return cleaned;
+  }
+  return "Sir/Madam";
+};
+
 function resolveVariable(
   source: string,
   customText: string | undefined,
@@ -72,7 +89,12 @@ function resolveVariable(
     // parameter") — collapse any whitespace/newlines from a free-text reason
     // into single spaces before it reaches the AskEVA payload.
     case "reason": return (reason || "").replace(/\s+/g, " ").trim();
-    case "contact_person": return school?.contact_person_name || "";
+    // 43% of schools (58 of 135 on 2026-10-22) have no contact_person_name.
+    // An empty parameter makes Meta reject the whole send with
+    // "(#131008) Required parameter is missing", so fall through to the
+    // principal and finally to a form of address that always reads correctly.
+    case "contact_person":
+      return greetingName(school?.contact_person_name, school?.principal_name, school?.school_name);
     case "mobile1": return school?.mobile1 || "";
     case "district": return school?.district || "";
     case "state": return school?.state || "";
@@ -297,10 +319,15 @@ Deno.serve(async (req) => {
     const sorted = [...vars].sort((a, b) => a.index - b.index);
     components.push({
       type: "body",
-      parameters: sorted.map((v) => ({
-        type: "text",
-        text: resolveVariable(v.source, v.customText, ctx),
-      })),
+      parameters: sorted.map((v) => {
+        // Meta rejects an empty or whitespace-only body parameter outright with
+        // "(#131008) Required parameter is missing" — and it fails the ENTIRE
+        // message, not just that placeholder. Most resolver branches fall back
+        // to "" when the underlying column is null, so guard every one of them
+        // here rather than relying on each case being individually safe.
+        const text = resolveVariable(v.source, v.customText, ctx).trim();
+        return { type: "text", text: text || "-" };
+      }),
     });
   }
 

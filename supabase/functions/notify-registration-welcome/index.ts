@@ -18,6 +18,23 @@ function normalizeMobile(raw: string | null | undefined): string | null {
   return null;
 }
 
+// Every template greets with "Hello {{1}}," so the name must not end in
+// punctuation or the comma doubles up ("...Hr.Sec.School,,"). The city stays —
+// "Kalaivani Matriculation School, Ramanathapuram" is how the school is known —
+// only the spacing around its comma is normalised ("School ,Sevalpatti").
+const greetingName = (...candidates: unknown[]) => {
+  for (const c of candidates) {
+    const cleaned = String(c ?? "")
+      .replace(/\s+/g, " ")
+      .replace(/\s+([,;:])/g, "$1")
+      .replace(/([,;:])(?=\S)/g, "$1 ")
+      .replace(/[\s,;:.]+$/, "")
+      .trim();
+    if (cleaned) return cleaned;
+  }
+  return "Sir/Madam";
+};
+
 function resolveVariable(
   source: string,
   customText: string | undefined,
@@ -26,7 +43,10 @@ function resolveVariable(
 ): string {
   switch (source) {
     case "school_name":     return reg.school_name ?? "";
-    case "contact_person":  return reg.contact_person ?? "";
+    // reg.contact_person is already built upstream as
+    // contact_name || principal_name || corr_name || school_name, so this only
+    // guards the case where every one of those was blank.
+    case "contact_person":  return greetingName(reg.contact_person, reg.school_name);
     case "district":        return reg.district ?? "";
     case "state":           return reg.state ?? "";
     case "district_state":  return [reg.district, reg.state].filter(Boolean).join(", ");
@@ -37,6 +57,12 @@ function resolveVariable(
     default:                return "";
   }
 }
+
+// Meta rejects an empty or whitespace-only template parameter with
+// "(#131008) Required parameter is missing" and fails the ENTIRE message, not
+// just that placeholder. Every value below can be null for some school, so
+// nothing reaches the payload without passing through here.
+const safeParam = (v: unknown) => String(v ?? "").trim() || "-";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
@@ -160,7 +186,7 @@ Deno.serve(async (req: Request) => {
             type: "body",
             parameters: sorted.map((v) => ({
               type: "text",
-              text: resolveVariable(v.source, v.customText, regData, project),
+              text: safeParam(resolveVariable(v.source, v.customText, regData, project)),
             })),
           });
         }

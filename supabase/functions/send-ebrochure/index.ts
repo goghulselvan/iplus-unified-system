@@ -7,6 +7,12 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Meta rejects an empty or whitespace-only template parameter with
+// "(#131008) Required parameter is missing" and fails the ENTIRE message, not
+// just that placeholder. Every value below can be null for some school, so
+// nothing reaches the payload without passing through here.
+const safeParam = (v: unknown) => String(v ?? "").trim() || "-";
+
 const ASKEVA_URL = "https://backend.askeva.io/v1/message/send-message";
 const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
 
@@ -330,7 +336,7 @@ serve(async (req) => {
               language: { code: "en" },
               components: [
                 { type: "header", parameters: [{ type: "document", document: { link: fileUrl, filename } }] },
-                { type: "body", parameters: [{ type: "text", text: cls }] },
+                { type: "body", parameters: [{ type: "text", text: safeParam(cls) }] },
               ],
             },
           };
@@ -486,7 +492,7 @@ serve(async (req) => {
             {
               type: "body",
               parameters: doc.bodyParams(schoolName, project.project_name, project.project_year)
-                .map(text => ({ type: "text", text })),
+                .map(text => ({ type: "text", text: safeParam(text) })),
             },
           ],
         },

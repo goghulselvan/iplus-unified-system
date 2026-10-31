@@ -4,6 +4,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
+import { UnreadWhatsAppProvider } from "@/components/messages/UnreadWhatsAppProvider";
+import { IncomingMessageToast } from "@/components/messages/IncomingMessageToast";
 import ProtectedRoute from "@/components/layout/ProtectedRoute";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
@@ -414,13 +416,16 @@ const App = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-            <AppContent />
-          </BrowserRouter>
-        </TooltipProvider>
+        <UnreadWhatsAppProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+              <AppContent />
+              <IncomingMessageToast />
+            </BrowserRouter>
+          </TooltipProvider>
+        </UnreadWhatsAppProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

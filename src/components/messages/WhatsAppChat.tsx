@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { useSearchParams } from "react-router-dom";
+import { useUnreadWhatsApp } from "@/hooks/useUnreadWhatsApp";
 import { useToast } from "@/hooks/use-toast";
 import { useActiveProject } from "@/hooks/useOlympiadProjects";
 import { Button } from "@/components/ui/button";
@@ -45,6 +47,8 @@ const fmtWhen = (iso: string | null) =>
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export function WhatsAppChat() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { refresh: refreshUnread } = useUnreadWhatsApp();
   const { toast } = useToast();
   const navigate = useNavigate();
   const { data: activeProject } = useActiveProject();
@@ -85,6 +89,21 @@ export function WhatsAppChat() {
     return () => clearInterval(interval);
   }, [fetchConversations]);
 
+  // Deep link from the inbound-message popup: /messages?phone=<number>
+  const deepLinkPhone = searchParams.get("phone");
+  useEffect(() => {
+    if (!deepLinkPhone || selected || conversations.length === 0) return;
+    const digits = (v: string) => v.replace(/\D/g, "").slice(-10);
+    const match = conversations.find(c => digits(c.phone) === digits(deepLinkPhone));
+    if (match) {
+      selectConversation(match);
+      // clear the param so a later refresh does not reopen it
+      searchParams.delete("phone");
+      setSearchParams(searchParams, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepLinkPhone, conversations, selected]);
+
   const selectConversation = useCallback(async (c: ConversationRow) => {
     setSelected(c);
     setThreadLoading(true);
@@ -97,6 +116,7 @@ export function WhatsAppChat() {
     const unreadIds = events.filter((e) => e.direction === "in" && e.status === "unread" && e.id).map((e) => e.id!);
     if (unreadIds.length > 0) {
       await supabase.from("wa_replies").update({ status: "read" }).in("id", unreadIds);
+      refreshUnread();
       setConversations((prev) => prev.map((x) => (x.phone === c.phone ? { ...x, unread_count: 0 } : x)));
     }
   }, [toast]);

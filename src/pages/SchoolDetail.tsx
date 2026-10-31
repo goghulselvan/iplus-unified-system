@@ -7,6 +7,7 @@ import { WorkflowPipeline } from '@/components/schools/WorkflowPipeline';
 import { PortalRegistrationJourney } from '@/components/schools/PortalRegistrationJourney';
 import { useFollowUps } from '@/hooks/useFollowUps';
 import { useCommunications } from '@/hooks/useCommunications';
+import { useSchoolTimeline, type TimelineRow } from '@/hooks/useSchoolTimeline';
 import { useActiveProject } from '@/hooks/useOlympiadProjects';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -109,6 +110,7 @@ const SchoolDetail = () => {
       const { error } = await supabase.functions.invoke('bonvoice-click2call', {
         body: {
           type: 'click2call',
+          school_id: id,
           school_phone: callTargetPhone,
           staff_phone: callStaffPhone,
         },
@@ -124,12 +126,35 @@ const SchoolDetail = () => {
       );
       toast({ title: 'Call initiated!', description: `Bonvoice will call you (${callStaffPhone}), then connect to the school.` });
       setCallDialogOpen(false);
+      fetchTimeline();
     } catch (e: any) {
       toast({ title: 'Call failed', description: e.message, variant: 'destructive' });
     } finally {
       setCalling(false);
     }
   };
+
+  // A timeline row can come from communications OR bonvoice_call_logs, so the
+  // open editor is keyed on both and the note is read from its own table.
+  const [noteEditingKey, setNoteEditingKey] = useState<string | null>(null);
+  const [noteDraft, setNoteDraft] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
+
+  const openNoteEditor = async (row: TimelineRow) => {
+    setNoteEditingKey(`${row.source}:${row.source_id}`);
+    setNoteDraft(await loadNote(row));
+  };
+
+  const submitNote = async (row: TimelineRow) => {
+    setSavingNote(true);
+    await saveNote(row, noteDraft);
+    setSavingNote(false);
+    setNoteEditingKey(null);
+    setNoteDraft('');
+  };
+
+  const { rows: timeline, loading: timelineLoading, fetchTimeline, saveNote, loadNote } =
+    useSchoolTimeline((school as any)?.prospect_school_id);
 
   const [ebrochureOpen, setEbrochureOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
@@ -429,6 +454,8 @@ const SchoolDetail = () => {
       console.error('Communication logging failed:', result.error);
       return;
     }
+
+    fetchTimeline();
 
     // Create follow-up if provided
     if (followUpDate) {
@@ -1404,65 +1431,79 @@ const SchoolDetail = () => {
                 </CardContent>
               </Card>
 
-              {/* Communication History */}
+              {/* Communication History — reads get_school_timeline() so Bonvoice
+                  calls appear even when the browser never wrote a communications
+                  row, and a call present in both places is shown once. */}
               <Card>
                 <CardHeader>
                   <CardTitle>Communication History</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {communications.length === 0 ? (
+                  {timelineLoading ? (
+                    <p className="text-center text-muted-foreground py-8">Loading…</p>
+                  ) : timeline.length === 0 ? (
                     <p className="text-center text-muted-foreground py-8">
                       No communications logged yet.
                     </p>
                   ) : (
                     <div className="space-y-4">
-                      {communications.map(comm => (
-                        <div key={comm.id} className="border rounded-lg p-4 space-y-2">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center space-x-2">
-                              <Badge variant="outline" className={comm.communication_type === 'AI Call' ? 'border-purple-400 text-purple-700 bg-purple-50' : ''}>
-                                {comm.communication_type === 'Phone' && <Phone className="h-3 w-3 mr-1" />}
-                                {comm.communication_type === 'Email' && <Mail className="h-3 w-3 mr-1" />}
-                                {comm.communication_type === 'WhatsApp' && <MessageSquare className="h-3 w-3 mr-1" />}
-                                {comm.communication_type === 'AI Call' && <Bot className="h-3 w-3 mr-1" />}
-                                {comm.communication_type}
-                              </Badge>
+                      {timeline.map(row => {
+                        const key = `${row.source}:${row.source_id}`;
+                        const isCall = row.channel === 'call' || row.channel === 'phone';
+                        return (
+                          <div key={key} className="border rounded-lg p-4 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center space-x-2">
+                                <Badge variant="outline">
+                                  {isCall && <Phone className="h-3 w-3 mr-1" />}
+                                  {row.channel === 'email' && <Mail className="h-3 w-3 mr-1" />}
+                                  {row.channel === 'whatsapp' && <MessageSquare className="h-3 w-3 mr-1" />}
+                                  {row.title || row.channel}
+                                </Badge>
+                                {row.direction && (
+                                  <span className="text-xs text-muted-foreground capitalize">{row.direction}</span>
+                                )}
+                                <span className="text-sm text-muted-foreground">
+                                  by {row.staff_name || 'User'}
+                                </span>
+                              </div>
                               <span className="text-sm text-muted-foreground">
-                                {comm.communication_type === 'AI Call' ? 'AI Agent' : `by ${(comm as any).profiles?.username || 'User'}`}
+                                {format(new Date(row.happened_at), 'MMM dd, yyyy HH:mm')}
                               </span>
                             </div>
-                            <span className="text-sm text-muted-foreground">
-                              {format(new Date(comm.created_at), 'MMM dd, yyyy HH:mm')}
-                            </span>
-                          </div>
-                          <p className="text-sm">{comm.message}</p>
-                          {(comm.communication_type === 'AI Call' || comm.communication_type === 'Phone') && (
-                            <div className="mt-2 space-y-1">
-                              {(comm as any).ai_summary && (
-                                <p className="text-sm text-purple-700 bg-purple-50 rounded px-2 py-1">{(comm as any).ai_summary}</p>
-                              )}
-                              <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-                                {(comm as any).direction && <span className="capitalize">📞 {(comm as any).direction}</span>}
-                                {(comm as any).language_used && <span>🗣 {(comm as any).language_used}</span>}
-                                {(comm as any).duration_seconds != null && (
-                                  <span>⏱ {Math.floor((comm as any).duration_seconds / 60)}m {(comm as any).duration_seconds % 60}s</span>
-                                )}
-                                {(comm as any).outcome && <span className="capitalize font-medium">Outcome: {(comm as any).outcome.replace(/_/g, ' ')}</span>}
-                                {(comm as any).recording_url && (
-                                  <a href={(comm as any).recording_url} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">▶ Recording</a>
-                                )}
+                            {row.detail && (
+                              <p className="text-sm whitespace-pre-wrap">{row.detail}</p>
+                            )}
+                            {noteEditingKey === key ? (
+                              <div className="mt-2 space-y-2">
+                                <Textarea
+                                  value={noteDraft}
+                                  onChange={e => setNoteDraft(e.target.value)}
+                                  placeholder="What was said on this call?"
+                                  rows={3}
+                                  autoFocus
+                                />
+                                <div className="flex gap-2">
+                                  <Button size="sm" onClick={() => submitNote(row)} disabled={savingNote}>
+                                    {savingNote ? 'Saving…' : 'Save note'}
+                                  </Button>
+                                  <Button size="sm" variant="ghost" onClick={() => setNoteEditingKey(null)} disabled={savingNote}>
+                                    Cancel
+                                  </Button>
+                                </div>
                               </div>
-                            </div>
-                          )}
-                          {comm.contacted_person_name && (
-                            <div className="flex gap-4 text-xs text-muted-foreground mt-2">
-                              <span>Contact: {comm.contacted_person_name}</span>
-                              {comm.contacted_mobile_no && <span>Mobile: {comm.contacted_mobile_no}</span>}
-                              {comm.designation && <span>Designation: {comm.designation}</span>}
-                            </div>
-                          )}
-                        </div>
-                      ))}
+                            ) : (
+                              <button
+                                type="button"
+                                className="mt-2 text-xs text-muted-foreground hover:text-foreground underline"
+                                onClick={() => openNoteEditor(row)}
+                              >
+                                + Add / edit note
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </CardContent>

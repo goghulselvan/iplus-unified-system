@@ -803,7 +803,13 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
   // that prompted this: staff doing a full namelist data-entry pass for a
   // school that then declines to pay. Defaults to locked while the workflow
   // row is still loading, so the form never flashes open then yanks shut.
-  const hasPayment = !workflowLoading && (workflow?.payment_received ?? 0) > 0;
+  const isSuperadmin = profile?.role === 'superadmin';
+  // Superadmin bypasses the payment lock entirely — they are the one role that
+  // can also record the payment, waive the fee or remove the school, so making
+  // them chase a payment entry before correcting a name list is pointless. The
+  // lock still applies to every other role, which is who it was written for.
+  const paymentOnRecord = !workflowLoading && (workflow?.payment_received ?? 0) > 0;
+  const hasPayment = isSuperadmin || paymentOnRecord;
   const rate = workflow?.per_entry_rate ?? 150;
   const concessionPerEntry = workflow?.concession_per_entry ?? 0;
   const grossFee = totalEnrollments * rate;
@@ -1177,7 +1183,14 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
       </Card>
 
       {hasPayment ? (
-        <div className="grid gap-6 md:grid-cols-2 items-start">
+        <div className="space-y-4">
+          {isSuperadmin && !paymentOnRecord && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              <span className="font-semibold">No payment on record for this school.</span>{' '}
+              Adding students is unlocked because you are superadmin — other roles still see this locked.
+            </div>
+          )}
+          <div className="grid gap-6 md:grid-cols-2 items-start">
           <BulkUpload schoolId={schoolId} subjects={subjects} onSuccess={() => qc.invalidateQueries({ queryKey: ['crm-portal-students', schoolId] })} />
           <StaffAddStudentPanel
             schoolId={schoolId}
@@ -1185,6 +1198,7 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
             subjects={subjects}
             onAdded={() => qc.invalidateQueries({ queryKey: ['crm-portal-students', schoolId, activeProject?.id] })}
           />
+          </div>
         </div>
       ) : (
         <Card className="border-amber-200 bg-amber-50/60">

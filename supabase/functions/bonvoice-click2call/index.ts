@@ -48,7 +48,7 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Invalid JSON" }, 400);
   }
 
-  const { type, prospect_school_id, school_phone, staff_phone, speech_content, speech_language } = body;
+  const { type, prospect_school_id, school_id, school_phone, staff_phone, speech_content, speech_language } = body;
 
   if (!type || !school_phone) return json({ error: "type and school_phone required" }, 400);
 
@@ -113,17 +113,38 @@ Deno.serve(async (req: Request) => {
   }
 
   const authHeader = req.headers.get("Authorization") ?? "";
-  const { data: { user } } = await supabase.auth.getUser(authHeader.replace("Bearer ", ""));
+  const bearer = authHeader.replace("Bearer ", "");
 
+  // auth.getUser() 401s on some perfectly valid logins — superadmin's calls were
+  // landing with created_by NULL while the browser-written communications row
+  // for the same call was attributed correctly (16 vs 0 on 2026-10-22). The
+  // gateway has already verified this JWT to let the request through, so fall
+  // back to reading `sub` out of its payload rather than losing the user.
+  const { data: { user } } = await supabase.auth.getUser(bearer);
+  let callerId = user?.id ?? null;
+  if (!callerId && bearer) {
+    try {
+      const part = bearer.split(".")[1];
+      const json = atob(part.replace(/-/g, "+").replace(/_/g, "/")
+        + "=".repeat((4 - (part.length % 4)) % 4));
+      callerId = JSON.parse(json)?.sub ?? null;
+    } catch { /* malformed token — leave unattributed rather than guess */ }
+  }
+
+  // Without one of these the call row is orphaned: it never appears in any
+  // school's timeline, and bonvoice-webhook can't back-fill it either because
+  // it resolves the school FROM this row. 1,545 of 2,775 historic rows (56%)
+  // are stranded that way because the CRM school page sent neither id.
   await supabase.from("bonvoice_call_logs").insert({
     prospect_school_id: prospect_school_id ?? null,
+    school_id: school_id ?? null,
     event_id: eventID,
     staff_phone: type === "click2call" ? cleanPhone(staff_phone) : null,
     school_phone: cleanSchoolPhone,
     call_mode: type,
     speech_content: type === "tts" ? speech_content : null,
     status: "initiated",
-    created_by: user?.id ?? null,
+    created_by: callerId,
   });
 
   console.log(`Call initiated: ${type} eventID=${eventID} school=${cleanSchoolPhone}`);

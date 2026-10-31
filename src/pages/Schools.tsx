@@ -18,6 +18,7 @@ import { ExportFilteredSchools } from '@/components/export/ExportFilteredSchools
 import { useToast } from '@/hooks/use-toast';
 import { SchoolFilters } from '@/components/schools/SchoolFilters';
 import { SchoolCard } from '@/components/schools/SchoolCard';
+import RemoveFromProjectDialog from '@/components/schools/RemoveFromProjectDialog';
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious, PaginationEllipsis } from '@/components/ui/pagination';
 import { supabase } from '@/integrations/supabase/client';
 const Schools = () => {
@@ -37,7 +38,6 @@ const Schools = () => {
     applyFilters,
     createSchool,
     getNextSSNo,
-    deleteSchool,
     getFilterOptions,
     getDistrictsByState,
     getBoardsFromDatabase
@@ -458,9 +458,7 @@ const Schools = () => {
     }
   };
   
-  const handleDeleteSchool = async (id: string) => {
-    await deleteSchool(id);
-  };
+  const [removeTarget, setRemoveTarget] = useState<School | null>(null);
 
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
@@ -683,14 +681,27 @@ const Schools = () => {
                 <SchoolCard
                   key={school.id}
                   school={school}
-                  onDelete={handleDeleteSchool}
-                  showDeleteButton={profile?.role === 'superadmin'}
+                  onRemoveFromProject={setRemoveTarget}
+                  showRemoveButton={profile?.role === 'superadmin'}
                   selected={selectedIds.has(school.id)}
                   onToggleSelect={toggleSelect}
                 />
               ))}
             </div>
             
+            {activeProject && removeTarget && (
+              <RemoveFromProjectDialog
+                open={!!removeTarget}
+                onOpenChange={o => { if (!o) setRemoveTarget(null); }}
+                schoolId={removeTarget.id}
+                schoolName={removeTarget.school_name}
+                projectId={activeProject.id}
+                projectLabel={`${activeProject.project_name} ${activeProject.project_year}`}
+                nextYear={activeProject.project_year + 1}
+                onRemoved={() => { setRemoveTarget(null); applyFilters({ search: searchTerm, statusFilter, workflowFilter, paymentFilter, stateFilter, districtFilter, boardFilter, schoolIds: projectSchoolIds, projectId: activeProject?.id}); }}
+              />
+            )}
+
             {totalPages > 1 && (
               <div className="mt-6 flex justify-center">
                 <Pagination>

@@ -128,6 +128,23 @@ interface SendEmailRequest {
                                // rejection reason) — enables {reason}
 }
 
+// Every template greets with "Hello {{1}}," so the name must not end in
+// punctuation or the comma doubles up ("...Hr.Sec.School,,"). The city stays —
+// "Kalaivani Matriculation School, Ramanathapuram" is how the school is known —
+// only the spacing around its comma is normalised ("School ,Sevalpatti").
+const greetingName = (...candidates: unknown[]) => {
+  for (const c of candidates) {
+    const cleaned = String(c ?? "")
+      .replace(/\s+/g, " ")
+      .replace(/\s+([,;:])/g, "$1")
+      .replace(/([,;:])(?=\S)/g, "$1 ")
+      .replace(/[\s,;:.]+$/, "")
+      .trim();
+    if (cleaned) return cleaned;
+  }
+  return "Sir/Madam";
+};
+
 serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -302,7 +319,10 @@ serve(async (req: Request): Promise<Response> => {
       "{order_ref}": orderRef,
       "{item_list}": itemList,
       "{item_list_html}": itemListHtml,
-      "{contact_person}": school.contact_person_name || "",
+      // Same gap as the WhatsApp sender: 43% of schools have no contact person.
+      // Email does not error on a blank, it just renders "Hello ," — so fall
+      // through to the principal and then to a usable form of address.
+        "{contact_person}": greetingName(school.contact_person_name, school.principal_name, school.school_name),
       "{project_name}": school.olympiad_projects?.project_name || "",
       "{project_year}": school.olympiad_projects?.project_year?.toString() || "",
       "{payment_amount}": school.payment_received?.toString() || school.payment_amount?.toString() || "",

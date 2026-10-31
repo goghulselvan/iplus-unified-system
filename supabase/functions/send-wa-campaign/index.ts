@@ -7,6 +7,12 @@ const corsHeaders = {
 
 const ASKEVA_URL = "https://backend.askeva.io/v1/message/send-message";
 
+// Meta rejects an empty or whitespace-only template parameter with
+// "(#131008) Required parameter is missing" and fails the ENTIRE message, not
+// just that placeholder. Every value below can be null for some school, so
+// nothing reaches the payload without passing through here.
+const safeParam = (v: unknown) => String(v ?? "").trim() || "-";
+
 function normalizeMobile(raw: string): string | null {
   const digits = String(raw).replace(/\D/g, "");
   if (digits.length === 10) return `91${digits}`;
@@ -42,7 +48,7 @@ async function sendOne(
     });
   }
 
-  const bodyParams = Array.from({ length: bodyParamCount }, () => ({ type: "text", text: schoolName }));
+  const bodyParams = Array.from({ length: bodyParamCount }, () => ({ type: "text", text: safeParam(schoolName) }));
   components.push({ type: "body", parameters: bodyParams });
 
   const payload = {

@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button';
+import { useUnreadWhatsApp } from '@/hooks/useUnreadWhatsApp';
 import { useAuth } from '@/hooks/useAuth';
 import { LogOut, User, Menu, X, ChevronDown, Settings, Calendar, MessageSquare, ArrowLeft } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -57,13 +58,15 @@ const Navbar = () => {
     { name: 'Schools', href: '/schools' },
   ];
 
+  const { count: waUnread, enabled: waEnabled } = useUnreadWhatsApp();
+
   const communicationNavigation = [
     { name: 'Communication Log', href: '/communication' },
     { name: 'Follow-ups',        href: '/follow-ups' },
     { name: 'Bulk Messaging',    href: '/marketing-messages' },
     { name: 'Voice Templates',   href: '/voice-templates' },
     { name: 'Calls',    href: '/calls' },
-    { name: 'Messages',    href: '/messages' },
+    { name: 'Messages',    href: '/messages', badge: waEnabled ? waUnread : 0 },
     { name: 'Address Labels',    href: '/address-labels' },
   ];
 
@@ -152,6 +155,11 @@ const Navbar = () => {
                   >
                     <MessageSquare className="h-4 w-4 mr-1" />
                     Communication
+                    {waEnabled && waUnread > 0 && (
+                      <span className="ml-1.5 min-w-[1.25rem] px-1.5 h-5 inline-flex items-center justify-center rounded-full bg-red-500 text-white text-[11px] font-semibold leading-none">
+                        {waUnread > 99 ? '99+' : waUnread}
+                      </span>
+                    )}
                     <ChevronDown className="h-3 w-3 ml-1" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -160,9 +168,14 @@ const Navbar = () => {
                     <DropdownMenuItem key={item.name} asChild>
                       <Link
                         to={item.href}
-                        className={`w-full ${location.pathname === item.href ? 'bg-accent text-accent-foreground' : ''}`}
+                        className={`w-full flex items-center justify-between ${location.pathname === item.href ? 'bg-accent text-accent-foreground' : ''}`}
                       >
-                        {item.name}
+                        <span>{item.name}</span>
+                        {'badge' in item && (item as { badge?: number }).badge ? (
+                          <span className="ml-2 min-w-[1.25rem] px-1.5 h-5 inline-flex items-center justify-center rounded-full bg-red-500 text-white text-[11px] font-semibold leading-none">
+                            {(item as { badge: number }).badge > 99 ? '99+' : (item as { badge: number }).badge}
+                          </span>
+                        ) : null}
                       </Link>
                     </DropdownMenuItem>
                   ))}

@@ -1,0 +1,35 @@
+-- DOCUMENTATION ONLY — no schema change.
+-- The send-ai-call-whatsapp edge function calls Askeva directly and does NOT
+-- read from the whatsapp_templates table, so no DB row is needed at runtime.
+--
+-- ACTION REQUIRED: Submit the following template to Askeva for approval.
+--
+-- Template name:  ai_call_followup
+-- Category:       UTILITY
+-- Language:       English (en)
+--
+-- Template body (copy exactly including line breaks):
+--
+--   Hello {{1}},
+--
+--   Thank you for speaking with Arya from iPlus Olympiads.
+--
+--   {{2}}
+--
+--   📚 Register your school: {{3}}
+--   ⏰ Deadline: 20 August 2026
+--   📞 For queries: +91 81110 66556
+--
+--   — iPlus Olympiads Team
+--
+-- Variables:
+--   {{1}}  = school_name  (e.g. "Springfield Public School")
+--   {{2}}  = ai_summary   (e.g. "You expressed interest in Maths Plus and Science Plus olympiads.")
+--   {{3}}  = register_link (https://iplusedu.in/school/register)
+--
+-- Sample values for Askeva submission:
+--   {{1}} → Springfield Public School
+--   {{2}} → You expressed interest in registering your students for iPlus Olympiads 2026.
+--   {{3}} → https://iplusedu.in/school/register
+
+SELECT 1; -- no-op to satisfy migration runner
