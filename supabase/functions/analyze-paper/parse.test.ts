@@ -120,3 +120,13 @@ Deno.test("nextAnalysisState", () => {
   assertEquals(nextAnalysisState(20, 50), { status: "running", progress: 40 });
   assertEquals(nextAnalysisState(50, 50), { status: "done", progress: 100 });
 });
+Deno.test("cache prefix (system + PDF) is identical across chunks; range lives only in the last text", () => {
+  const mk = (from: number, to: number) =>
+    // deno-lint-ignore no-explicit-any
+    buildRequestBody({ pdfBase64: "AAAA", className: "Class 3", olympiadCode: "EPO", allowedSkills: SKILLS, from, to }) as any;
+  const a = mk(1, 20), b = mk(21, 40);
+  assertEquals(a.system, b.system);
+  assertEquals(a.messages[0].content[0], b.messages[0].content[0]);
+  assertEquals(a.output_config, b.output_config);
+  assert(b.messages[0].content[1].text.includes("21 to 40"));
+});

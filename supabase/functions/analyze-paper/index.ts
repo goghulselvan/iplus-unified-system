@@ -155,6 +155,8 @@ serve(async (req: Request): Promise<Response> => {
       }
       // deno-lint-ignore no-explicit-any
       const msg = aiJson as any;
+      // Token usage per chunk, so cache hits and cost show in the function logs.
+      console.log(JSON.stringify({ paperId, from: f, to: t, model: msg?.model, usage: msg?.usage }));
       if (msg?.stop_reason === "refusal") {
         throw new Fail(502, "The AI declined to read this part of the paper — please enter these questions by hand");
       }
