@@ -1,4 +1,5 @@
-export type OlympiadCode = 'EPO' | 'MPO' | 'SPO' | 'GKSSPO' | 'LRPO' | 'KidsPO';
+export type { OlympiadCode } from "./paperRules";
+import type { OlympiadCode } from "./paperRules";
 
 const OLYMPIAD_BY_DIGIT: Record<string, OlympiadCode> = {
   '1': 'EPO', '2': 'MPO', '3': 'SPO', '4': 'GKSSPO', '5': 'LRPO', '9': 'KidsPO',

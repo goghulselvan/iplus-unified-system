@@ -4606,6 +4606,203 @@ export type Database = {
         }
         Relationships: []
       }
+      result_evaluations: {
+        Row: {
+          answers: string[] | null
+          batch_id: string | null
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          enrollment_id: string
+          id: string
+          marks: number[] | null
+          paper_id: string
+          status: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          answers?: string[] | null
+          batch_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          enrollment_id: string
+          id?: string
+          marks?: number[] | null
+          paper_id: string
+          status: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          answers?: string[] | null
+          batch_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          enrollment_id?: string
+          id?: string
+          marks?: number[] | null
+          paper_id?: string
+          status?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "result_evaluations_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "result_upload_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "result_evaluations_enrollment_id_fkey"
+            columns: ["enrollment_id"]
+            isOneToOne: false
+            referencedRelation: "portal_student_enrollments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "result_evaluations_paper_id_fkey"
+            columns: ["paper_id"]
+            isOneToOne: false
+            referencedRelation: "question_papers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      result_resend_flags: {
+        Row: {
+          cleared_at: string | null
+          cleared_by: string | null
+          created_at: string
+          id: string
+          project_id: string
+          reason: string
+          school_id: string
+        }
+        Insert: {
+          cleared_at?: string | null
+          cleared_by?: string | null
+          created_at?: string
+          id?: string
+          project_id: string
+          reason: string
+          school_id: string
+        }
+        Update: {
+          cleared_at?: string | null
+          cleared_by?: string | null
+          created_at?: string
+          id?: string
+          project_id?: string
+          reason?: string
+          school_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "result_resend_flags_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "olympiad_projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "result_resend_flags_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      result_scores: {
+        Row: {
+          class_code: string
+          computed_at: string
+          district_key: string | null
+          enrollment_id: string
+          evaluation_id: string
+          grade: string
+          max_marks: number
+          olympiad_code: string
+          paper_id: string
+          percentage: number
+          project_id: string
+          rank_district: number | null
+          rank_national: number | null
+          rank_school: number | null
+          rank_state: number | null
+          school_id: string | null
+          state_code: string | null
+          total: number
+        }
+        Insert: {
+          class_code: string
+          computed_at?: string
+          district_key?: string | null
+          enrollment_id: string
+          evaluation_id: string
+          grade: string
+          max_marks: number
+          olympiad_code: string
+          paper_id: string
+          percentage: number
+          project_id: string
+          rank_district?: number | null
+          rank_national?: number | null
+          rank_school?: number | null
+          rank_state?: number | null
+          school_id?: string | null
+          state_code?: string | null
+          total: number
+        }
+        Update: {
+          class_code?: string
+          computed_at?: string
+          district_key?: string | null
+          enrollment_id?: string
+          evaluation_id?: string
+          grade?: string
+          max_marks?: number
+          olympiad_code?: string
+          paper_id?: string
+          percentage?: number
+          project_id?: string
+          rank_district?: number | null
+          rank_national?: number | null
+          rank_school?: number | null
+          rank_state?: number | null
+          school_id?: string | null
+          state_code?: string | null
+          total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "result_scores_enrollment_id_fkey"
+            columns: ["enrollment_id"]
+            isOneToOne: true
+            referencedRelation: "portal_student_enrollments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "result_scores_evaluation_id_fkey"
+            columns: ["evaluation_id"]
+            isOneToOne: false
+            referencedRelation: "result_evaluations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "result_scores_paper_id_fkey"
+            columns: ["paper_id"]
+            isOneToOne: false
+            referencedRelation: "question_papers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       result_skill_lists: {
         Row: {
           class_group: string
@@ -4626,6 +4823,47 @@ export type Database = {
           sort_order?: number
         }
         Relationships: []
+      }
+      result_upload_batches: {
+        Row: {
+          created_at: string
+          file_name: string | null
+          id: string
+          kind: string
+          paper_id: string
+          replaced_count: number
+          row_count: number
+          uploaded_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          file_name?: string | null
+          id?: string
+          kind: string
+          paper_id: string
+          replaced_count?: number
+          row_count?: number
+          uploaded_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          file_name?: string | null
+          id?: string
+          kind?: string
+          paper_id?: string
+          replaced_count?: number
+          row_count?: number
+          uploaded_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "result_upload_batches_paper_id_fkey"
+            columns: ["paper_id"]
+            isOneToOne: false
+            referencedRelation: "question_papers"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       school_codes: {
         Row: {
@@ -7556,6 +7794,206 @@ export type Database = {
           p_payment_utr_reference: string
         }
         Returns: undefined
+      }
+      results_class_olympiad_summary: {
+        Args: { p_project_id: string; p_school_id: string }
+        Returns: {
+          absent: number
+          avg_percentage: number
+          class_code: string
+          class_name: string
+          enrolled: number
+          evaluated: number
+          olympiad_code: string
+          pending: number
+          state_avg_percentage: number
+        }[]
+      }
+      results_correct_answer: {
+        Args: {
+          p_evaluation_id: string
+          p_question_number: number
+          p_value: string
+        }
+        Returns: undefined
+      }
+      results_delete_evaluations: {
+        Args: { p_enrollment_ids: string[] }
+        Returns: number
+      }
+      results_digits: { Args: { p: string }; Returns: string }
+      results_group_key: {
+        Args: {
+          p_class_code: string
+          p_olympiad_code: string
+          p_project_id: string
+        }
+        Returns: number
+      }
+      results_lock_group: {
+        Args: {
+          p_class_code: string
+          p_olympiad_code: string
+          p_project_id: string
+        }
+        Returns: undefined
+      }
+      results_olympiad_label: { Args: { p_code: string }; Returns: string }
+      results_rank_list: {
+        Args: {
+          p_class_code: string
+          p_district_key?: string
+          p_limit?: number
+          p_offset?: number
+          p_olympiad_code: string
+          p_project_id: string
+          p_school_id?: string
+          p_state_code?: string
+        }
+        Returns: {
+          class_code: string
+          district_key: string
+          district_name: string
+          enrollment_id: string
+          grade: string
+          max_marks: number
+          olympiad_code: string
+          percentage: number
+          rank_district: number
+          rank_national: number
+          rank_school: number
+          rank_state: number
+          registration_number: string
+          school_id: string
+          school_name: string
+          state_code: string
+          state_name: string
+          student_name: string
+          total: number
+          total_count: number
+        }[]
+      }
+      results_released_school_ids: {
+        Args: { p_project_id: string }
+        Returns: string[]
+      }
+      results_rerank: {
+        Args: {
+          p_class_code: string
+          p_olympiad_code: string
+          p_project_id: string
+        }
+        Returns: undefined
+      }
+      results_rerank_core: {
+        Args: {
+          p_class_code: string
+          p_olympiad_code: string
+          p_project_id: string
+        }
+        Returns: undefined
+      }
+      results_rescore_paper: {
+        Args: { p_paper_id: string }
+        Returns: undefined
+      }
+      results_rescore_paper_core: {
+        Args: { p_paper_id: string }
+        Returns: undefined
+      }
+      results_restore_evaluation: {
+        Args: { p_evaluation_id: string }
+        Returns: undefined
+      }
+      results_school_grade: {
+        Args: { p_avg_percentage: number }
+        Returns: string
+      }
+      results_school_summary: {
+        Args: { p_project_id: string }
+        Returns: {
+          absent: number
+          avg_percentage: number
+          enrolled: number
+          evaluated: number
+          pending: number
+          released: boolean
+          resend_flag: boolean
+          school_grade: string
+          school_id: string
+          school_name: string
+          state_avg_percentage: number
+          state_code: string
+          state_name: string
+        }[]
+      }
+      results_set_absent: {
+        Args: {
+          p_absent: boolean
+          p_enrollment_ids: string[]
+          p_paper_id: string
+        }
+        Returns: number
+      }
+      results_student_grade: { Args: { p_percentage: number }; Returns: string }
+      results_student_list: {
+        Args: {
+          p_class_code: string
+          p_limit: number
+          p_offset: number
+          p_olympiad_code: string
+          p_project_id: string
+          p_school_id: string
+          p_search: string
+          p_status: string
+        }
+        Returns: {
+          class_code: string
+          deleted_at: string
+          enrollment_id: string
+          evaluation_id: string
+          grade: string
+          olympiad_code: string
+          paper_id: string
+          percentage: number
+          registration_number: string
+          school_id: string
+          school_name: string
+          status: string
+          student_name: string
+          total: number
+          total_count: number
+        }[]
+      }
+      results_upload: {
+        Args: {
+          p_dry_run: boolean
+          p_file_name: string
+          p_kind: string
+          p_paper_id: string
+          p_rows: Json
+        }
+        Returns: Json
+      }
+      results_upload_parse: {
+        Args: { p_kind: string; p_paper_id: string; p_rows: Json }
+        Returns: {
+          answers: string[]
+          bad: Json
+          digits: string
+          dup_first_row: number
+          enr_class: string
+          enr_olympiad: string
+          enrollment_id: string
+          marks: number[]
+          n_values: number
+          ord: number
+          reg: string
+          reg_stored: string
+          row_no: number
+          school_id: string
+          student_name: string
+        }[]
       }
       retry_registration_numbers: {
         Args: { p_enrollment_ids: string[] }
