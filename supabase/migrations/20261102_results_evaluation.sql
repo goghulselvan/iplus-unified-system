@@ -1,8 +1,9 @@
 -- Results module, Phases 2-3: evaluation, scores, grades and ranks.
 --
--- Additive only: four new tables, new functions, one statement trigger on the
--- (new, Phase 0) questions table and one extra index on portal_student_enrollments.
--- No DROP, no ALTER of any existing table.
+-- Additive only: four new tables, new functions, three statement triggers on the
+-- (Phase 0) questions table, one guard trigger on the (Phase 0) question_papers table,
+-- one extra index on portal_student_enrollments, and school_removal_blockers re-created
+-- with a 'results' entry. No DROP, no ALTER of any existing table.
 --
 --   result_upload_batches  one row per confirmed CSV upload
 --   result_evaluations     one row per enrolment per attempt; answers (OMR, A-D) or
@@ -28,6 +29,18 @@
 -- is_manager_or_superadmin() first. The *_core functions do the work without the
 -- role check (so the questions trigger works for any writer) and are not callable
 -- by anon / authenticated.
+--
+-- Concurrency: every writer takes a per-group advisory lock (results_lock_group,
+-- project x class x olympiad) before writing, so ranks are computed over a
+-- consistent group even when the Slot 1 and Slot 2 files are uploaded at once.
+--
+-- SCALE LIMIT (read before 5M students): every RPC and the questions triggers run
+-- inside the caller's single PostgREST statement, and the authenticated role has
+-- statement_timeout = 8s. A rescore re-scores one paper and re-ranks its whole
+-- class x olympiad group. That is comfortable at today's ~800 students per group,
+-- but groups well above ~50k-100k students (uploads or answer-key edits) will need
+-- a chunked path or an edge function using service_role (no role timeout). A
+-- function-level SET statement_timeout does NOT extend the running statement.
 BEGIN;
 
 -- ---------------------------------------------------------------------------
@@ -187,8 +200,25 @@ CREATE UNIQUE INDEX result_resend_flags_open_unique
 -- (c) Scoring core (no role check; not callable by anon/authenticated)
 -- ---------------------------------------------------------------------------
 
+-- One lock per project x class x olympiad group. Every path that changes results
+-- takes it before writing, so two rescores of the same group (e.g. the Slot 1 and
+-- Slot 2 files uploaded at the same time) run one after the other and ranks stay
+-- consistent. Lock order everywhere: question_papers row (upload only) -> group locks
+-- in ascending key order -> result_evaluations rows.
+CREATE FUNCTION public.results_group_key(p_project_id uuid, p_class_code text, p_olympiad_code text)
+  RETURNS bigint
+  LANGUAGE sql IMMUTABLE PARALLEL SAFE
+  SET search_path = public
+AS $$ SELECT hashtextextended(p_project_id::text || '|' || p_class_code || '|' || p_olympiad_code, 0) $$;
+
+CREATE FUNCTION public.results_lock_group(p_project_id uuid, p_class_code text, p_olympiad_code text)
+  RETURNS void
+  LANGUAGE sql
+  SET search_path = public
+AS $$ SELECT pg_advisory_xact_lock(public.results_group_key(p_project_id, p_class_code, p_olympiad_code)) $$;
+
 -- Re-rank one project x class x olympiad (both slots together). Only rows whose
--- rank actually changes are written.
+-- rank actually changes are written. Callers hold the group lock.
 CREATE FUNCTION public.results_rerank_core(p_project_id uuid, p_class_code text, p_olympiad_code text)
   RETURNS void
   LANGUAGE sql
@@ -227,7 +257,6 @@ DECLARE
   v_paper  public.question_papers%ROWTYPE;
   v_key    text[];
   v_grace  boolean[];
-  v_before public.result_scores[];
 BEGIN
   SELECT * INTO v_paper FROM public.question_papers WHERE id = p_paper_id;
   IF NOT FOUND THEN
@@ -240,6 +269,10 @@ BEGIN
     RETURN;
   END IF;
 
+  -- Serialise with every other writer of this group. Later statements take a fresh
+  -- snapshot, so they see what the transaction we waited for committed.
+  PERFORM public.results_lock_group(v_paper.project_id, v_paper.class_code, v_paper.olympiad_code);
+
   -- Answer key and grace flags as arrays indexed by question number 1..total_questions.
   SELECT array_agg(q.correct_answer ORDER BY g.n),
          array_agg(COALESCE(q.is_grace, false) ORDER BY g.n)
@@ -248,8 +281,11 @@ BEGIN
     LEFT JOIN public.questions q ON q.paper_id = p_paper_id AND q.question_number = g.n;
 
   -- Before-snapshot of the released schools' rows in this group (for resend flags).
-  SELECT COALESCE(array_agg(s), '{}')
-    INTO v_before
+  CREATE TEMPORARY TABLE IF NOT EXISTS results_score_before
+    (LIKE public.result_scores) ON COMMIT DROP;
+  TRUNCATE pg_temp.results_score_before;
+  INSERT INTO pg_temp.results_score_before
+  SELECT s.*
     FROM public.result_scores s
    WHERE s.project_id = v_paper.project_id
      AND s.class_code = v_paper.class_code
@@ -314,12 +350,13 @@ BEGIN
   PERFORM public.results_rerank_core(v_paper.project_id, v_paper.class_code, v_paper.olympiad_code);
 
   -- Released schools whose students' total, grade or any rank changed (or whose
-  -- student gained / lost a score) get one open resend flag.
+  -- student gained / lost a score) get one open resend flag. Any rank counts: the
+  -- printed report shows all four.
   INSERT INTO public.result_resend_flags (project_id, school_id, reason)
   SELECT DISTINCT v_paper.project_id, x.school_id, 'Scores changed after release'
     FROM (
       SELECT COALESCE(a.school_id, b.school_id) AS school_id
-        FROM unnest(v_before) AS b
+        FROM pg_temp.results_score_before AS b
         FULL JOIN (
           SELECT s.*
             FROM public.result_scores s
@@ -335,6 +372,8 @@ BEGIN
     ) AS x
    WHERE x.school_id IS NOT NULL
   ON CONFLICT (project_id, school_id) WHERE cleared_at IS NULL DO NOTHING;
+
+  TRUNCATE pg_temp.results_score_before;
 END
 $$;
 
@@ -348,15 +387,19 @@ DECLARE
   v_paper uuid;
 BEGIN
   -- Also catches a question renumbered or moved to another paper (both papers re-score).
+  -- Papers are visited in group-lock order.
   FOR v_paper IN
-    SELECT DISTINCT x.paper_id
-      FROM results_new_questions n
-      JOIN results_old_questions o ON o.id = n.id
-     CROSS JOIN LATERAL unnest(ARRAY[n.paper_id, o.paper_id]) AS x(paper_id)
-     WHERE n.correct_answer IS DISTINCT FROM o.correct_answer
-        OR n.is_grace IS DISTINCT FROM o.is_grace
-        OR n.paper_id IS DISTINCT FROM o.paper_id
-        OR n.question_number IS DISTINCT FROM o.question_number
+    SELECT qp.id
+      FROM (SELECT DISTINCT x.paper_id
+              FROM results_new_questions n
+              JOIN results_old_questions o ON o.id = n.id
+             CROSS JOIN LATERAL unnest(ARRAY[n.paper_id, o.paper_id]) AS x(paper_id)
+             WHERE n.correct_answer IS DISTINCT FROM o.correct_answer
+                OR n.is_grace IS DISTINCT FROM o.is_grace
+                OR n.paper_id IS DISTINCT FROM o.paper_id
+                OR n.question_number IS DISTINCT FROM o.question_number) c
+      JOIN public.question_papers qp ON qp.id = c.paper_id
+     ORDER BY public.results_group_key(qp.project_id, qp.class_code, qp.olympiad_code), qp.id
   LOOP
     PERFORM public.results_rescore_paper_core(v_paper);
   END LOOP;
@@ -369,12 +412,86 @@ CREATE TRIGGER questions_results_rescore
   REFERENCING NEW TABLE AS results_new_questions OLD TABLE AS results_old_questions
   FOR EACH STATEMENT EXECUTE FUNCTION public.results_questions_rescore();
 
+-- Questions added or removed (e.g. "copy from Slot 1" upserts then trims) re-score
+-- their papers too. Draft papers with no results exit straight away.
+CREATE FUNCTION public.results_questions_rescore_rows() RETURNS trigger
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = public
+AS $$
+DECLARE
+  v_paper uuid;
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    FOR v_paper IN
+      SELECT qp.id
+        FROM (SELECT DISTINCT a.paper_id FROM results_added_questions a) c
+        JOIN public.question_papers qp ON qp.id = c.paper_id
+       ORDER BY public.results_group_key(qp.project_id, qp.class_code, qp.olympiad_code), qp.id
+    LOOP
+      PERFORM public.results_rescore_paper_core(v_paper);
+    END LOOP;
+  ELSE
+    FOR v_paper IN
+      SELECT qp.id
+        FROM (SELECT DISTINCT r.paper_id FROM results_removed_questions r) c
+        JOIN public.question_papers qp ON qp.id = c.paper_id
+       ORDER BY public.results_group_key(qp.project_id, qp.class_code, qp.olympiad_code), qp.id
+    LOOP
+      PERFORM public.results_rescore_paper_core(v_paper);
+    END LOOP;
+  END IF;
+  RETURN NULL;
+END
+$$;
+
+CREATE TRIGGER questions_results_rescore_insert
+  AFTER INSERT ON public.questions
+  REFERENCING NEW TABLE AS results_added_questions
+  FOR EACH STATEMENT EXECUTE FUNCTION public.results_questions_rescore_rows();
+CREATE TRIGGER questions_results_rescore_delete
+  AFTER DELETE ON public.questions
+  REFERENCING OLD TABLE AS results_removed_questions
+  FOR EACH STATEMENT EXECUTE FUNCTION public.results_questions_rescore_rows();
+
+-- A paper with live results (evaluated or absent) can't be deleted, soft-deleted, or
+-- have its project / class / olympiad / slot / question count changed: the stored
+-- answer arrays and the scores depend on them.
+CREATE FUNCTION public.results_paper_guard() RETURNS trigger
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = public
+AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.result_evaluations WHERE paper_id = OLD.id AND deleted_at IS NULL) THEN
+    IF TG_OP = 'DELETE' THEN
+      RAISE EXCEPTION 'This paper already has student results, so it can''t be deleted or changed. Delete those results first on the Students page.';
+    END IF;
+    IF (NEW.deleted_at, NEW.total_questions, NEW.class_code, NEW.olympiad_code, NEW.project_id, NEW.slot_template_id)
+       IS DISTINCT FROM
+       (OLD.deleted_at, OLD.total_questions, OLD.class_code, OLD.olympiad_code, OLD.project_id, OLD.slot_template_id) THEN
+      RAISE EXCEPTION 'This paper already has student results, so it can''t be deleted or changed. Delete those results first on the Students page.';
+    END IF;
+  END IF;
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER question_papers_results_guard
+  BEFORE UPDATE OR DELETE ON public.question_papers
+  FOR EACH ROW EXECUTE FUNCTION public.results_paper_guard();
+
 -- ---------------------------------------------------------------------------
--- (d) Upload parsing / validation (internal; called by results_upload)
+-- (d) Upload parsing (internal; called by results_upload)
 -- ---------------------------------------------------------------------------
 
 -- One output row per file row: matched enrolment (if any), duplicate marker,
 -- normalised answers or marks, and the list of invalid cells.
+-- Duplicates are found by position in the array (ord); the client's "row" is only a
+-- label (out-of-range or non-numeric values fall back to position + 1).
 CREATE FUNCTION public.results_upload_parse(p_paper_id uuid, p_kind text, p_rows jsonb)
   RETURNS TABLE (
     ord           int,
@@ -401,8 +518,10 @@ AS $$
   ),
   f AS (
     SELECT r.ord::int AS ord,
-           CASE WHEN jsonb_typeof(r.elem -> 'row') = 'number'
-                THEN (r.elem ->> 'row')::numeric::int
+           CASE WHEN jsonb_typeof(r.elem -> 'row') = 'number' THEN
+                  CASE WHEN (r.elem ->> 'row')::numeric BETWEEN 1 AND 1000000000
+                       THEN round((r.elem ->> 'row')::numeric)::int
+                       ELSE r.ord::int + 1 END
                 ELSE r.ord::int + 1 END AS row_no,
            NULLIF(btrim(r.elem ->> 'reg'), '') AS reg,
            NULLIF(public.results_digits(r.elem ->> 'reg'), '') AS digits,
@@ -438,8 +557,8 @@ AS $$
   SELECT f.ord, f.row_no, f.reg, f.digits, jsonb_array_length(f.vals),
          m.id, m.registration_number, m.student_name, m.school_id, m.olympiad_code, m.class_code,
          CASE WHEN f.digits IS NOT NULL
-               AND min(f.row_no) OVER (PARTITION BY f.digits) <> f.row_no
-              THEN min(f.row_no) OVER (PARTITION BY f.digits) END,
+               AND row_number() OVER (PARTITION BY f.digits ORDER BY f.ord) > 1
+              THEN first_value(f.row_no) OVER (PARTITION BY f.digits ORDER BY f.ord) END,
          CASE WHEN p_kind = 'omr' THEN a.answers END,
          a.marks_all,
          a.bad
@@ -454,58 +573,6 @@ AS $$
            ORDER BY pe.id
            LIMIT 1
         ) m ON f.digits IS NOT NULL
-$$;
-
--- Every problem in the file, in plain English, ordered by row then question.
-CREATE FUNCTION public.results_upload_errors(p_paper_id uuid, p_kind text, p_rows jsonb)
-  RETURNS TABLE (row_no int, sort1 int, sort2 int, message text)
-  LANGUAGE sql STABLE
-  SET search_path = public
-AS $$
-  WITH paper AS (
-    SELECT qp.*, c.display_name AS class_name
-      FROM public.question_papers qp
-      LEFT JOIN public.classes c ON c.code = qp.class_code
-     WHERE qp.id = p_paper_id
-  ),
-  p AS (SELECT * FROM public.results_upload_parse(p_paper_id, p_kind, p_rows))
-  SELECT p.row_no, 1, 0, format('Row %s has no registration number', p.row_no)
-    FROM p WHERE p.digits IS NULL
-  UNION ALL
-  SELECT p.row_no, 2, 0, format('Row %s: %s appears twice in this file (rows %s and %s)',
-                                p.row_no, p.reg, p.dup_first_row, p.row_no)
-    FROM p WHERE p.dup_first_row IS NOT NULL
-  UNION ALL
-  SELECT p.row_no, 3, 0, format('Row %s: %s is not a registered student in this project', p.row_no, p.reg)
-    FROM p WHERE p.digits IS NOT NULL AND p.enrollment_id IS NULL
-  UNION ALL
-  SELECT p.row_no, 4, 0, format('Row %s: %s is registered for %s, but this paper is %s',
-                                p.row_no, p.reg, public.results_olympiad_label(p.enr_olympiad),
-                                public.results_olympiad_label(paper.olympiad_code))
-    FROM p CROSS JOIN paper
-   WHERE p.enrollment_id IS NOT NULL AND p.enr_olympiad IS DISTINCT FROM paper.olympiad_code
-  UNION ALL
-  SELECT p.row_no, 5, 0, format('Row %s: %s is a %s student, but this paper is %s',
-                                p.row_no, p.reg,
-                                COALESCE((SELECT c.display_name FROM public.classes c WHERE c.code = p.enr_class),
-                                         'Class ' || p.enr_class),
-                                paper.class_name)
-    FROM p CROSS JOIN paper
-   WHERE p.enrollment_id IS NOT NULL AND p.enr_class IS DISTINCT FROM paper.class_code
-  UNION ALL
-  SELECT p.row_no, 6, 0, format('Row %s has %s %s; this paper has %s questions',
-                                p.row_no, p.n_values,
-                                CASE WHEN p_kind = 'omr' THEN 'answers' ELSE 'marks' END,
-                                paper.total_questions)
-    FROM p CROSS JOIN paper
-   WHERE p.n_values <> paper.total_questions
-  UNION ALL
-  SELECT p.row_no, 7, (b.cell ->> 'q')::int,
-         CASE WHEN p_kind = 'omr'
-              THEN format('Row %s, Q%s: "%s" is not A, B, C or D', p.row_no, b.cell ->> 'q', b.cell ->> 'raw')
-              ELSE format('Row %s, Q%s: "%s" must be 0, 0.5 or 1', p.row_no, b.cell ->> 'q', b.cell ->> 'raw')
-         END
-    FROM p CROSS JOIN LATERAL jsonb_array_elements(COALESCE(p.bad, '[]'::jsonb)) AS b(cell)
 $$;
 
 -- ---------------------------------------------------------------------------
@@ -534,6 +601,7 @@ BEGIN
   IF NOT public.is_manager_or_superadmin() THEN
     RAISE EXCEPTION 'Only managers can do this.';
   END IF;
+  PERFORM public.results_lock_group(p_project_id, p_class_code, p_olympiad_code);
   PERFORM public.results_rerank_core(p_project_id, p_class_code, p_olympiad_code);
 END
 $$;
@@ -542,6 +610,7 @@ $$;
 -- the replaced live results, insert the new ones, re-score. All or nothing.
 -- Problems with the paper itself (missing, not Ready, wrong tab, empty file) RAISE;
 -- problems with rows come back as {"ok":false,"errors":[...]}.
+-- The file is parsed once into a temp table and reused for validate / summarise / save.
 CREATE FUNCTION public.results_upload(p_paper_id uuid, p_kind text, p_file_name text, p_rows jsonb, p_dry_run boolean)
   RETURNS jsonb
   LANGUAGE plpgsql
@@ -552,6 +621,7 @@ DECLARE
   v_paper      public.question_papers%ROWTYPE;
   v_class_name text;
   v_manual     boolean;
+  v_dry        boolean := COALESCE(p_dry_run, true);
   v_err_total  int;
   v_errors     jsonb;
   v_count      int;
@@ -569,7 +639,7 @@ BEGIN
     RAISE EXCEPTION 'Only managers can do this.';
   END IF;
 
-  IF COALESCE(p_dry_run, true) THEN
+  IF v_dry THEN
     SELECT * INTO v_paper FROM public.question_papers WHERE id = p_paper_id;
   ELSE
     -- Serialise real uploads to the same paper.
@@ -598,34 +668,91 @@ BEGIN
     RAISE EXCEPTION 'This file has no student rows.';
   END IF;
 
-  -- 1. Validate. Any error -> nothing is saved.
+  -- A real run holds the group lock from before validation to the end, so what it
+  -- validates is what it saves, and it can't interleave with another writer.
+  IF NOT v_dry THEN
+    PERFORM public.results_lock_group(v_paper.project_id, v_paper.class_code, v_paper.olympiad_code);
+  END IF;
+
+  -- 1. Parse once.
+  CREATE TEMPORARY TABLE IF NOT EXISTS results_upload_rows (
+    ord int, row_no int, reg text, digits text, n_values int, enrollment_id uuid, reg_stored text,
+    student_name text, school_id uuid, enr_olympiad text, enr_class text, dup_first_row int,
+    answers text[], marks numeric[], bad jsonb
+  ) ON COMMIT DROP;
+  TRUNCATE pg_temp.results_upload_rows;
+  INSERT INTO pg_temp.results_upload_rows
+  SELECT * FROM public.results_upload_parse(p_paper_id, p_kind, p_rows);
+
+  -- 2. Validate. Any error -> nothing is saved.
+  WITH errs AS (
+    SELECT p.row_no, p.ord, 1 AS s1, 0 AS s2, format('Row %s has no registration number', p.row_no) AS message
+      FROM pg_temp.results_upload_rows p WHERE p.digits IS NULL
+    UNION ALL
+    SELECT p.row_no, p.ord, 2, 0, format('Row %s: %s appears twice in this file (rows %s and %s)',
+                                         p.row_no, p.reg, p.dup_first_row, p.row_no)
+      FROM pg_temp.results_upload_rows p WHERE p.dup_first_row IS NOT NULL
+    UNION ALL
+    SELECT p.row_no, p.ord, 3, 0, format('Row %s: %s is not a registered student in this project', p.row_no, p.reg)
+      FROM pg_temp.results_upload_rows p WHERE p.digits IS NOT NULL AND p.enrollment_id IS NULL
+    UNION ALL
+    SELECT p.row_no, p.ord, 4, 0, format('Row %s: %s is registered for %s, but this paper is %s',
+                                         p.row_no, p.reg, public.results_olympiad_label(p.enr_olympiad),
+                                         public.results_olympiad_label(v_paper.olympiad_code))
+      FROM pg_temp.results_upload_rows p
+     WHERE p.enrollment_id IS NOT NULL AND p.enr_olympiad IS DISTINCT FROM v_paper.olympiad_code
+    UNION ALL
+    SELECT p.row_no, p.ord, 5, 0, format('Row %s: %s is a %s student, but this paper is %s',
+                                         p.row_no, p.reg,
+                                         COALESCE((SELECT c.display_name FROM public.classes c WHERE c.code = p.enr_class),
+                                                  'Class ' || p.enr_class),
+                                         v_class_name)
+      FROM pg_temp.results_upload_rows p
+     WHERE p.enrollment_id IS NOT NULL AND p.enr_class IS DISTINCT FROM v_paper.class_code
+    UNION ALL
+    SELECT p.row_no, p.ord, 6, 0, format('Row %s has %s %s; this paper has %s questions',
+                                         p.row_no, p.n_values,
+                                         CASE WHEN p_kind = 'omr' THEN 'answers' ELSE 'marks' END,
+                                         v_paper.total_questions)
+      FROM pg_temp.results_upload_rows p
+     WHERE p.n_values <> v_paper.total_questions
+    UNION ALL
+    SELECT p.row_no, p.ord, 7, (b.cell ->> 'q')::int,
+           CASE WHEN p_kind = 'omr'
+                THEN format('Row %s, Q%s: "%s" is not A, B, C or D', p.row_no, b.cell ->> 'q', b.cell ->> 'raw')
+                ELSE format('Row %s, Q%s: "%s" must be 0, 0.5 or 1', p.row_no, b.cell ->> 'q', b.cell ->> 'raw')
+           END
+      FROM pg_temp.results_upload_rows p
+     CROSS JOIN LATERAL jsonb_array_elements(COALESCE(p.bad, '[]'::jsonb)) AS b(cell)
+  ),
+  numbered AS (
+    SELECT e.*, row_number() OVER (ORDER BY e.row_no, e.ord, e.s1, e.s2) AS rn FROM errs e
+  )
   SELECT count(*)::int,
-         jsonb_agg(jsonb_build_object('row', e.row_no, 'message', e.message) ORDER BY e.rn)
-           FILTER (WHERE e.rn <= 500)
+         jsonb_agg(jsonb_build_object('row', n.row_no, 'message', n.message) ORDER BY n.rn)
+           FILTER (WHERE n.rn <= 500)
     INTO v_err_total, v_errors
-    FROM (SELECT x.*, row_number() OVER (ORDER BY x.row_no, x.sort1, x.sort2) AS rn
-            FROM public.results_upload_errors(p_paper_id, p_kind, p_rows) x) e;
+    FROM numbered n;
   IF v_err_total > 0 THEN
+    TRUNCATE pg_temp.results_upload_rows;
     RETURN jsonb_build_object('ok', false, 'errors', v_errors, 'moreErrors', greatest(v_err_total - 500, 0));
   END IF;
 
-  -- 2. Summarise (one parse).
-  WITH p AS MATERIALIZED (
-    SELECT * FROM public.results_upload_parse(p_paper_id, p_kind, p_rows)
-  ),
-  rep AS (
+  -- 3. Summarise.
+  WITH rep AS (
     SELECT p.row_no, p.reg_stored, p.student_name, ev.status
-      FROM p JOIN public.result_evaluations ev ON ev.enrollment_id = p.enrollment_id AND ev.deleted_at IS NULL
+      FROM pg_temp.results_upload_rows p
+      JOIN public.result_evaluations ev ON ev.enrollment_id = p.enrollment_id AND ev.deleted_at IS NULL
   ),
   other AS (
     SELECT t.slot_name
-      FROM p
+      FROM pg_temp.results_upload_rows p
       JOIN public.exam_slots es ON es.school_id = p.school_id AND es.project_id = v_paper.project_id
       JOIN public.exam_slot_templates t ON t.id = es.slot_template_id
      WHERE es.slot_template_id <> v_paper.slot_template_id
   )
-  SELECT (SELECT count(*) FROM p),
-         (SELECT array_agg(p.enrollment_id) FROM p),
+  SELECT (SELECT count(*) FROM pg_temp.results_upload_rows),
+         (SELECT array_agg(p.enrollment_id) FROM pg_temp.results_upload_rows p),
          (SELECT COALESCE(jsonb_agg(jsonb_build_object('reg', rep.reg_stored, 'name', rep.student_name, 'was', rep.status)
                                     ORDER BY rep.row_no), '[]'::jsonb) FROM rep),
          (SELECT count(*) FROM rep),
@@ -639,7 +766,7 @@ BEGIN
            WHERE pe.project_id = v_paper.project_id
              AND pe.olympiad_code = v_paper.olympiad_code
              AND st.class_code = v_paper.class_code
-             AND NOT EXISTS (SELECT 1 FROM p WHERE p.enrollment_id = pe.id)
+             AND NOT EXISTS (SELECT 1 FROM pg_temp.results_upload_rows p WHERE p.enrollment_id = pe.id)
              AND NOT EXISTS (SELECT 1 FROM public.result_evaluations ev
                               WHERE ev.enrollment_id = pe.id AND ev.deleted_at IS NULL)
              AND NOT EXISTS (SELECT 1 FROM public.exam_slots es
@@ -648,7 +775,8 @@ BEGIN
                                 AND es.slot_template_id <> v_paper.slot_template_id))
     INTO v_count, v_ids, v_replace, v_replacing, v_other_n, v_other_name, v_missing;
 
-  IF COALESCE(p_dry_run, true) THEN
+  IF v_dry THEN
+    TRUNCATE pg_temp.results_upload_rows;
     RETURN jsonb_build_object(
       'ok', true,
       'dryRun', true,
@@ -658,24 +786,29 @@ BEGIN
       'missingFromFile', v_missing);
   END IF;
 
-  -- 3. Save.
-  INSERT INTO public.result_upload_batches (paper_id, kind, file_name, row_count, replaced_count)
-  VALUES (p_paper_id, p_kind, p_file_name, v_count, v_replacing)
-  RETURNING id INTO v_batch;
+  -- 4. Save.
+  BEGIN
+    INSERT INTO public.result_upload_batches (paper_id, kind, file_name, row_count, replaced_count)
+    VALUES (p_paper_id, p_kind, p_file_name, v_count, v_replacing)
+    RETURNING id INTO v_batch;
 
-  UPDATE public.result_evaluations
-     SET deleted_at = now()
-   WHERE deleted_at IS NULL
-     AND enrollment_id = ANY (v_ids);
-  GET DIAGNOSTICS v_replaced = ROW_COUNT;
+    UPDATE public.result_evaluations
+       SET deleted_at = now()
+     WHERE deleted_at IS NULL
+       AND enrollment_id = ANY (v_ids);
+    GET DIAGNOSTICS v_replaced = ROW_COUNT;
 
-  INSERT INTO public.result_evaluations (enrollment_id, paper_id, status, answers, marks, batch_id)
-  SELECT p.enrollment_id, p_paper_id, 'evaluated',
-         CASE WHEN p_kind = 'omr' THEN p.answers END,
-         CASE WHEN p_kind = 'manual' THEN p.marks::numeric(2,1)[] END,
-         v_batch
-    FROM public.results_upload_parse(p_paper_id, p_kind, p_rows) p;
-  GET DIAGNOSTICS v_saved = ROW_COUNT;
+    INSERT INTO public.result_evaluations (enrollment_id, paper_id, status, answers, marks, batch_id)
+    SELECT p.enrollment_id, p_paper_id, 'evaluated',
+           CASE WHEN p_kind = 'omr' THEN p.answers END,
+           CASE WHEN p_kind = 'manual' THEN p.marks::numeric(2,1)[] END,
+           v_batch
+      FROM pg_temp.results_upload_rows p;
+    GET DIAGNOSTICS v_saved = ROW_COUNT;
+  EXCEPTION WHEN unique_violation THEN
+    RAISE EXCEPTION 'Someone else just changed this student''s result. Please refresh and try again.';
+  END;
+  TRUNCATE pg_temp.results_upload_rows;
 
   IF v_replaced <> v_replacing THEN
     UPDATE public.result_upload_batches SET replaced_count = v_replaced WHERE id = v_batch;
@@ -730,36 +863,43 @@ BEGIN
     RAISE EXCEPTION 'Nothing was changed: % of the selected students are not registered for this paper.', v_bad;
   END IF;
 
-  IF COALESCE(p_absent, true) THEN
-    WITH old AS (
-      UPDATE public.result_evaluations ev
-         SET deleted_at = now()
-       WHERE ev.deleted_at IS NULL
-         AND ev.enrollment_id = ANY (p_enrollment_ids)
-         AND NOT (ev.status = 'absent' AND ev.paper_id = p_paper_id)
-      RETURNING ev.paper_id
-    )
-    SELECT array_agg(DISTINCT old.paper_id) INTO v_papers FROM old;
+  -- Every student here is in this paper's group (checked above), so one lock covers it.
+  PERFORM public.results_lock_group(v_paper.project_id, v_paper.class_code, v_paper.olympiad_code);
 
-    INSERT INTO public.result_evaluations (enrollment_id, paper_id, status)
-    SELECT i.id, p_paper_id, 'absent'
-      FROM (SELECT DISTINCT unnest(p_enrollment_ids) AS id) i
-     WHERE NOT EXISTS (SELECT 1 FROM public.result_evaluations ev
-                        WHERE ev.enrollment_id = i.id AND ev.deleted_at IS NULL);
-    GET DIAGNOSTICS v_n = ROW_COUNT;
-  ELSE
-    WITH old AS (
-      UPDATE public.result_evaluations ev
-         SET deleted_at = now()
-       WHERE ev.deleted_at IS NULL
-         AND ev.status = 'absent'
-         AND ev.enrollment_id = ANY (p_enrollment_ids)
-      RETURNING ev.paper_id
-    )
-    SELECT array_agg(DISTINCT old.paper_id), count(*) INTO v_papers, v_n FROM old;
-  END IF;
+  BEGIN
+    IF COALESCE(p_absent, true) THEN
+      WITH old AS (
+        UPDATE public.result_evaluations ev
+           SET deleted_at = now()
+         WHERE ev.deleted_at IS NULL
+           AND ev.enrollment_id = ANY (p_enrollment_ids)
+           AND NOT (ev.status = 'absent' AND ev.paper_id = p_paper_id)
+        RETURNING ev.paper_id
+      )
+      SELECT array_agg(DISTINCT old.paper_id) INTO v_papers FROM old;
 
-  -- This paper first, then any other paper a replaced result was on.
+      INSERT INTO public.result_evaluations (enrollment_id, paper_id, status)
+      SELECT i.id, p_paper_id, 'absent'
+        FROM (SELECT DISTINCT unnest(p_enrollment_ids) AS id) i
+       WHERE NOT EXISTS (SELECT 1 FROM public.result_evaluations ev
+                          WHERE ev.enrollment_id = i.id AND ev.deleted_at IS NULL);
+      GET DIAGNOSTICS v_n = ROW_COUNT;
+    ELSE
+      WITH old AS (
+        UPDATE public.result_evaluations ev
+           SET deleted_at = now()
+         WHERE ev.deleted_at IS NULL
+           AND ev.status = 'absent'
+           AND ev.enrollment_id = ANY (p_enrollment_ids)
+        RETURNING ev.paper_id
+      )
+      SELECT array_agg(DISTINCT old.paper_id), count(*) INTO v_papers, v_n FROM old;
+    END IF;
+  EXCEPTION WHEN unique_violation THEN
+    RAISE EXCEPTION 'Someone else just changed this student''s result. Please refresh and try again.';
+  END;
+
+  -- This paper first, then any other paper a replaced result was on (same group).
   PERFORM public.results_rescore_paper_core(p_paper_id);
   FOREACH v_pid IN ARRAY COALESCE(v_papers, '{}'::uuid[]) LOOP
     IF v_pid <> p_paper_id THEN
@@ -778,7 +918,7 @@ CREATE FUNCTION public.results_delete_evaluations(p_enrollment_ids uuid[]) RETUR
 AS $$
 DECLARE
   v_n      int := 0;
-  v_papers uuid[];
+  v_key    bigint;
   v_pid    uuid;
 BEGIN
   IF NOT public.is_manager_or_superadmin() THEN
@@ -788,6 +928,20 @@ BEGIN
     RETURN 0;
   END IF;
 
+  -- Lock every affected group first, in key order.
+  FOR v_key IN
+    SELECT DISTINCT public.results_group_key(qp.project_id, qp.class_code, qp.olympiad_code)
+      FROM public.result_evaluations ev
+      JOIN public.question_papers qp ON qp.id = ev.paper_id
+     WHERE ev.deleted_at IS NULL
+       AND ev.enrollment_id = ANY (p_enrollment_ids)
+     ORDER BY 1
+  LOOP
+    PERFORM pg_advisory_xact_lock(v_key);
+  END LOOP;
+
+  CREATE TEMPORARY TABLE IF NOT EXISTS results_deleted_papers (paper_id uuid) ON COMMIT DROP;
+  TRUNCATE pg_temp.results_deleted_papers;
   WITH d AS (
     UPDATE public.result_evaluations
        SET deleted_at = now()
@@ -795,11 +949,18 @@ BEGIN
        AND enrollment_id = ANY (p_enrollment_ids)
     RETURNING paper_id
   )
-  SELECT count(*), array_agg(DISTINCT d.paper_id) INTO v_n, v_papers FROM d;
+  INSERT INTO pg_temp.results_deleted_papers SELECT d.paper_id FROM d;
+  GET DIAGNOSTICS v_n = ROW_COUNT;
 
-  FOREACH v_pid IN ARRAY COALESCE(v_papers, '{}'::uuid[]) LOOP
+  FOR v_pid IN
+    SELECT qp.id
+      FROM (SELECT DISTINCT paper_id FROM pg_temp.results_deleted_papers) x
+      JOIN public.question_papers qp ON qp.id = x.paper_id
+     ORDER BY public.results_group_key(qp.project_id, qp.class_code, qp.olympiad_code), qp.id
+  LOOP
     PERFORM public.results_rescore_paper_core(v_pid);
   END LOOP;
+  TRUNCATE pg_temp.results_deleted_papers;
   RETURN v_n;
 END
 $$;
@@ -812,15 +973,24 @@ CREATE FUNCTION public.results_restore_evaluation(p_evaluation_id uuid) RETURNS 
   SET search_path = public
 AS $$
 DECLARE
-  v_ev public.result_evaluations%ROWTYPE;
+  v_ev    public.result_evaluations%ROWTYPE;
+  v_paper public.question_papers%ROWTYPE;
 BEGIN
   IF NOT public.is_manager_or_superadmin() THEN
     RAISE EXCEPTION 'Only managers can do this.';
   END IF;
-  SELECT * INTO v_ev FROM public.result_evaluations WHERE id = p_evaluation_id FOR UPDATE;
+  -- Find the group first (no row lock yet), lock it, then lock and re-read the row.
+  SELECT * INTO v_ev FROM public.result_evaluations WHERE id = p_evaluation_id;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'This result no longer exists.';
   END IF;
+  SELECT * INTO v_paper FROM public.question_papers WHERE id = v_ev.paper_id;
+  IF NOT FOUND OR v_paper.deleted_at IS NOT NULL THEN
+    RAISE EXCEPTION 'This result''s paper has been deleted, so the result can''t be restored.';
+  END IF;
+  PERFORM public.results_lock_group(v_paper.project_id, v_paper.class_code, v_paper.olympiad_code);
+  SELECT * INTO v_ev FROM public.result_evaluations WHERE id = p_evaluation_id FOR UPDATE;
+
   IF v_ev.deleted_at IS NULL THEN
     RAISE EXCEPTION 'This result hasn''t been deleted, so there is nothing to restore.';
   END IF;
@@ -831,11 +1001,12 @@ BEGIN
               WHERE enrollment_id = v_ev.enrollment_id AND deleted_at IS NULL) THEN
     RAISE EXCEPTION 'This student already has a newer result.';
   END IF;
-  IF EXISTS (SELECT 1 FROM public.question_papers WHERE id = v_ev.paper_id AND deleted_at IS NOT NULL) THEN
-    RAISE EXCEPTION 'This result''s paper has been deleted, so the result can''t be restored.';
-  END IF;
 
-  UPDATE public.result_evaluations SET deleted_at = NULL WHERE id = p_evaluation_id;
+  BEGIN
+    UPDATE public.result_evaluations SET deleted_at = NULL WHERE id = p_evaluation_id;
+  EXCEPTION WHEN unique_violation THEN
+    RAISE EXCEPTION 'Someone else just changed this student''s result. Please refresh and try again.';
+  END;
   PERFORM public.results_rescore_paper_core(v_ev.paper_id);
 END
 $$;
@@ -850,26 +1021,34 @@ CREATE FUNCTION public.results_correct_answer(p_evaluation_id uuid, p_question_n
 AS $$
 DECLARE
   v_ev    public.result_evaluations%ROWTYPE;
-  v_total int;
+  v_paper public.question_papers%ROWTYPE;
   v_raw   text := btrim(COALESCE(p_value, ''));
   v_ok    boolean := false;
 BEGIN
   IF NOT public.is_manager_or_superadmin() THEN
     RAISE EXCEPTION 'Only managers can do this.';
   END IF;
-  SELECT * INTO v_ev FROM public.result_evaluations WHERE id = p_evaluation_id FOR UPDATE;
+  -- Find the group first (no row lock yet), lock it, then lock and re-read the row.
+  SELECT * INTO v_ev FROM public.result_evaluations WHERE id = p_evaluation_id;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'This result no longer exists.';
   END IF;
+  SELECT * INTO v_paper FROM public.question_papers WHERE id = v_ev.paper_id;
+  IF NOT FOUND OR v_paper.deleted_at IS NOT NULL THEN
+    RAISE EXCEPTION 'This result''s paper has been deleted, so it can''t be corrected.';
+  END IF;
+  PERFORM public.results_lock_group(v_paper.project_id, v_paper.class_code, v_paper.olympiad_code);
+  SELECT * INTO v_ev FROM public.result_evaluations WHERE id = p_evaluation_id FOR UPDATE;
+
   IF v_ev.deleted_at IS NOT NULL THEN
     RAISE EXCEPTION 'This result has been deleted, so it can''t be corrected.';
   END IF;
   IF v_ev.status = 'absent' THEN
     RAISE EXCEPTION 'This student is marked absent, so there are no answers to correct.';
   END IF;
-  SELECT total_questions INTO v_total FROM public.question_papers WHERE id = v_ev.paper_id;
-  IF p_question_number IS NULL OR p_question_number < 1 OR p_question_number > v_total THEN
-    RAISE EXCEPTION 'This paper has % questions, so there is no Q%.', v_total, COALESCE(p_question_number::text, '?');
+  IF p_question_number IS NULL OR p_question_number < 1 OR p_question_number > v_paper.total_questions THEN
+    RAISE EXCEPTION 'This paper has % questions, so there is no Q%.', v_paper.total_questions,
+      COALESCE(p_question_number::text, '?');
   END IF;
 
   IF v_ev.answers IS NOT NULL THEN
@@ -893,6 +1072,27 @@ BEGIN
   PERFORM public.results_rescore_paper_core(v_ev.paper_id);
 END
 $$;
+
+-- "Remove from project" must also be blocked by results: an enrolment with a result
+-- can't be hard-deleted (no FK cascade), so say so in the dialog instead of failing
+-- with a raw FK error. Identical to the 20261101 definition plus the 'results' entry.
+CREATE OR REPLACE FUNCTION public.school_removal_blockers(p_school_id uuid, p_project_id uuid)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT jsonb_strip_nulls(jsonb_build_object(
+    'students',        NULLIF((SELECT count(*) FROM portal_registered_students WHERE school_id = p_school_id AND project_id = p_project_id), 0),
+    'enrolments',      NULLIF((SELECT count(*) FROM portal_student_enrollments WHERE school_id = p_school_id AND project_id = p_project_id), 0),
+    'payments',        NULLIF((SELECT count(*) FROM payment_transactions WHERE school_id = p_school_id AND project_id = p_project_id), 0),
+    'payment_proofs',  NULLIF((SELECT count(*) FROM payment_proofs WHERE school_id = p_school_id AND project_id = p_project_id), 0),
+    'portal_payments', NULLIF((SELECT count(*) FROM portal_payment_submissions WHERE school_id = p_school_id AND project_id = p_project_id), 0),
+    'book_orders',     NULLIF((SELECT count(*) FROM product_orders WHERE school_id = p_school_id), 0),
+    'invoices',        NULLIF((SELECT count(*) FROM invoices WHERE school_id = p_school_id), 0),
+    'results',         NULLIF((SELECT count(*) FROM result_evaluations ev JOIN portal_student_enrollments pe ON pe.id = ev.enrollment_id WHERE pe.school_id = p_school_id AND pe.project_id = p_project_id AND ev.deleted_at IS NULL), 0)
+  ))
+$function$;
 
 -- ---------------------------------------------------------------------------
 -- (f) Read RPCs (SECURITY INVOKER, STABLE; RLS decides what the caller sees)
@@ -1172,8 +1372,10 @@ CREATE POLICY results_select_resend_flags ON public.result_resend_flags FOR SELE
 
 REVOKE ALL ON public.result_upload_batches, public.result_evaluations,
               public.result_scores, public.result_resend_flags FROM anon;
-REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.result_upload_batches, public.result_evaluations,
+REVOKE ALL ON public.result_upload_batches, public.result_evaluations,
               public.result_scores, public.result_resend_flags FROM authenticated;
+GRANT SELECT ON public.result_upload_batches, public.result_evaluations,
+              public.result_scores, public.result_resend_flags TO authenticated;
 
 -- Functions: Supabase grants EXECUTE to PUBLIC / anon / authenticated by default.
 -- Take it away from everything, then give the RPCs back to signed-in staff only.
@@ -1184,11 +1386,14 @@ REVOKE ALL ON FUNCTION
   public.results_student_grade(int),
   public.results_school_grade(numeric),
   public.results_olympiad_label(text),
+  public.results_group_key(uuid, text, text),
+  public.results_lock_group(uuid, text, text),
   public.results_rerank_core(uuid, text, text),
   public.results_rescore_paper_core(uuid),
   public.results_questions_rescore(),
+  public.results_questions_rescore_rows(),
+  public.results_paper_guard(),
   public.results_upload_parse(uuid, text, jsonb),
-  public.results_upload_errors(uuid, text, jsonb),
   public.results_rescore_paper(uuid),
   public.results_rerank(uuid, text, text),
   public.results_upload(uuid, text, text, jsonb, boolean),

@@ -4,6 +4,9 @@
 -- Everything happens inside one transaction that is rolled back, so no data is left
 -- behind. Any failed assertion raises an exception; success ends with SELECT 'ALL PASS'.
 --
+-- The project id below is hard-coded to the 2026 project (dd5de83d-...). Update it
+-- before running this against a later project.
+--
 -- Fixtures are real: the active project, its Slot 1 / Slot 2 templates, three real
 -- MPO Class 3 enrolments from one school that has booked a slot, one MPO Class 1 and
 -- one EPO Class 3 enrolment, and a real manager login. The test papers are created
@@ -174,6 +177,19 @@ BEGIN
     RAISE EXCEPTION 'FAIL a3: %', v_res->'errors';
   END IF;
 
+  -- (a4) duplicates are found by position, not by the client's row label; a silly row
+  --      label falls back to the position.
+  v_rows := jsonb_build_array(
+    jsonb_build_object('row', 2, 'reg', v_r1, 'values', jsonb_build_array('A','B','C','D','A')),
+    jsonb_build_object('row', 2, 'reg', v_r1, 'values', jsonb_build_array('A','B','C','D','A')),
+    jsonb_build_object('row', 99999999999, 'reg', '9999999999999', 'values', jsonb_build_array('A','B','C','D','A')));
+  v_res := results_upload(v_paper, 'omr', 't.csv', v_rows, true);
+  IF (SELECT jsonb_agg(x->'message') FROM jsonb_array_elements(v_res->'errors') x) IS DISTINCT FROM jsonb_build_array(
+       format('Row 2: %s appears twice in this file (rows 2 and 2)', v_r1),
+       'Row 4: 9999999999999 is not a registered student in this project') THEN
+    RAISE EXCEPTION 'FAIL a4: %', v_res->'errors';
+  END IF;
+
   -- (b) one bad row among good rows, REAL run: rejected, nothing saved.
   v_rows := jsonb_build_array(
     jsonb_build_object('row', 2, 'reg', v_r1, 'values', jsonb_build_array('A','B','C','D','A')),
@@ -326,6 +342,63 @@ BEGIN
   SELECT count(*) INTO v_n FROM result_resend_flags WHERE project_id = v_proj AND school_id = v_school AND cleared_at IS NULL;
   IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL m2: open flags duplicated (%)', v_n; END IF;
 
+  -- (g2) the UI's save path (upsert on paper_id, question_number) also re-scores.
+  INSERT INTO questions (paper_id, question_number, correct_answer) VALUES (v_paper, 5, 'B')
+  ON CONFLICT (paper_id, question_number) DO UPDATE SET correct_answer = EXCLUDED.correct_answer;
+  IF (SELECT total FROM result_scores WHERE enrollment_id = v_e1) <> 3 THEN RAISE EXCEPTION 'FAIL g4: upsert not re-scored'; END IF;
+  INSERT INTO questions (paper_id, question_number, correct_answer) VALUES (v_paper, 5, 'A')
+  ON CONFLICT (paper_id, question_number) DO UPDATE SET correct_answer = EXCLUDED.correct_answer;
+  IF (SELECT total FROM result_scores WHERE enrollment_id = v_e1) <> 4 THEN RAISE EXCEPTION 'FAIL g5: upsert back not re-scored'; END IF;
+
+  -- (g3) deleting / inserting a question re-scores (copy-from-slot upserts then trims).
+  DELETE FROM questions WHERE paper_id = v_paper AND question_number = 5;
+  IF (SELECT total FROM result_scores WHERE enrollment_id = v_e1) <> 3 THEN RAISE EXCEPTION 'FAIL g6: delete not re-scored'; END IF;
+  INSERT INTO questions (paper_id, question_number, correct_answer) VALUES (v_paper, 5, 'A');
+  IF (SELECT total FROM result_scores WHERE enrollment_id = v_e1) <> 4 THEN RAISE EXCEPTION 'FAIL g7: insert not re-scored'; END IF;
+
+  -- (p) a paper with live results can't be deleted or have its shape changed.
+  v_msg := NULL;
+  BEGIN UPDATE question_papers SET total_questions = 6 WHERE id = v_paper; EXCEPTION WHEN OTHERS THEN v_msg := SQLERRM; END;
+  IF v_msg IS DISTINCT FROM 'This paper already has student results, so it can''t be deleted or changed. Delete those results first on the Students page.' THEN
+    RAISE EXCEPTION 'FAIL p1: %', v_msg;
+  END IF;
+  v_msg := NULL;
+  BEGIN UPDATE question_papers SET deleted_at = now() WHERE id = v_paper; EXCEPTION WHEN OTHERS THEN v_msg := SQLERRM; END;
+  IF v_msg IS NULL THEN RAISE EXCEPTION 'FAIL p2: soft-delete of a paper with results was allowed'; END IF;
+  -- move the (result-free) draft out of the way so a slot change can't hit the unique index
+  UPDATE question_papers SET deleted_at = now() WHERE id = v_draft;
+  v_msg := NULL;
+  BEGIN UPDATE question_papers SET slot_template_id = current_setting('test.booked')::uuid WHERE id = v_paper;
+  EXCEPTION WHEN OTHERS THEN v_msg := SQLERRM; END;
+  IF v_msg IS DISTINCT FROM 'This paper already has student results, so it can''t be deleted or changed. Delete those results first on the Students page.' THEN
+    RAISE EXCEPTION 'FAIL p3: %', v_msg;
+  END IF;
+  UPDATE question_papers SET deleted_at = NULL WHERE id = v_draft;
+  v_msg := NULL;
+  BEGIN DELETE FROM question_papers WHERE id = v_paper; EXCEPTION WHEN OTHERS THEN v_msg := SQLERRM; END;
+  IF v_msg IS DISTINCT FROM 'This paper already has student results, so it can''t be deleted or changed. Delete those results first on the Students page.' THEN
+    RAISE EXCEPTION 'FAIL p4: %', v_msg;
+  END IF;
+  UPDATE question_papers SET pdf_file_name = 'renamed.pdf' WHERE id = v_paper;   -- harmless edits still work
+  IF (SELECT pdf_file_name FROM question_papers WHERE id = v_paper) IS DISTINCT FROM 'renamed.pdf' THEN
+    RAISE EXCEPTION 'FAIL p5: harmless paper edit blocked';
+  END IF;
+
+  -- (q) "Remove from project" now sees the results.
+  IF COALESCE((public.school_removal_blockers(v_school, v_proj)->>'results')::int, 0) < 3 THEN
+    RAISE EXCEPTION 'FAIL q1: school_removal_blockers results = %', public.school_removal_blockers(v_school, v_proj);
+  END IF;
+
+  -- (lock) every writer path takes the per-group lock.
+  IF pg_get_functiondef('public.results_rescore_paper_core(uuid)'::regprocedure) NOT ILIKE '%results_lock_group%'
+     OR pg_get_functiondef('public.results_upload(uuid,text,text,jsonb,boolean)'::regprocedure) NOT ILIKE '%results_lock_group%'
+     OR pg_get_functiondef('public.results_set_absent(uuid,uuid[],boolean)'::regprocedure) NOT ILIKE '%results_lock_group%'
+     OR pg_get_functiondef('public.results_restore_evaluation(uuid)'::regprocedure) NOT ILIKE '%results_lock_group%'
+     OR pg_get_functiondef('public.results_correct_answer(uuid,integer,text)'::regprocedure) NOT ILIKE '%results_lock_group%'
+     OR pg_get_functiondef('public.results_delete_evaluations(uuid[])'::regprocedure) NOT ILIKE '%pg_advisory_xact_lock%' THEN
+    RAISE EXCEPTION 'FAIL lock: a writer does not take the group lock';
+  END IF;
+
   -- Correct one answer: e1 Q3 C -> A drops a mark; audit keeps before / after.
   SELECT id INTO v_ev1 FROM result_evaluations WHERE enrollment_id = v_e1 AND deleted_at IS NULL;
   PERFORM results_correct_answer(v_ev1, 3, 'a');
@@ -429,6 +502,10 @@ BEGIN
   IF has_table_privilege('anon', 'public.result_evaluations', 'SELECT') THEN RAISE EXCEPTION 'FAIL k2: anon can read result_evaluations'; END IF;
   IF has_function_privilege('anon', 'public.results_upload(uuid,text,text,jsonb,boolean)', 'EXECUTE') THEN
     RAISE EXCEPTION 'FAIL k3: anon can call results_upload';
+  END IF;
+  IF has_table_privilege('authenticated', 'public.result_scores', 'REFERENCES')
+     OR has_table_privilege('authenticated', 'public.result_evaluations', 'TRIGGER') THEN
+    RAISE EXCEPTION 'FAIL k3b: authenticated keeps REFERENCES / TRIGGER';
   END IF;
   IF has_function_privilege('authenticated', 'public.results_rescore_paper_core(uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'FAIL k4: authenticated can call the core rescore';
