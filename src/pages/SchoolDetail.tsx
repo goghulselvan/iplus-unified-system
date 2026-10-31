@@ -1512,7 +1512,7 @@ const SchoolDetail = () => {
           </TabsContent>
 
           <TabsContent value="results">
-            <SchoolResultsSummary ssNo={school.ss_no} />
+            <SchoolResultsSummary schoolId={school.id} />
           </TabsContent>
         </Tabs>
       </div>

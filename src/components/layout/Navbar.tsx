@@ -132,7 +132,7 @@ const Navbar = () => {
                   key={item.name}
                   to={item.href}
                   className={`px-3 py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
-                    location.pathname === item.href
+                    (location.pathname === item.href || (item.href === '/results' && location.pathname.startsWith('/results/')))
                       ? 'bg-primary-foreground text-primary'
                       : 'hover:bg-primary/80'
                   }`}
@@ -206,7 +206,7 @@ const Navbar = () => {
                       <Link
                         to={item.href}
                         className={`w-full flex items-center justify-between ${
-                          location.pathname === item.href
+                          (location.pathname === item.href || (item.href === '/results' && location.pathname.startsWith('/results/')))
                             ? 'bg-accent text-accent-foreground'
                             : ''
                         }`}
@@ -243,7 +243,7 @@ const Navbar = () => {
                         <Link
                           to={item.href}
                           className={`w-full ${
-                            location.pathname === item.href
+                            (location.pathname === item.href || (item.href === '/results' && location.pathname.startsWith('/results/')))
                               ? 'bg-accent text-accent-foreground'
                               : ''
                           }`}
@@ -304,7 +304,7 @@ const Navbar = () => {
                   to={item.href}
                   onClick={closeMobileMenu}
                   className={`block px-3 py-2 rounded-md text-base font-medium transition-colors ${
-                    location.pathname === item.href
+                    (location.pathname === item.href || (item.href === '/results' && location.pathname.startsWith('/results/')))
                       ? 'bg-primary-foreground text-primary'
                       : 'hover:bg-primary/80'
                   }`}
