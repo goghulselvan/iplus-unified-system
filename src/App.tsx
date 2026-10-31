@@ -34,7 +34,7 @@ import AccountsDeletedPaymentsPage from "./pages/Accounts/AccountsDeletedPayment
 import CommunicationTemplates from "./pages/CommunicationTemplates";
 import WhatsAppTemplates from "./pages/WhatsAppTemplates";
 import ExportModule from "./pages/ExportModule";
-import Results from "./pages/Results";
+import ResultsLayout from "./pages/results/ResultsLayout";
 import PortalAccessPage from "./pages/PortalAccess";
 import PaymentQueuePage from "./pages/PaymentQueuePage";
 import MarketingMessages from "./pages/MarketingMessages";
@@ -253,10 +253,10 @@ const AppContent = () => {
            }
          />
          <Route 
-           path="/results" 
+           path="/results/*"
            element={
              <ProtectedRoute>
-               <Results />
+               <ResultsLayout />
              </ProtectedRoute>
            } 
          />
