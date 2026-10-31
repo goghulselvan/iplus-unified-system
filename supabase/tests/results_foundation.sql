@@ -146,6 +146,22 @@ BEGIN
       RAISE EXCEPTION 'FAIL 9b: % must have exactly one SELECT policy gated on is_manager_or_superadmin', v_t;
     END IF;
   END LOOP;
+  -- 10. The live "Remove from project" check still works and no longer reads result_students
+  IF (SELECT public.school_removal_blockers((SELECT id FROM schools LIMIT 1), v_proj)) IS NULL THEN
+    RAISE EXCEPTION 'FAIL 10a: school_removal_blockers returned NULL';
+  END IF;
+  IF pg_get_functiondef('public.school_removal_blockers(uuid,uuid)'::regprocedure) ILIKE '%result_students%' THEN
+    RAISE EXCEPTION 'FAIL 10b: school_removal_blockers still references result_students';
+  END IF;
+
+  -- 11. The 13 dormant functions are gone
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname IN (
+      'audit_student_results_access','get_evaluated_students_count','get_rankings','get_result_schools',
+      'get_results_paginated','get_school_class_subject_stats','get_school_evaluated_count',
+      'get_school_registration_evaluation_stats','get_school_statistics','get_school_student_counts',
+      'strip_student_names_from_feedback','trg_sanitize_student_report','trg_sanitize_student_skill')) THEN
+    RAISE EXCEPTION 'FAIL 11: a dormant results function still exists';
+  END IF;
 END
 $test$;
 
