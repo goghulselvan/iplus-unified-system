@@ -50,10 +50,13 @@ export function validateChunk(raw: unknown, from: number, to: number, allowedSki
     if (typeof q.cognitive_level !== "string" || !(COGNITIVE_LEVELS as readonly string[]).includes(q.cognitive_level)) {
       return fail(`Question ${n} was given an unknown thinking level — please re-run this part`);
     }
+    if (typeof q.question_text !== "string" || q.question_text.trim() === "") {
+      return fail(`The AI could not read question ${n} — please re-run this part`);
+    }
     const c = typeof q.confidence === "number" && Number.isFinite(q.confidence) ? q.confidence : 0;
     rows.push({
       question_number: n,
-      question_text: typeof q.question_text === "string" ? q.question_text : "",
+      question_text: q.question_text,
       has_figure: q.has_figure === true,
       correct_answer: ans as QuestionDraft["correct_answer"],
       is_grace: false, // a human decides grace; null answer is left for review

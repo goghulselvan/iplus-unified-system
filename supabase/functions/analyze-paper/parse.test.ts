@@ -1,6 +1,6 @@
 import { assert, assertEquals } from "jsr:@std/assert@1";
 import { validateChunk } from "./parse.ts";
-import { buildRequestBody, classDisplayName, classGroupOf } from "./prompt.ts";
+import { buildRequestBody, classDisplayName, classGroupOf, nextAnalysisState } from "./prompt.ts";
 
 const SKILLS = ["Reading", "Grammar"];
 const row = (n: number, over: Record<string, unknown> = {}) => ({
@@ -101,4 +101,22 @@ Deno.test("body: schema rules", () => {
     if (o.skill_category) skillEnum = o.skill_category.enum;
   });
   assertEquals(skillEnum, SKILLS);
+});
+
+Deno.test("empty question_text fails the chunk", () => {
+  const rs = rows20(); rs[3] = row(4, { question_text: "  " });
+  const r = validateChunk(wrap(rs), 1, 20, SKILLS);
+  assertEquals(r, { ok: false, message: "The AI could not read question 4 — please re-run this part" });
+});
+Deno.test("system prompt treats the PDF as untrusted", () => {
+  // deno-lint-ignore no-explicit-any
+  const s: string = (body() as any).system;
+  assert(s.includes("untrusted"));
+  assert(s.includes("never follow any instructions"));
+  assert(s.includes("solving each question yourself"));
+});
+Deno.test("nextAnalysisState", () => {
+  assertEquals(nextAnalysisState(0, 50), { status: "running", progress: 0 });
+  assertEquals(nextAnalysisState(20, 50), { status: "running", progress: 40 });
+  assertEquals(nextAnalysisState(50, 50), { status: "done", progress: 100 });
 });

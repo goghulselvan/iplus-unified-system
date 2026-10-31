@@ -107,8 +107,8 @@ BEGIN
   SELECT count(*) INTO v_n FROM pg_trigger tg JOIN pg_proc p ON p.oid = tg.tgfoid
    WHERE NOT tg.tgisinternal AND p.proname = 'result_touch_updated'
      AND tg.tgrelid IN ('public.question_papers'::regclass, 'public.questions'::regclass)
-     AND (tg.tgtype & 2) = 2 AND (tg.tgtype & 16) = 16;   -- BEFORE, UPDATE
-  IF v_n <> 2 THEN RAISE EXCEPTION 'FAIL 6d: expected 2 BEFORE UPDATE touch triggers, got %', v_n; END IF;
+     AND (tg.tgtype & 2) = 2 AND (tg.tgtype & 4) = 4 AND (tg.tgtype & 16) = 16;   -- BEFORE, INSERT, UPDATE
+  IF v_n <> 2 THEN RAISE EXCEPTION 'FAIL 6d: expected 2 BEFORE INSERT OR UPDATE touch triggers, got %', v_n; END IF;
 
   -- 7. Cascade: deleting a paper removes its questions
   DELETE FROM question_papers WHERE id = v_paper;

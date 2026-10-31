@@ -4,7 +4,7 @@ import { encodeBase64 } from "jsr:@std/encoding@1/base64";
 import { isAllowedKey } from "../results-files/keys.ts";
 import { presign, R2Config } from "../results-files/sign.ts";
 import { validateChunk } from "./parse.ts";
-import { buildRequestBody, classDisplayName, classGroupOf } from "./prompt.ts";
+import { buildRequestBody, classDisplayName, classGroupOf, nextAnalysisState } from "./prompt.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -64,7 +64,7 @@ serve(async (req: Request): Promise<Response> => {
       .select("id, class_code, olympiad_code, total_questions, pdf_r2_key, deleted_at")
       .eq("id", paperId)
       .maybeSingle();
-    if (paperErr) throw new Fail(502, "We could not open this paper. Please try again.");
+    if (paperErr) return json({ error: "We could not open this paper. Please try again." }, 502);
     if (!paper || paper.deleted_at) return json({ error: "This paper could not be found." }, 422);
     if (!paper.pdf_r2_key) return json({ error: "This paper has no PDF yet. Please upload the PDF first." }, 422);
     if (f < 1 || t < f || t > paper.total_questions) {
@@ -92,7 +92,7 @@ serve(async (req: Request): Promise<Response> => {
 
       if (f === 1) {
         const { error } = await supabase.from("question_papers")
-          .update({ analysis_status: "running", analysis_progress: 0, analysis_error: null }).eq("id", paperId);
+          .update({ analysis_status: "running", analysis_error: null }).eq("id", paperId);
         if (error) throw new Fail(502, "We could not start reading this paper. Please try again.");
       }
 
@@ -110,21 +110,25 @@ serve(async (req: Request): Promise<Response> => {
       if (!apiKey) throw new Fail(502, "The AI reader is not set up yet. Please contact the administrator.");
 
       // Download the PDF.
-      let pdfBytes: Uint8Array;
+      const tooLarge = () =>
+        new Fail(422, "This PDF is too large for the AI to read (over 20 MB). Please save a smaller PDF and upload it again.");
+      let pdfBase64: string;
       try {
         const url = await presign(cfg, "GET", paper.pdf_r2_key);
         const res = await fetch(url);
         if (!res.ok) throw new Error(`R2 ${res.status}`);
-        pdfBytes = new Uint8Array(await res.arrayBuffer());
-      } catch {
+        const len = Number(res.headers.get("content-length"));
+        if (Number.isFinite(len) && len > MAX_PDF_BYTES) throw tooLarge();
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        if (bytes.byteLength > MAX_PDF_BYTES) throw tooLarge();
+        pdfBase64 = encodeBase64(bytes); // bytes goes out of scope here
+      } catch (e) {
+        if (e instanceof Fail) throw e;
         throw new Fail(502, "We could not fetch the PDF from storage. Please try again.");
-      }
-      if (pdfBytes.byteLength > MAX_PDF_BYTES) {
-        throw new Fail(422, "This PDF is too large for the AI to read (over 20 MB). Please save a smaller PDF and upload it again.");
       }
 
       const reqBody = buildRequestBody({
-        pdfBase64: encodeBase64(pdfBytes),
+        pdfBase64,
         className: classDisplayName(paper.class_code),
         olympiadCode: paper.olympiad_code,
         allowedSkills,
@@ -203,9 +207,12 @@ serve(async (req: Request): Promise<Response> => {
         if (error) throw new Fail(502, "We could not save the questions. Please try again.");
       }
 
-      const progress = Math.round((t / total) * 100);
+      const { count, error: cntErr } = await supabase
+        .from("questions").select("id", { count: "exact", head: true }).eq("paper_id", paperId);
+      if (cntErr) throw new Fail(502, "The questions were saved but progress could not be checked. Please re-run this part.");
+      const { status, progress } = nextAnalysisState(count ?? 0, total);
       const { error: progErr } = await supabase.from("question_papers")
-        .update({ analysis_progress: progress, ...(t === total ? { analysis_status: "done" } : {}) })
+        .update({ analysis_progress: progress, analysis_status: status, analysis_error: null })
         .eq("id", paperId);
       if (progErr) throw new Fail(502, "The questions were saved but progress could not be updated. Please re-run this part.");
 

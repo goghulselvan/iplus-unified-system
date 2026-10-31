@@ -178,9 +178,9 @@ BEGIN
 END
 $$;
 
-CREATE TRIGGER question_papers_touch BEFORE UPDATE ON public.question_papers
+CREATE TRIGGER question_papers_touch BEFORE INSERT OR UPDATE ON public.question_papers
   FOR EACH ROW EXECUTE FUNCTION public.result_touch_updated();
-CREATE TRIGGER questions_touch BEFORE UPDATE ON public.questions
+CREATE TRIGGER questions_touch BEFORE INSERT OR UPDATE ON public.questions
   FOR EACH ROW EXECUTE FUNCTION public.result_touch_updated();
 
 -- Audit trail. SECURITY DEFINER because staff have SELECT-only access to the log.
