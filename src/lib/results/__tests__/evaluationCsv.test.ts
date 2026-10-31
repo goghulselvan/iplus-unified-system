@@ -44,7 +44,7 @@ describe('parseEvaluationCsv', () => {
   });
   it('template round-trips', () => {
     const csv = buildTemplateCsv(3, [{ reg: '2-33-03-06-03-001', name: 'A, B' }]);
-    expect(csv.split('\n')[0]).toBe('registration_number,student_name,Q1,Q2,Q3');
+    expect(csv.split('\n')[0]).toBe('\uFEFFregistration_number,student_name,Q1,Q2,Q3');
     const r = parseEvaluationCsv(csv, 'omr', 3);
     expect(r.errors).toEqual([]);
     expect(r.rows).toEqual([{ row: 2, reg: '233030603001', values: [null, null, null] }]);
