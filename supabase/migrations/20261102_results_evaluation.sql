@@ -1090,7 +1090,7 @@ AS $function$
     'portal_payments', NULLIF((SELECT count(*) FROM portal_payment_submissions WHERE school_id = p_school_id AND project_id = p_project_id), 0),
     'book_orders',     NULLIF((SELECT count(*) FROM product_orders WHERE school_id = p_school_id), 0),
     'invoices',        NULLIF((SELECT count(*) FROM invoices WHERE school_id = p_school_id), 0),
-    'results',         NULLIF((SELECT count(*) FROM result_evaluations ev JOIN portal_student_enrollments pe ON pe.id = ev.enrollment_id WHERE pe.school_id = p_school_id AND pe.project_id = p_project_id AND ev.deleted_at IS NULL), 0)
+    'results',         NULLIF((SELECT count(*) FROM result_evaluations ev JOIN portal_student_enrollments pe ON pe.id = ev.enrollment_id WHERE pe.school_id = p_school_id AND pe.project_id = p_project_id), 0)
   ))
 $function$;
 
