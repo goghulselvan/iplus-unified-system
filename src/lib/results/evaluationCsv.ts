@@ -1,10 +1,10 @@
-import { regDigits } from './regNumber';
+import { regDigits, formatReg } from './regNumber';
 
 export interface CsvRow { row: number; reg: string; values: (string | number | null)[] }
 export interface CsvError { row: number; message: string }
 
 /** Minimal RFC-4180 parser: quoted fields, escaped quotes, CRLF/LF/CR, embedded newlines. */
-function parseCsv(text: string): string[][] {
+function parseCsv(text: string): { records: string[][]; unterminated: boolean } {
   const records: string[][] = [];
   let field = '';
   let rec: string[] = [];
@@ -26,7 +26,7 @@ function parseCsv(text: string): string[][] {
     else field += c;
   }
   if (field !== '' || rec.length > 0) endRec();
-  return records;
+  return { records, unterminated: inQ };
 }
 
 const norm = (s: string) => s.toLowerCase().replace(/[\s_]+/g, ' ').trim();
@@ -46,7 +46,7 @@ export function parseEvaluationCsv(
 ): { rows: CsvRow[]; errors: CsvError[] } {
   const rows: CsvRow[] = [];
   const errors: CsvError[] = [];
-  const records = parseCsv(text);
+  const { records, unterminated } = parseCsv(text);
   if (records.length === 0) {
     return { rows, errors: [{ row: 1, message: 'The file is empty' }] };
   }
@@ -66,11 +66,13 @@ export function parseEvaluationCsv(
   const missing: number[] = [];
   for (let q = 1; q <= totalQuestions; q++) if (!qCol.has(q)) missing.push(q);
   if (missing.length > 0) {
+    const shown = missing.slice(0, 10).map(q => `Q${q}`).join(', ');
+    const more = missing.length > 10 ? ` and ${missing.length - 10} more` : '';
     return {
       rows,
       errors: [{
         row: 1,
-        message: `The file has ${qCol.size} question columns; this paper has ${totalQuestions} questions`,
+        message: `The file is missing question columns ${shown}${more}; this paper has ${totalQuestions} questions`,
       }],
     };
   }
@@ -79,7 +81,19 @@ export function parseEvaluationCsv(
     const rec = records[r];
     if (rec.every(c => c.trim() === '')) continue;
     const row = r + 1;
-    const reg = regDigits(rec[regCol] ?? '');
+    if (unterminated && r === records.length - 1) {
+      errors.push({ row, message: `Row ${row}: a quoted value is not closed` });
+      continue;
+    }
+    const rawReg = (rec[regCol] ?? '').trim();
+    if (/e\+/i.test(rawReg)) {
+      errors.push({
+        row,
+        message: `Row ${row}: the registration number "${rawReg}" was changed by Excel. Format that column as Text and save the file again.`,
+      });
+      continue;
+    }
+    const reg = regDigits(rawReg);
     if (!reg) { errors.push({ row, message: `Row ${row} has no registration number` }); continue; }
     const values: (string | number | null)[] = [];
     let bad = false;
@@ -94,8 +108,8 @@ export function parseEvaluationCsv(
         }
         values.push(v);
       } else {
-        const n = raw === '.5' ? 0.5 : Number(raw);
-        if (![0, 0.5, 1].includes(n)) {
+        const n = Number(raw);
+        if (!/^(?:[01](?:\.0+)?|0?\.50*)$/.test(raw)) {
           errors.push({ row, message: `Row ${row}, Q${q}: "${raw}" must be 0, 0.5 or 1` });
           bad = true;
         }
@@ -116,9 +130,9 @@ export function buildTemplateCsv(
   students: { reg: string; name: string }[],
 ): string {
   const qs = Array.from({ length: totalQuestions }, (_, i) => `Q${i + 1}`);
-  const lines = [['registration_number', 'student_name', ...qs].join(',')];
+  const lines = ['\uFEFF' + ['registration_number', 'student_name', ...qs].join(',')];
   for (const s of students) {
-    lines.push([csvField(s.reg), csvField(s.name), ...qs.map(() => '')].join(','));
+    lines.push([csvField(formatReg(s.reg)), csvField(s.name), ...qs.map(() => '')].join(','));
   }
   return lines.join('\n') + '\n';
 }
