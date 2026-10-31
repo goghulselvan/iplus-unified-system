@@ -147,7 +147,8 @@ BEGIN
   VALUES (v_proj, '03', 'MPO', current_setting('test.booked')::uuid, 5, 'draft') RETURNING id INTO v_draft;
   INSERT INTO question_papers (project_id, class_code, olympiad_code, slot_template_id, total_questions, status)
   VALUES (v_proj, '01', 'MPO', v_pslot, 5, 'ready') RETURNING id INTO v_man;
-  INSERT INTO questions (paper_id, question_number) SELECT v_man, n FROM generate_series(1, 5) n;
+  -- Q5 is added later (case j2b) to check that an INSERT re-scores.
+  INSERT INTO questions (paper_id, question_number) SELECT v_man, n FROM generate_series(1, 4) n;
 
   -- (a) unknown registration number: exact message, nothing inserted.
   v_res := results_upload(v_paper, 'omr', 't.csv',
@@ -350,11 +351,16 @@ BEGIN
   ON CONFLICT (paper_id, question_number) DO UPDATE SET correct_answer = EXCLUDED.correct_answer;
   IF (SELECT total FROM result_scores WHERE enrollment_id = v_e1) <> 4 THEN RAISE EXCEPTION 'FAIL g5: upsert back not re-scored'; END IF;
 
-  -- (g3) deleting / inserting a question re-scores (copy-from-slot upserts then trims).
-  DELETE FROM questions WHERE paper_id = v_paper AND question_number = 5;
-  IF (SELECT total FROM result_scores WHERE enrollment_id = v_e1) <> 3 THEN RAISE EXCEPTION 'FAIL g6: delete not re-scored'; END IF;
-  INSERT INTO questions (paper_id, question_number, correct_answer) VALUES (v_paper, 5, 'A');
-  IF (SELECT total FROM result_scores WHERE enrollment_id = v_e1) <> 4 THEN RAISE EXCEPTION 'FAIL g7: insert not re-scored'; END IF;
+  -- (g3) a question can't be removed from a paper that has results.
+  v_msg := NULL;
+  BEGIN DELETE FROM questions WHERE paper_id = v_paper AND question_number = 5; EXCEPTION WHEN OTHERS THEN v_msg := SQLERRM; END;
+  IF v_msg IS DISTINCT FROM 'This paper already has student results, so its questions can''t be removed. Delete those results first on the Students page.' THEN
+    RAISE EXCEPTION 'FAIL g6: %', v_msg;
+  END IF;
+  IF (SELECT count(*) FROM questions WHERE paper_id = v_paper) <> 5
+     OR (SELECT total FROM result_scores WHERE enrollment_id = v_e1) <> 4 THEN
+    RAISE EXCEPTION 'FAIL g6b: refused delete changed something';
+  END IF;
 
   -- (p) a paper with live results can't be deleted or have its shape changed.
   v_msg := NULL;
@@ -397,6 +403,12 @@ BEGIN
      OR pg_get_functiondef('public.results_correct_answer(uuid,integer,text)'::regprocedure) NOT ILIKE '%results_lock_group%'
      OR pg_get_functiondef('public.results_delete_evaluations(uuid[])'::regprocedure) NOT ILIKE '%pg_advisory_xact_lock%' THEN
     RAISE EXCEPTION 'FAIL lock: a writer does not take the group lock';
+  END IF;
+  -- (lock2) no writer takes a plain FOR UPDATE on question_papers (it would deadlock
+  -- with the FK KEY SHARE taken by a writer that already holds the group lock).
+  IF pg_get_functiondef('public.results_upload(uuid,text,text,jsonb,boolean)'::regprocedure) ~* 'question_papers[^;]*for update'
+     OR pg_get_functiondef('public.results_set_absent(uuid,uuid[],boolean)'::regprocedure) ~* 'question_papers[^;]*for update' THEN
+    RAISE EXCEPTION 'FAIL lock2: question_papers locked FOR UPDATE';
   END IF;
 
   -- Correct one answer: e1 Q3 C -> A drops a mark; audit keeps before / after.
@@ -485,6 +497,11 @@ BEGIN
   IF (SELECT marks FROM result_evaluations WHERE enrollment_id = v_e4 AND deleted_at IS NULL) <> ARRAY[1,0.5,0,1,0.5]::numeric(2,1)[] THEN
     RAISE EXCEPTION 'FAIL j4: marks not stored as given';
   END IF;
+  -- (j2b) adding a question row re-scores: Q5 as grace turns 0.5 into 1 (3.0 -> 3.5).
+  INSERT INTO questions (paper_id, question_number, is_grace) VALUES (v_man, 5, true);
+  IF (SELECT total FROM result_scores WHERE enrollment_id = v_e4) <> 3.5 THEN RAISE EXCEPTION 'FAIL g7: insert not re-scored'; END IF;
+  UPDATE questions SET is_grace = false WHERE paper_id = v_man AND question_number = 5;
+  IF (SELECT total FROM result_scores WHERE enrollment_id = v_e4) <> 3.0 THEN RAISE EXCEPTION 'FAIL g8: grace off not re-scored'; END IF;
   PERFORM results_correct_answer((SELECT id FROM result_evaluations WHERE enrollment_id = v_e4 AND deleted_at IS NULL), 3, '0.5');
   IF (SELECT percentage FROM result_scores WHERE enrollment_id = v_e4) <> 70 THEN RAISE EXCEPTION 'FAIL j5: manual correction'; END IF;
   v_msg := NULL;

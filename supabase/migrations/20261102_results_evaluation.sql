@@ -203,8 +203,13 @@ CREATE UNIQUE INDEX result_resend_flags_open_unique
 -- One lock per project x class x olympiad group. Every path that changes results
 -- takes it before writing, so two rescores of the same group (e.g. the Slot 1 and
 -- Slot 2 files uploaded at the same time) run one after the other and ranks stay
--- consistent. Lock order everywhere: question_papers row (upload only) -> group locks
--- in ascending key order -> result_evaluations rows.
+-- consistent. Lock order everywhere: group locks (ascending key order) ->
+-- question_papers row (FOR NO KEY UPDATE, upload / set_absent only) ->
+-- result_evaluations rows. Nobody takes the group lock while holding a paper or
+-- evaluation row lock (restore / correct read the row unlocked, lock the group, then
+-- re-read FOR UPDATE). FOR NO KEY UPDATE does not conflict with the FOR KEY SHARE that
+-- foreign-key checks take on question_papers when result rows are inserted, so a
+-- writer that holds the group lock can always finish its inserts.
 CREATE FUNCTION public.results_group_key(p_project_id uuid, p_class_code text, p_olympiad_code text)
   RETURNS bigint
   LANGUAGE sql IMMUTABLE PARALLEL SAFE
@@ -263,15 +268,16 @@ BEGIN
     RETURN;
   END IF;
 
+  -- Serialise with every other writer of this group. Later statements take a fresh
+  -- snapshot, so they see what the transaction we waited for committed. Taken before
+  -- the early exit so a key edit can't miss a first upload that is still running.
+  PERFORM public.results_lock_group(v_paper.project_id, v_paper.class_code, v_paper.olympiad_code);
+
   -- Nothing was ever scored against this paper (e.g. key edits on a fresh draft).
   IF NOT EXISTS (SELECT 1 FROM public.result_evaluations WHERE paper_id = p_paper_id AND deleted_at IS NULL)
      AND NOT EXISTS (SELECT 1 FROM public.result_scores WHERE paper_id = p_paper_id) THEN
     RETURN;
   END IF;
-
-  -- Serialise with every other writer of this group. Later statements take a fresh
-  -- snapshot, so they see what the transaction we waited for committed.
-  PERFORM public.results_lock_group(v_paper.project_id, v_paper.class_code, v_paper.olympiad_code);
 
   -- Answer key and grace flags as arrays indexed by question number 1..total_questions.
   SELECT array_agg(q.correct_answer ORDER BY g.n),
@@ -412,8 +418,9 @@ CREATE TRIGGER questions_results_rescore
   REFERENCING NEW TABLE AS results_new_questions OLD TABLE AS results_old_questions
   FOR EACH STATEMENT EXECUTE FUNCTION public.results_questions_rescore();
 
--- Questions added or removed (e.g. "copy from Slot 1" upserts then trims) re-score
--- their papers too. Draft papers with no results exit straight away.
+-- Questions added or removed re-score their papers ("copy from Slot 1" upserts then
+-- trims; removal is refused on a paper with results, see results_questions_guard).
+-- Draft papers with no results exit straight away.
 CREATE FUNCTION public.results_questions_rescore_rows() RETURNS trigger
   LANGUAGE plpgsql
   SECURITY DEFINER
@@ -479,6 +486,25 @@ BEGIN
   RETURN NEW;
 END
 $$;
+
+-- Removing a question from a paper with live results would score every answer to it
+-- as 0 (and flag released schools) until it is put back, so it is refused.
+CREATE FUNCTION public.results_questions_guard() RETURNS trigger
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = public
+AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.result_evaluations WHERE paper_id = OLD.paper_id AND deleted_at IS NULL) THEN
+    RAISE EXCEPTION 'This paper already has student results, so its questions can''t be removed. Delete those results first on the Students page.';
+  END IF;
+  RETURN OLD;
+END
+$$;
+
+CREATE TRIGGER questions_results_guard
+  BEFORE DELETE ON public.questions
+  FOR EACH ROW EXECUTE FUNCTION public.results_questions_guard();
 
 CREATE TRIGGER question_papers_results_guard
   BEFORE UPDATE OR DELETE ON public.question_papers
@@ -639,11 +665,14 @@ BEGIN
     RAISE EXCEPTION 'Only managers can do this.';
   END IF;
 
-  IF v_dry THEN
-    SELECT * INTO v_paper FROM public.question_papers WHERE id = p_paper_id;
-  ELSE
-    -- Serialise real uploads to the same paper.
-    SELECT * INTO v_paper FROM public.question_papers WHERE id = p_paper_id FOR UPDATE;
+  SELECT * INTO v_paper FROM public.question_papers WHERE id = p_paper_id;
+  IF FOUND AND NOT v_dry THEN
+    -- A real run holds the group lock from before validation to the end, so what it
+    -- validates is what it saves, and it can't interleave with another writer of the
+    -- group (Slot 1 and Slot 2 uploads included). Group lock first, then the paper row
+    -- (NO KEY UPDATE: blocks paper edits / soft-delete, not FK checks), then re-read.
+    PERFORM public.results_lock_group(v_paper.project_id, v_paper.class_code, v_paper.olympiad_code);
+    SELECT * INTO v_paper FROM public.question_papers WHERE id = p_paper_id FOR NO KEY UPDATE;
   END IF;
   IF NOT FOUND OR v_paper.deleted_at IS NOT NULL THEN
     RAISE EXCEPTION 'This paper no longer exists. Pick another paper.';
@@ -668,11 +697,6 @@ BEGIN
     RAISE EXCEPTION 'This file has no student rows.';
   END IF;
 
-  -- A real run holds the group lock from before validation to the end, so what it
-  -- validates is what it saves, and it can't interleave with another writer.
-  IF NOT v_dry THEN
-    PERFORM public.results_lock_group(v_paper.project_id, v_paper.class_code, v_paper.olympiad_code);
-  END IF;
 
   -- 1. Parse once.
   CREATE TEMPORARY TABLE IF NOT EXISTS results_upload_rows (
@@ -864,7 +888,12 @@ BEGIN
   END IF;
 
   -- Every student here is in this paper's group (checked above), so one lock covers it.
+  -- Then hold the paper row so it can't be soft-deleted under us, and re-check.
   PERFORM public.results_lock_group(v_paper.project_id, v_paper.class_code, v_paper.olympiad_code);
+  SELECT * INTO v_paper FROM public.question_papers WHERE id = p_paper_id FOR NO KEY UPDATE;
+  IF v_paper.deleted_at IS NOT NULL THEN
+    RAISE EXCEPTION 'This paper no longer exists. Pick another paper.';
+  END IF;
 
   BEGIN
     IF COALESCE(p_absent, true) THEN
@@ -1393,6 +1422,7 @@ REVOKE ALL ON FUNCTION
   public.results_questions_rescore(),
   public.results_questions_rescore_rows(),
   public.results_paper_guard(),
+  public.results_questions_guard(),
   public.results_upload_parse(uuid, text, jsonb),
   public.results_rescore_paper(uuid),
   public.results_rerank(uuid, text, text),
