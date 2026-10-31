@@ -69,6 +69,12 @@ AS $function$
   ))
 $function$;
 
+-- (b1b) Three old portal policies on result_students/student_reports/awards reference
+-- student_responses, which in turn has FKs to result_students — a cycle. Drop the policies first.
+DROP POLICY portal_select_result_students ON public.result_students;
+DROP POLICY portal_select_student_reports ON public.student_reports;
+DROP POLICY portal_select_awards ON public.awards;
+
 -- (b2) Drop the 11 empty leftover tables (children first). No CASCADE.
 DROP TABLE public.student_responses;
 DROP TABLE public.student_skill_analysis;
