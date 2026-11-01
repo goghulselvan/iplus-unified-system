@@ -88,6 +88,8 @@ export interface SchoolRankingInput {
 export interface AwardLetterInput {
   /** Letter date; defaults to today (pass for deterministic output) */
   date?: Date;
+  /** Olympiad year shown in the letter, e.g. 2026 */
+  year?: number;
   school: { name: string; city?: string; principal?: string };
   awardees: { name: string; className: string; olympiad: string; award: string }[];
 }

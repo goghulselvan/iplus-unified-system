@@ -15,6 +15,8 @@ import RankingsPage from "./RankingsPage";
 import SchoolResultsPage from "./SchoolResultsPage";
 import SchoolResultDetailPage from "./SchoolResultDetailPage";
 import ReleaseSendPage from "./ReleaseSendPage";
+import IntegrityPage from "./IntegrityPage";
+import AwardsPage from "./AwardsPage";
 
 const linkClass = (active: boolean) =>
   `flex items-center whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
@@ -73,7 +75,9 @@ export default function ResultsLayout() {
                 <Route path="release" element={<ReleaseSendPage />} />
                 <Route path="schools" element={<SchoolResultsPage />} />
                 <Route path="schools/:schoolId" element={<SchoolResultDetailPage />} />
-                {RESULTS_NAV.filter((n) => n.path !== "/results" && !["papers", "rankings", "schools", "upload", "students", "student", "skills", "release"].includes(n.key)).map((n) => (
+                <Route path="integrity" element={<IntegrityPage />} />
+                <Route path="awards" element={<AwardsPage />} />
+                {RESULTS_NAV.filter((n) => n.path !== "/results" && !["papers", "rankings", "schools", "upload", "students", "student", "skills", "release", "integrity", "awards"].includes(n.key)).map((n) => (
                   <Route
                     key={n.key}
                     path={n.path.replace("/results/", "") + (n.key === "schools" || n.key === "student" ? "/*" : "")}

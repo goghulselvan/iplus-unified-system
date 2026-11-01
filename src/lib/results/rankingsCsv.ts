@@ -31,7 +31,7 @@ import { formatReg } from "./regNumber";
 export function csvCell(v: string | number | null | undefined): string {
   let s = v == null ? "" : String(v);
   // Stop spreadsheets running a name like "=SUM(..)" as a formula.
-  if (typeof v === "string" && /^[=+\-@]/.test(s)) s = `'${s}`;
+  if (typeof v === "string" && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
