@@ -10,7 +10,7 @@ export interface ResultsNavItem {
   hidden?: boolean;
 }
 
-export const CURRENT_RESULTS_PHASE = 3;
+export const CURRENT_RESULTS_PHASE = 7;
 
 export const RESULTS_NAV: ResultsNavItem[] = [
   { key: "dashboard", label: "Results Dashboard", path: "/results", phase: 0, summary: "See how many papers are ready, how many students are evaluated and what is waiting for release." },

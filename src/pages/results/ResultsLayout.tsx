@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Lock } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { RESULTS_NAV, isNavLive } from "@/lib/results/nav";
+import SkillAnalysisPage from "./SkillAnalysisPage";
 import ComingSoon from "./ComingSoon";
 import ResultsDashboard from "./ResultsDashboard";
 import QuestionPapersPage, { PaperEditorRoute } from "./QuestionPapersPage";
@@ -67,9 +68,10 @@ export default function ResultsLayout() {
                 <Route path="students" element={<StudentsPage />} />
                 <Route path="students/:enrollmentId" element={<StudentResultPage />} />
                 <Route path="rankings" element={<RankingsPage />} />
+                <Route path="skills" element={<SkillAnalysisPage />} />
                 <Route path="schools" element={<SchoolResultsPage />} />
                 <Route path="schools/:schoolId" element={<SchoolResultDetailPage />} />
-                {RESULTS_NAV.filter((n) => n.path !== "/results" && !["papers", "rankings", "schools", "upload", "students", "student"].includes(n.key)).map((n) => (
+                {RESULTS_NAV.filter((n) => n.path !== "/results" && !["papers", "rankings", "schools", "upload", "students", "student", "skills"].includes(n.key)).map((n) => (
                   <Route
                     key={n.key}
                     path={n.path.replace("/results/", "") + (n.key === "schools" || n.key === "student" ? "/*" : "")}
