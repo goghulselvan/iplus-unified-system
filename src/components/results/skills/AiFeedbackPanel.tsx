@@ -11,7 +11,7 @@ import {
 import { ProgressPanel } from "@/components/results/ProgressPanel";
 import { supabase } from "@/integrations/supabase/client";
 import { collectBatch, submitFeedback, useAiBatches, type AiBatchRow } from "@/hooks/results/useSkills";
-import { feedbackStage, jobsNeedingRetry, percentOf, retryLabel, summariseBatches } from "@/lib/results/skillProgress";
+import { feedbackStage, jobsNeedingRetry, latestFailedJobs, percentOf, retryLabel, summariseBatches } from "@/lib/results/skillProgress";
 
 function useStudentNames(ids: string[]) {
   const key = ids.slice(0, 20).join(",");
@@ -50,6 +50,7 @@ export function AiFeedbackPanel({ projectId }: { projectId: string }) {
   const [failedIds, setFailedIds] = useState<Record<string, string[]>>({});
   const [saving, setSaving] = useState<{ done: number; total: number } | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [retryTick, setRetryTick] = useState(0);
   const inFlight = useRef(new Set<string>());
 
   const rows = batches ?? [];
@@ -58,11 +59,11 @@ export function AiFeedbackPanel({ projectId }: { projectId: string }) {
 
   const submit = useMutation({
     mutationFn: (schoolId: string | null) => submitFeedback(projectId, schoolId),
-    onSuccess: (r) => {
+    onSuccess: async (r) => {
       if (r.total === 0) toast.message(r.message ?? "Everyone already has up-to-date feedback.");
       else toast.success(`Claude has started writing feedback for ${r.total.toLocaleString("en-IN")} students.`);
       if (r.warning) toast.warning(r.warning);
-      void refresh();
+      await refresh();
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -78,17 +79,18 @@ export function AiFeedbackPanel({ projectId }: { projectId: string }) {
       inFlight.current.add(b.id);
       collectBatch(b.id)
         .then((r) => { setFailedIds((f) => ({ ...f, [b.id]: r.failedEnrollmentIds })); })
-        .catch((e: Error) => { inFlight.current.delete(b.id); setSaveError(e.message); })
-        .finally(() => {
+        .catch((e: Error) => { inFlight.current.delete(b.id); setSaveError(e.message); setSaving(null); })
+        .then(() => {
           setSaving((s) => (s ? { ...s, done: s.done + 1 } : s));
           void refresh();
         });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [endedKey]);
+  }, [endedKey, retryTick]);
   useEffect(() => { if (saving && saving.done >= saving.total && ended.length === 0) setSaving(null); }, [saving, ended.length]);
 
   const retries = jobsNeedingRetry(rows);
+  const failedJobs = latestFailedJobs(rows);
   const working = sum.running || sum.waitingToCollect || submit.isPending || !!saving;
 
   return (
@@ -117,11 +119,20 @@ export function AiFeedbackPanel({ projectId }: { projectId: string }) {
       {saveError && (
         <Alert variant="destructive"><AlertTitle>The feedback could not be saved yet</AlertTitle>
           <AlertDescription className="space-y-2 text-base"><p>{saveError}</p>
-            <Button type="button" variant="outline" className="min-h-11" onClick={() => { setSaveError(null); void refresh(); }}>Try saving again</Button>
+            <Button type="button" variant="outline" className="min-h-11" onClick={() => { setSaveError(null); setRetryTick((t) => t + 1); }}>Try saving again</Button>
           </AlertDescription>
         </Alert>
       )}
 
+      {failedJobs.map((job) => (
+        <Alert key={job.id} variant="destructive" className="border-amber-600 bg-amber-50 text-amber-950 [&>svg]:text-amber-950">
+          <AlertTitle className="text-base">An AI job did not finish</AlertTitle>
+          <AlertDescription className="space-y-3 text-base">
+            <p>{job.error || "Claude could not finish this job. It may have taken too long and expired."}</p>
+            <Button type="button" className="min-h-11" disabled={working} onClick={() => submit.mutate(job.school_id)}>Try again</Button>
+          </AlertDescription>
+        </Alert>
+      ))}
       {retries.map((job) => (
         <ErrorList key={job.id} job={job} busy={working} ids={failedIds[job.id] ?? job.errored_enrollment_ids ?? []} onRetry={() => submit.mutate(job.school_id)} />
       ))}
@@ -151,9 +162,9 @@ export function SchoolFeedbackButton({ projectId, schoolId }: { projectId: strin
   const open = (batches ?? []).some((b) => (b.status === "submitted" || b.status === "ended") && (b.school_id === schoolId || b.school_id === null));
   const m = useMutation({
     mutationFn: () => submitFeedback(projectId, schoolId),
-    onSuccess: (r) => {
+    onSuccess: async (r) => {
       toast.success(r.total === 0 ? (r.message ?? "Everyone here already has up-to-date feedback.") : `Claude has started writing feedback for ${r.total.toLocaleString("en-IN")} students.`);
-      void qc.invalidateQueries({ queryKey: ["results", "ai-batches", projectId] });
+      await qc.invalidateQueries({ queryKey: ["results", "ai-batches", projectId] });
     },
     onError: (e: Error) => toast.error(e.message),
   });

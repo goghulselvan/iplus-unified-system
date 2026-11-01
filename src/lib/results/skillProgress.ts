@@ -36,3 +36,16 @@ export function jobsNeedingRetry(rows: AiBatchRow[]): AiBatchRow[] {
   }
   return out;
 }
+
+/** The latest job per school (or whole project) that failed outright (expired, cancelled, could not start). */
+export function latestFailedJobs(rows: AiBatchRow[]): AiBatchRow[] {
+  const seen = new Set<string>();
+  const out: AiBatchRow[] = [];
+  for (const b of rows) { // newest first
+    const k = b.school_id ?? "all";
+    if (seen.has(k)) continue;
+    seen.add(k);
+    if (b.status === "failed") out.push(b);
+  }
+  return out;
+}

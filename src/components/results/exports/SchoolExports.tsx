@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Download, FileText, Archive, ListOrdered } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -33,7 +33,12 @@ export function SchoolExports({ projectId, school, groups }: { projectId: string
   const [busy, setBusy] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ stage: string; percent: number; detail?: string } | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
+  const [cancellable, setCancellable] = useState(false);
+  const [skipped, setSkipped] = useState<{ what: string; names: string[] } | null>(null);
   const cancel = useRef(false);
+  const mounted = useRef(true);
+  // Leaving the page stops any zip that is still being made.
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; cancel.current = true; }; }, []);
 
   const combos = groups.filter((g) => num(g.evaluated) > 0);
   const className = (code: string) => groups.find((g) => g.class_code === code)?.class_name ?? `Class ${code}`;
@@ -41,6 +46,7 @@ export function SchoolExports({ projectId, school, groups }: { projectId: string
 
   const start = async (label: string, job: () => Promise<void>) => {
     cancel.current = false;
+    setSkipped(null);
     setBusy(label);
     try {
       await job();
@@ -48,13 +54,16 @@ export function SchoolExports({ projectId, school, groups }: { projectId: string
       if (e instanceof Cancelled) toast.message("Stopped. Files already downloaded are still in your Downloads folder.");
       else toast.error(e instanceof Error ? e.message : "That did not work. Please try again.");
     } finally {
-      setBusy(null);
-      setProgress(null);
+      if (mounted.current) {
+        setBusy(null);
+        setProgress(null);
+        setCancellable(false);
+      }
     }
   };
 
   const summaryPdf = () => start("summary", async () => {
-    setProgress({ stage: "Making the school summary", percent: 10 });
+    setProgress({ stage: "Making the school summary", percent: 0 });
     const a = await fetchSchoolAnalysis(projectId, school.school_id);
     const text = a && !a.outdated
       ? [a.analysis.overview, ...(a.analysis.strengths.length ? ["Strengths:", ...a.analysis.strengths.map((s) => `- ${s}`)] : []),
@@ -111,6 +120,7 @@ export function SchoolExports({ projectId, school, groups }: { projectId: string
   const zipRun = async (rows: RankRow[], noun: string, label: string, make: (r: RankRow) => Promise<Blob>) => {
     let done = 0;
     let parts = 0;
+    setCancellable(true);
     setProgress({ stage: exportStage(0, rows.length, noun), percent: 0 });
     const inputs = rows.map((r) => ({
       name: `${fileSafe(r.student_name)} - ${r.registration_number}.pdf`,
@@ -131,17 +141,22 @@ export function SchoolExports({ projectId, school, groups }: { projectId: string
     toast.success(`Done. ${parts} zip ${parts === 1 ? "file" : "files"} downloaded. If your browser asked to allow several downloads, choose Allow.`);
   };
 
-  const scoreZip = async (rows: RankRow[]) => {
+  const scoreZip = async (allRows: RankRow[]) => {
+    let rows = allRows;
     setProgress({ stage: "Getting the answers ready", percent: 0 });
     const evals = await fetchEvaluationAnswers(rows.map((r) => r.enrollment_id));
+    const missing = rows.filter((r) => !evals.has(r.enrollment_id));
+    if (missing.length) setSkipped({ what: "had no answers on record, so no score sheet was made", names: missing.map((r) => r.student_name) });
+    rows = rows.filter((r) => evals.has(r.enrollment_id));
+    if (rows.length === 0) throw new Error("None of these students have answers on record, so no score sheets were made.");
     const qCache = new Map<string, QuestionKey[]>();
     const totals = new Map<string, GroupTotals>();
     await zipRun(rows, "score sheets", "Score sheets", async (r) => {
       const key = `${r.class_code}|${r.olympiad_code}`;
       if (!totals.has(key)) totals.set(key, await groupTotals(projectId, r.class_code, r.olympiad_code, { schoolId: school.school_id, districtKey: r.district_key, stateCode: r.state_code }));
       const t = totals.get(key)!;
-      const ev = evals.get(r.enrollment_id);
-      const questions = ev ? buildQuestionRows(await fetchPaperQuestions(ev.paper_id, qCache), ev.answers, ev.marks) : [];
+      const ev = evals.get(r.enrollment_id)!;
+      const questions = buildQuestionRows(await fetchPaperQuestions(ev.paper_id, qCache), ev.answers, ev.marks);
       const pct = num(r.percentage);
       return generateScoreSheet({
         student: studentBlock({ name: r.student_name, reg: r.registration_number, className: className(r.class_code), olympiad: r.olympiad_code, school: school.school_name ?? "" }),
@@ -154,9 +169,14 @@ export function SchoolExports({ projectId, school, groups }: { projectId: string
     });
   };
 
-  const skillZip = async (rows: RankRow[]) => {
+  const skillZip = async (allRows: RankRow[]) => {
+    let rows = allRows;
     setProgress({ stage: "Getting skills and feedback ready", percent: 0 });
     const [skills, fb] = await Promise.all([fetchSchoolSkills(projectId, school.school_id), fetchFeedback(rows.map((r) => r.enrollment_id))]);
+    const none = rows.filter((r) => !(skills.get(r.enrollment_id)?.length));
+    if (none.length) setSkipped({ what: "had no skill results, so no skill report was made", names: none.map((r) => r.student_name) });
+    rows = rows.filter((r) => skills.get(r.enrollment_id)?.length);
+    if (rows.length === 0) throw new Error("None of these students have skill results, so no skill reports were made.");
     await zipRun(rows, "skill reports", "Skill reports", (r) => {
       const f = fb.get(r.enrollment_id);
       return generateSkillReport({
@@ -183,7 +203,13 @@ export function SchoolExports({ projectId, school, groups }: { projectId: string
         {btn("Skill-report zip", Archive, () => prepare("skillZip"), noResults)}
       </div>
       {noResults && <p className="text-sm text-muted-foreground">These files are available once this school has evaluated students.</p>}
-      {busy && progress && <ProgressPanel stage={progress.stage} percent={progress.percent} detail={progress.detail} onCancel={busy === "loading" ? undefined : () => { cancel.current = true; }} />}
+      {busy && progress && <ProgressPanel stage={progress.stage} percent={progress.percent} detail={progress.detail} onCancel={cancellable ? () => { cancel.current = true; } : undefined} />}
+
+      {skipped && !busy && (
+        <p className="text-base" role="status">
+          {skipped.names.length} {skipped.names.length === 1 ? "student" : "students"} {skipped.what}: {skipped.names.slice(0, 10).join(", ")}{skipped.names.length > 10 ? ` and ${skipped.names.length - 10} more` : ""}.
+        </p>
+      )}
 
       <AlertDialog open={!!pending} onOpenChange={(o) => !o && setPending(null)}>
         <AlertDialogContent>
