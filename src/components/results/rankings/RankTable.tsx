@@ -1,4 +1,5 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { studentGrade } from "@/lib/results/grading";
 import { formatReg } from "@/lib/results/regNumber";
 import type { RankRow } from "@/hooks/results/useResultsReads";
 
@@ -38,7 +39,7 @@ export function RankTable({ rows }: { rows: RankRow[] }) {
               <TableCell>{r.state_name ?? "—"}</TableCell>
               <TableCell className="whitespace-nowrap text-right tabular-nums">{r.total} / {r.max_marks}</TableCell>
               <TableCell className="text-right tabular-nums">{r.percentage}%</TableCell>
-              <TableCell className="font-medium">{r.grade}</TableCell>
+              <TableCell className="whitespace-nowrap font-medium">{r.grade} <span className="font-normal text-muted-foreground">({studentGrade(r.percentage).label})</span></TableCell>
             </TableRow>
           ))}
         </TableBody>

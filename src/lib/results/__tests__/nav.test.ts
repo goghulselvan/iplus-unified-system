@@ -24,7 +24,7 @@ describe("RESULTS_NAV", () => {
   });
   it("only Student Result is hidden, and papers is live from phase 1", () => {
     expect(RESULTS_NAV.filter((n) => n.hidden).map((n) => n.key)).toEqual(["student"]);
-    expect(CURRENT_RESULTS_PHASE).toBeGreaterThanOrEqual(1);
+    expect(CURRENT_RESULTS_PHASE).toBe(3);
     expect(RESULTS_NAV.find((n) => n.key === "papers")!.phase).toBeLessThanOrEqual(CURRENT_RESULTS_PHASE);
   });
 });

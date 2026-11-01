@@ -11,6 +11,7 @@ import { useActiveProject } from "@/hooks/useOlympiadProjects";
 import { useClassOlympiadSummary, useSchoolStudents, useSchoolSummary } from "@/hooks/results/useResultsReads";
 import { OLYMPIAD_NAMES, type OlympiadCode } from "@/lib/results/paperRules";
 import { formatReg } from "@/lib/results/regNumber";
+import { schoolGrade, studentGrade } from "@/lib/results/grading";
 import { vsStateDiff, vsStateText } from "@/lib/results/schoolResults";
 import { VsState } from "./SchoolResultsPage";
 
@@ -69,7 +70,7 @@ export default function SchoolResultDetailPage() {
         <Tile label="Evaluated" value={school.evaluated} />
         <Tile label="Absent" value={school.absent} />
         <Tile label="Pending" value={school.pending} />
-        <Tile label="School average" value={school.avg_percentage == null ? "—" : `${school.avg_percentage}%`} sub={school.school_grade ? `Grade ${school.school_grade}` : undefined} />
+        <Tile label="School average" value={school.avg_percentage == null ? "—" : `${school.avg_percentage}%`} sub={school.school_grade && school.avg_percentage != null ? `Grade ${school.school_grade} (${schoolGrade(Number(school.avg_percentage)).label})` : undefined} />
         <Tile label="Compared with state average" value={<VsState avg={school.avg_percentage} stateAvg={school.state_avg_percentage} />} sub={diff == null ? undefined : vsStateText(diff)} />
       </div>
 
@@ -146,12 +147,12 @@ export default function SchoolResultDetailPage() {
                         <Link className="underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" to={`/results/students/${s.enrollment_id}`}>{s.student_name}</Link>
                       </TableCell>
                       <TableCell className="whitespace-nowrap tabular-nums">{formatReg(s.registration_number)}</TableCell>
-                      <TableCell>{s.class_code}</TableCell>
+                      <TableCell>{groups?.find((g) => g.class_code === s.class_code)?.class_name ?? `Class ${s.class_code}`}</TableCell>
                       <TableCell>{OLYMPIAD_NAMES[s.olympiad_code as OlympiadCode] ?? s.olympiad_code}</TableCell>
-                      <TableCell className="capitalize">{s.status}</TableCell>
+                      <TableCell>{s.status.charAt(0).toUpperCase() + s.status.slice(1)}</TableCell>
                       <TableCell className="text-right tabular-nums">{s.total ?? "—"}</TableCell>
                       <TableCell className="text-right tabular-nums">{s.percentage == null ? "—" : `${s.percentage}%`}</TableCell>
-                      <TableCell>{s.grade ?? "—"}</TableCell>
+                      <TableCell className="whitespace-nowrap">{s.grade && s.percentage != null ? `${s.grade} (${studentGrade(s.percentage).label})` : "—"}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

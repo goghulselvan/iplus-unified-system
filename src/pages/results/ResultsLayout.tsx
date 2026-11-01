@@ -63,7 +63,7 @@ export default function ResultsLayout() {
                 <Route path="rankings" element={<RankingsPage />} />
                 <Route path="schools" element={<SchoolResultsPage />} />
                 <Route path="schools/:schoolId" element={<SchoolResultDetailPage />} />
-                {RESULTS_NAV.filter((n) => n.path !== "/results" && n.key !== "papers").map((n) => (
+                {RESULTS_NAV.filter((n) => n.path !== "/results" && !["papers", "rankings", "schools", "upload", "students", "student"].includes(n.key)).map((n) => (
                   <Route
                     key={n.key}
                     path={n.path.replace("/results/", "") + (n.key === "schools" || n.key === "student" ? "/*" : "")}

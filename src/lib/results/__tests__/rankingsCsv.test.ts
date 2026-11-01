@@ -18,6 +18,12 @@ describe("rankListCsv", () => {
     expect(csv).toContain('"St. Mary, Matha School"');
     expect(csv).toContain('"The ""Best"" School"');
   });
+  it("writes the registration number with hyphens so Excel keeps it as text", () => {
+    expect(rankListCsv([row])).toContain("2-33-01-03-01-001");
+  });
+  it("neutralises formula-looking text", () => {
+    expect(rankListCsv([{ ...row, student_name: "=SUM(A1)" }])).toContain("'=SUM(A1)");
+  });
   it("leaves blank ranks empty", () => {
     expect(rankListCsv([{ ...row, rank_state: null }]).split("\r\n")[1].startsWith("1,,2,1,")).toBe(true);
   });

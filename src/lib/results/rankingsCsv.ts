@@ -25,9 +25,13 @@ export interface CoverageRowForCsv {
   pending: number;
 }
 
+import { formatReg } from "./regNumber";
+
 /** Quote a cell when it holds a comma, quote or line break. */
 export function csvCell(v: string | number | null | undefined): string {
-  const s = v == null ? "" : String(v);
+  let s = v == null ? "" : String(v);
+  // Stop spreadsheets running a name like "=SUM(..)" as a formula.
+  if (typeof v === "string" && /^[=+\-@]/.test(s)) s = `'${s}`;
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
@@ -44,7 +48,7 @@ export function rankListCsv(rows: RankRowForCsv[]): string {
     ...rows.map((r) =>
       line([
         r.rank_national, r.rank_state, r.rank_district, r.rank_school, r.student_name,
-        r.registration_number, r.school_name, r.district_name, r.state_name,
+        formatReg(r.registration_number), r.school_name, r.district_name, r.state_name,
         r.total, r.max_marks, r.percentage, r.grade,
       ]),
     ),
@@ -55,6 +59,7 @@ export const COVERAGE_CSV_HEADER = [
   "School", "State", "Class", "Olympiad", "Registered", "Evaluated", "Absent", "Pending",
 ];
 
+// TODO: replace the per-school calls behind this with the all-schools results_registered_vs_evaluated RPC when it lands.
 export function coverageCsv(rows: CoverageRowForCsv[]): string {
   return [
     line(COVERAGE_CSV_HEADER),

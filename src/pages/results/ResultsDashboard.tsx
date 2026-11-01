@@ -26,21 +26,23 @@ function Tile({ label, value, sub, to }: { label: string; value: React.ReactNode
 export default function ResultsDashboard() {
   const { data: project, isLoading: loadingProject } = useActiveProject();
   const projectId = project?.id;
-  const { data: papers, isLoading: lp } = usePapers(projectId);
+  const { data: papers, isLoading: lp, isError: papersError } = usePapers(projectId);
   const { data: slots } = useSlotTemplates(projectId);
   const { data: schools, isLoading: ls, isError } = useSchoolSummary(projectId);
-  const { data: perSlot } = useEvaluatedPerSlot(projectId, slots, papers);
+  const { data: perSlot, isError: slotError } = useEvaluatedPerSlot(projectId, slots, papers);
 
   if (loadingProject || lp || ls) return <Skeleton className="h-48 w-full" />;
   if (!project) return <Card><CardContent className="py-10 text-base">There is no active olympiad year right now.</CardContent></Card>;
-  if (isError) return <Card><CardContent className="py-10 text-base">We could not load the numbers. Please refresh and try again.</CardContent></Card>;
+  if (isError || papersError) return <Card><CardContent className="py-10 text-base">We could not load the numbers. Please refresh and try again.</CardContent></Card>;
 
   const sum = (k: "enrolled" | "evaluated" | "absent") => (schools ?? []).reduce((a, s) => a + Number(s[k] ?? 0), 0);
   const ready = (papers ?? []).filter((p) => p.status === "ready").length;
   const expected = PAPERS_PER_SLOT * Math.max(slots?.length ?? 0, 1);
   const awaiting = (schools ?? []).filter((s) => Number(s.evaluated) > 0 && !s.released).length;
   const resend = (schools ?? []).filter((s) => s.resend_flag).length;
-  const slotLine = (slots ?? []).map((s, i) => `Slot ${i + 1}: ${perSlot?.[i] ?? "…"}`).join(" · ");
+  const slotLine = slotError
+    ? "We could not count students for each slot."
+    : (slots ?? []).map((s, i) => `Slot ${i + 1}: ${perSlot?.[i] ?? "…"}`).join(" · ");
 
   return (
     <div className="space-y-4">

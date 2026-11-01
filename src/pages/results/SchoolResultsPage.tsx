@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useActiveProject } from "@/hooks/useOlympiadProjects";
 import { useSchoolSummary, type SchoolSummaryRow } from "@/hooks/results/useResultsReads";
+import { schoolGrade } from "@/lib/results/grading";
 import { vsStateDiff, vsStateText } from "@/lib/results/schoolResults";
 
 type SortKey = "name" | "state" | "enrolled" | "evaluated" | "avg" | "vs";
@@ -30,8 +31,8 @@ export function VsState({ avg, stateAvg }: { avg: number | null; stateAvg: numbe
   const cls = Math.round(d) > 0 ? "text-green-800" : Math.round(d) < 0 ? "text-amber-800" : "text-foreground";
   const sign = Math.round(d) > 0 ? "+" : Math.round(d) < 0 ? "−" : "";
   return (
-    <span className={`font-medium ${cls}`}>
-      {sign}{Math.abs(Math.round(d))}% <span className="sr-only">{vsStateText(d)}</span>
+    <span className={`font-medium ${cls}`} title={vsStateText(d)}>
+      {sign}{Math.abs(Math.round(d))}%
     </span>
   );
 }
@@ -50,6 +51,7 @@ export default function SchoolResultsPage() {
       if (x == null && y == null) return 0;
       if (x == null) return 1;
       if (y == null) return -1;
+      if (typeof x === "string" && typeof y === "string") return x.localeCompare(y) * sort.dir;
       return (x < y ? -1 : x > y ? 1 : 0) * sort.dir;
     });
   }, [data, search, sort]);
@@ -112,7 +114,7 @@ export default function SchoolResultsPage() {
                 <TableCell className="text-right tabular-nums">{s.absent}</TableCell>
                 <TableCell className="text-right tabular-nums">{s.pending}</TableCell>
                 <TableCell className="text-right tabular-nums">{s.avg_percentage == null ? "—" : `${s.avg_percentage}%`}</TableCell>
-                <TableCell>{s.school_grade ?? "—"}</TableCell>
+                <TableCell className="whitespace-nowrap">{s.avg_percentage == null || !s.school_grade ? "—" : `${s.school_grade} (${schoolGrade(Number(s.avg_percentage)).label})`}</TableCell>
                 <TableCell className="text-right"><VsState avg={s.avg_percentage} stateAvg={s.state_avg_percentage} /></TableCell>
                 <TableCell>
                   <span className="flex items-center gap-2 whitespace-nowrap">
