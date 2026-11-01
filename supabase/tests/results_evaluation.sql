@@ -1,5 +1,7 @@
 -- Test for supabase/migrations/20261102_results_evaluation.sql.
--- Run (only after the migration is applied):
+-- Run (only after BOTH 20261102_results_evaluation.sql AND 20261103_results_phase4_7.sql
+-- are applied; corrections use the 4-argument results_correct_answer with a reason, which
+-- 20261103 adds, and staff can no longer call the 3-argument one):
 --   supabase db query --linked -f supabase/tests/results_evaluation.sql
 -- Everything happens inside one transaction that is rolled back, so no data is left
 -- behind. Any failed assertion raises an exception; success ends with SELECT 'ALL PASS'.
@@ -413,7 +415,7 @@ BEGIN
 
   -- Correct one answer: e1 Q3 C -> A drops a mark; audit keeps before / after.
   SELECT id INTO v_ev1 FROM result_evaluations WHERE enrollment_id = v_e1 AND deleted_at IS NULL;
-  PERFORM results_correct_answer(v_ev1, 3, 'a');
+  PERFORM results_correct_answer(v_ev1, 3, 'a', 'Test correction');
   IF (SELECT total FROM result_scores WHERE enrollment_id = v_e1) <> 3 THEN RAISE EXCEPTION 'FAIL ca1: correction not re-scored'; END IF;
   SELECT before, after INTO v_before, v_after FROM result_audit_log
    WHERE table_name = 'result_evaluations' AND row_id = v_ev1 AND action = 'UPDATE'
@@ -422,18 +424,18 @@ BEGIN
     RAISE EXCEPTION 'FAIL ca2: audit before/after % / %', v_before->'answers', v_after->'answers';
   END IF;
   v_msg := NULL;
-  BEGIN PERFORM results_correct_answer(v_ev1, 3, 'E'); EXCEPTION WHEN OTHERS THEN v_msg := SQLERRM; END;
+  BEGIN PERFORM results_correct_answer(v_ev1, 3, 'E', 'Test correction'); EXCEPTION WHEN OTHERS THEN v_msg := SQLERRM; END;
   IF v_msg IS DISTINCT FROM 'Q3: "E" is not A, B, C or D' THEN RAISE EXCEPTION 'FAIL ca3: %', v_msg; END IF;
   v_msg := NULL;
-  BEGIN PERFORM results_correct_answer(v_ev1, 9, 'A'); EXCEPTION WHEN OTHERS THEN v_msg := SQLERRM; END;
+  BEGIN PERFORM results_correct_answer(v_ev1, 9, 'A', 'Test correction'); EXCEPTION WHEN OTHERS THEN v_msg := SQLERRM; END;
   IF v_msg IS DISTINCT FROM 'This paper has 5 questions, so there is no Q9.' THEN RAISE EXCEPTION 'FAIL ca4: %', v_msg; END IF;
-  PERFORM results_correct_answer(v_ev1, 3, 'C');   -- back to 4
-  PERFORM results_correct_answer(v_ev1, 4, '');    -- blank -> unanswered: 3
+  PERFORM results_correct_answer(v_ev1, 3, 'C', 'Test correction');   -- back to 4
+  PERFORM results_correct_answer(v_ev1, 4, '', 'Test correction');    -- blank -> unanswered: 3
   IF (SELECT answers[4] FROM result_evaluations WHERE id = v_ev1) IS NOT NULL
      OR (SELECT total FROM result_scores WHERE enrollment_id = v_e1) <> 3 THEN
     RAISE EXCEPTION 'FAIL ca5: blank correction';
   END IF;
-  PERFORM results_correct_answer(v_ev1, 4, 'D');   -- back to 4
+  PERFORM results_correct_answer(v_ev1, 4, 'D', 'Test correction');   -- back to 4
 
   -- (i) absent: no score row; the others re-rank (e1, e2 back to rank 1).
   v_n := results_set_absent(v_paper, ARRAY[v_e3], true);
@@ -502,10 +504,10 @@ BEGIN
   IF (SELECT total FROM result_scores WHERE enrollment_id = v_e4) <> 3.5 THEN RAISE EXCEPTION 'FAIL g7: insert not re-scored'; END IF;
   UPDATE questions SET is_grace = false WHERE paper_id = v_man AND question_number = 5;
   IF (SELECT total FROM result_scores WHERE enrollment_id = v_e4) <> 3.0 THEN RAISE EXCEPTION 'FAIL g8: grace off not re-scored'; END IF;
-  PERFORM results_correct_answer((SELECT id FROM result_evaluations WHERE enrollment_id = v_e4 AND deleted_at IS NULL), 3, '0.5');
+  PERFORM results_correct_answer((SELECT id FROM result_evaluations WHERE enrollment_id = v_e4 AND deleted_at IS NULL), 3, '0.5', 'Test correction');
   IF (SELECT percentage FROM result_scores WHERE enrollment_id = v_e4) <> 70 THEN RAISE EXCEPTION 'FAIL j5: manual correction'; END IF;
   v_msg := NULL;
-  BEGIN PERFORM results_correct_answer((SELECT id FROM result_evaluations WHERE enrollment_id = v_e4 AND deleted_at IS NULL), 3, 'A');
+  BEGIN PERFORM results_correct_answer((SELECT id FROM result_evaluations WHERE enrollment_id = v_e4 AND deleted_at IS NULL), 3, 'A', 'Test correction');
   EXCEPTION WHEN OTHERS THEN v_msg := SQLERRM; END;
   IF v_msg IS DISTINCT FROM 'Q3: "A" must be 0, 0.5 or 1' THEN RAISE EXCEPTION 'FAIL j6: %', v_msg; END IF;
   -- the wrong tab is refused
