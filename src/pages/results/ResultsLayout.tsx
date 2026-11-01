@@ -8,6 +8,8 @@ import ComingSoon from "./ComingSoon";
 import ResultsDashboard from "./ResultsDashboard";
 import QuestionPapersPage, { PaperEditorRoute } from "./QuestionPapersPage";
 import UploadAnswersPage from "./UploadAnswersPage";
+import StudentsPage from "./StudentsPage";
+import StudentResultPage from "./StudentResultPage";
 
 const linkClass = (active: boolean) =>
   `flex items-center whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
@@ -59,7 +61,9 @@ export default function ResultsLayout() {
                 <Route path="papers" element={<QuestionPapersPage />} />
                 <Route path="papers/:paperId" element={<PaperEditorRoute />} />
                 <Route path="upload" element={<UploadAnswersPage />} />
-                {RESULTS_NAV.filter((n) => n.path !== "/results" && n.key !== "papers" && n.key !== "upload").map((n) => (
+                <Route path="students" element={<StudentsPage />} />
+                <Route path="students/:enrollmentId" element={<StudentResultPage />} />
+                {RESULTS_NAV.filter((n) => n.path !== "/results" && n.key !== "papers" && n.key !== "upload" && n.key !== "students").map((n) => (
                   <Route
                     key={n.key}
                     path={n.path.replace("/results/", "") + (n.key === "schools" || n.key === "student" ? "/*" : "")}
