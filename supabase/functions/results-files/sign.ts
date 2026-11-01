@@ -22,14 +22,15 @@ function client(cfg: R2Config): AwsClient {
   });
 }
 
-/** Returns a presigned URL (query-signed, valid 900 s) for GET or PUT. */
+/** Returns a presigned URL (query-signed, valid 900 s unless expiresIn is given) for GET or PUT. */
 export async function presign(
   cfg: R2Config,
   method: "GET" | "PUT",
   key: string,
   contentType?: string,
+  expiresIn: number = EXPIRES_IN,
 ): Promise<string> {
-  const url = `${objectUrl(cfg, key)}?X-Amz-Expires=${EXPIRES_IN}`;
+  const url = `${objectUrl(cfg, key)}?X-Amz-Expires=${expiresIn}`;
   const headers: Record<string, string> = {};
   if (method === "PUT" && contentType) headers["Content-Type"] = contentType;
   const signed = await client(cfg).sign(url, {

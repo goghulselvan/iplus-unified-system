@@ -8,14 +8,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ProgressPanel } from "@/components/results/ProgressPanel";
 import type { ClassOlympiadRow, RankRow, SchoolSummaryRow } from "@/hooks/results/useResultsReads";
-import { fetchFeedback, fetchSchoolAnalysis, fetchSchoolSkills } from "@/hooks/results/useSkills";
-import {
-  generateScoreSheet, generateSchoolRanking, generateSchoolSummary, generateSkillReport, lossyText,
-} from "@/lib/results/pdf";
-import {
-  buildQuestionRows, fetchEvaluationAnswers, fetchPaperQuestions, fetchSchoolRankRows, fileSafe, groupTotals,
-  olympiadName, rankOf, studentBlock, type GroupTotals, type QuestionKey,
-} from "@/lib/results/pdfData";
+import { fetchFeedback, fetchSchoolAnalysis } from "@/hooks/results/useSkills";
+import { generateSchoolRanking, generateSchoolSummary, lossyText } from "@/lib/results/pdf";
+import { fetchSchoolRankRows, fileSafe, olympiadName } from "@/lib/results/pdfData";
+import { scoreSheetJob, skillReportJob, type MakeWrap, type SchoolZipContext, type ZipJob } from "@/lib/results/schoolZipInputs";
 import { streamZipParts, zipPartName } from "@/lib/results/zipParts";
 import { downloadBlob } from "@/lib/results/downloadBlob";
 import { exportStage, percentOf } from "@/lib/results/skillProgress";
@@ -117,74 +113,47 @@ export function SchoolExports({ projectId, school, groups }: { projectId: string
     downloadBlob(`${fileSafe(school.school_name ?? "School")} - School ranking.pdf`, blob);
   };
 
-  const zipRun = async (rows: RankRow[], noun: string, label: string, make: (r: RankRow) => Promise<Blob>) => {
-    let done = 0;
+  const zipRun = async (count: number, noun: string, label: string, job: ZipJob) => {
     let parts = 0;
     setCancellable(true);
-    setProgress({ stage: exportStage(0, rows.length, noun), percent: 0 });
-    const inputs = rows.map((r) => ({
-      name: `${fileSafe(r.student_name)} - ${r.registration_number}.pdf`,
-      make: async () => {
-        if (cancel.current) throw new Cancelled();
-        await yieldToUi();
-        const b = await make(r);
-        done++;
-        setProgress({ stage: exportStage(done, rows.length, noun), percent: percentOf(done, rows.length), detail: parts ? `${parts} zip ${parts === 1 ? "file" : "files"} downloaded so far` : undefined });
-        return b;
-      },
-    }));
-    await streamZipParts(inputs, {
-      count: rows.length,
+    setProgress({ stage: exportStage(0, count, noun), percent: 0 });
+    if (job.skipped) setSkipped(job.skipped);
+    await streamZipParts(job.inputs.map((i) => ({ name: i.name, make: i.make })), {
+      count: job.inputs.length,
       partName: zipPartName(school.school_name ?? "School", label),
       onPart: (p) => { parts++; downloadBlob(p.name, p.blob); },
     });
     toast.success(`Done. ${parts} zip ${parts === 1 ? "file" : "files"} downloaded. If your browser asked to allow several downloads, choose Allow.`);
   };
 
-  const scoreZip = async (allRows: RankRow[]) => {
-    let rows = allRows;
+  // Cancel check, yield to the page and progress around every PDF.
+  const wrapper = (total: { n: number }, noun: string): MakeWrap => {
+    let done = 0;
+    return async (make) => {
+      if (cancel.current) throw new Cancelled();
+      await yieldToUi();
+      const b = await make();
+      done++;
+      setProgress({ stage: exportStage(done, total.n, noun), percent: percentOf(done, total.n) });
+      return b;
+    };
+  };
+  const ctx: SchoolZipContext = { projectId, schoolId: school.school_id, schoolName: school.school_name ?? "School", className };
+
+  const scoreZip = async (rows: RankRow[]) => {
     setProgress({ stage: "Getting the answers ready", percent: 0 });
-    const evals = await fetchEvaluationAnswers(rows.map((r) => r.enrollment_id));
-    const missing = rows.filter((r) => !evals.has(r.enrollment_id));
-    if (missing.length) setSkipped({ what: "had no answers on record, so no score sheet was made", names: missing.map((r) => r.student_name) });
-    rows = rows.filter((r) => evals.has(r.enrollment_id));
-    if (rows.length === 0) throw new Error("None of these students have answers on record, so no score sheets were made.");
-    const qCache = new Map<string, QuestionKey[]>();
-    const totals = new Map<string, GroupTotals>();
-    await zipRun(rows, "score sheets", "Score sheets", async (r) => {
-      const key = `${r.class_code}|${r.olympiad_code}`;
-      if (!totals.has(key)) totals.set(key, await groupTotals(projectId, r.class_code, r.olympiad_code, { schoolId: school.school_id, districtKey: r.district_key, stateCode: r.state_code }));
-      const t = totals.get(key)!;
-      const ev = evals.get(r.enrollment_id)!;
-      const questions = buildQuestionRows(await fetchPaperQuestions(ev.paper_id, qCache), ev.answers, ev.marks);
-      const pct = num(r.percentage);
-      return generateScoreSheet({
-        student: studentBlock({ name: r.student_name, reg: r.registration_number, className: className(r.class_code), olympiad: r.olympiad_code, school: school.school_name ?? "" }),
-        score: {
-          total: num(r.total), max: num(r.max_marks), percentage: pct, grade: r.grade,
-          ranks: { school: rankOf(r.rank_school, t.school), district: rankOf(r.rank_district, t.district), state: rankOf(r.rank_state, t.state), allIndia: rankOf(r.rank_national, t.national) },
-        },
-        questions,
-      });
-    });
+    const total = { n: rows.length };
+    const job = await scoreSheetJob(ctx, rows, wrapper(total, "score sheets"));
+    total.n = job.inputs.length;
+    await zipRun(job.inputs.length, "score sheets", "Score sheets", job);
   };
 
-  const skillZip = async (allRows: RankRow[]) => {
-    let rows = allRows;
+  const skillZip = async (rows: RankRow[]) => {
     setProgress({ stage: "Getting skills and feedback ready", percent: 0 });
-    const [skills, fb] = await Promise.all([fetchSchoolSkills(projectId, school.school_id), fetchFeedback(rows.map((r) => r.enrollment_id))]);
-    const none = rows.filter((r) => !(skills.get(r.enrollment_id)?.length));
-    if (none.length) setSkipped({ what: "had no skill results, so no skill report was made", names: none.map((r) => r.student_name) });
-    rows = rows.filter((r) => skills.get(r.enrollment_id)?.length);
-    if (rows.length === 0) throw new Error("None of these students have skill results, so no skill reports were made.");
-    await zipRun(rows, "skill reports", "Skill reports", (r) => {
-      const f = fb.get(r.enrollment_id);
-      return generateSkillReport({
-        student: studentBlock({ name: r.student_name, reg: r.registration_number, className: className(r.class_code), olympiad: r.olympiad_code, school: school.school_name ?? "" }),
-        skills: skills.get(r.enrollment_id) ?? [],
-        feedback: f && !f.outdated ? f.feedback : null,
-      });
-    });
+    const total = { n: rows.length };
+    const job = await skillReportJob(ctx, rows, wrapper(total, "skill reports"));
+    total.n = job.inputs.length;
+    await zipRun(job.inputs.length, "skill reports", "Skill reports", job);
   };
 
   const disabled = !!busy;

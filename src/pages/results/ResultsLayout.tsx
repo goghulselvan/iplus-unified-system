@@ -14,6 +14,7 @@ import StudentResultPage from "./StudentResultPage";
 import RankingsPage from "./RankingsPage";
 import SchoolResultsPage from "./SchoolResultsPage";
 import SchoolResultDetailPage from "./SchoolResultDetailPage";
+import ReleaseSendPage from "./ReleaseSendPage";
 
 const linkClass = (active: boolean) =>
   `flex items-center whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
@@ -49,7 +50,7 @@ export default function ResultsLayout() {
           <div className="flex flex-col gap-6 md:flex-row">
             <nav aria-label="Results sections" className="md:w-60 md:shrink-0">
               <ul className="-mx-4 flex gap-1 overflow-x-auto px-4 pb-2 md:mx-0 md:flex-col md:overflow-visible md:px-0 md:pb-0">
-                {RESULTS_NAV.filter((n) => !n.hidden).map((n) => (
+                {RESULTS_NAV.filter((n) => !n.hidden && !(n.key === "release" && profile?.role !== "superadmin")).map((n) => (
                   <li key={n.key} className="shrink-0">
                     <NavLink to={n.path} end={n.path === "/results"} className={({ isActive }) => linkClass(isActive)}>
                       {n.label}
@@ -69,9 +70,10 @@ export default function ResultsLayout() {
                 <Route path="students/:enrollmentId" element={<StudentResultPage />} />
                 <Route path="rankings" element={<RankingsPage />} />
                 <Route path="skills" element={<SkillAnalysisPage />} />
+                <Route path="release" element={<ReleaseSendPage />} />
                 <Route path="schools" element={<SchoolResultsPage />} />
                 <Route path="schools/:schoolId" element={<SchoolResultDetailPage />} />
-                {RESULTS_NAV.filter((n) => n.path !== "/results" && !["papers", "rankings", "schools", "upload", "students", "student", "skills"].includes(n.key)).map((n) => (
+                {RESULTS_NAV.filter((n) => n.path !== "/results" && !["papers", "rankings", "schools", "upload", "students", "student", "skills", "release"].includes(n.key)).map((n) => (
                   <Route
                     key={n.key}
                     path={n.path.replace("/results/", "") + (n.key === "schools" || n.key === "student" ? "/*" : "")}
