@@ -77,7 +77,7 @@ export function UploadChecker({ paper, kind, label }: Props) {
       if (parsed.errors.length) { setPhase({ t: "errors", errors: parsed.errors, more: 0 }); return; }
       setPhase({ t: "checking", pct: 40, count: parsed.rows.length });
       const result: UploadCheckResult = await rpc.check({ paperId: paper.id, kind, fileName: file.name, rows: parsed.rows });
-      if (!result.ok) { setPhase({ t: "errors", errors: result.errors, more: result.moreErrors }); return; }
+      if (result.ok === false) { setPhase({ t: "errors", errors: result.errors, more: result.moreErrors }); return; }
       setPhase({ t: "ready", result, rows: parsed.rows, fileName: file.name });
     } catch (e) {
       setPhase({ t: "errors", errors: [{ row: 0, message: (e as Error).message }], more: 0 });
@@ -91,7 +91,7 @@ export function UploadChecker({ paper, kind, label }: Props) {
     setPhase({ t: "saving", pct: 10 });
     try {
       const r = await rpc.save({ paperId: paper.id, kind, fileName, rows });
-      if (!r.ok) { setPhase({ t: "errors", errors: r.errors, more: r.moreErrors }); return; }
+      if (r.ok === false) { setPhase({ t: "errors", errors: r.errors, more: r.moreErrors }); return; }
       toast.success(`${r.saved} results saved. Ranks updated.`);
       setPhase({ t: "idle" });
     } catch (e) {
