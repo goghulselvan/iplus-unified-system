@@ -25,7 +25,7 @@ export function CorrectDialog({ open, onOpenChange, evaluationId, question, curr
 
   const save = async () => {
     try {
-      await correct.mutateAsync({ evaluationId, question, value });
+      await correct.mutateAsync({ evaluationId, question, value, reason });
       toast.success(`Q${question} corrected. Score and ranks updated.`);
       onOpenChange(false);
     } catch (e) { setError((e as Error).message); }

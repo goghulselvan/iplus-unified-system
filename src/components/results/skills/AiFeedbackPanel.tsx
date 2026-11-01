@@ -58,7 +58,7 @@ export function AiFeedbackPanel({ projectId }: { projectId: string }) {
   const refresh = () => qc.invalidateQueries({ queryKey: ["results", "ai-batches", projectId] });
 
   const submit = useMutation({
-    mutationFn: (schoolId: string | null) => submitFeedback(projectId, schoolId),
+    mutationFn: (v: { schoolId: string | null; enrollmentIds?: string[] }) => submitFeedback(projectId, v.schoolId, v.enrollmentIds),
     onSuccess: async (r) => {
       if (r.total === 0) toast.message(r.message ?? "Everyone already has up-to-date feedback.");
       else toast.success(`Claude has started writing feedback for ${r.total.toLocaleString("en-IN")} students.`);
@@ -129,12 +129,12 @@ export function AiFeedbackPanel({ projectId }: { projectId: string }) {
           <AlertTitle className="text-base">An AI job did not finish</AlertTitle>
           <AlertDescription className="space-y-3 text-base">
             <p>{job.error || "Claude could not finish this job. It may have taken too long and expired."}</p>
-            <Button type="button" className="min-h-11" disabled={working} onClick={() => submit.mutate(job.school_id)}>Try again</Button>
+            <Button type="button" className="min-h-11" disabled={working} onClick={() => submit.mutate({ schoolId: job.school_id })}>Try again</Button>
           </AlertDescription>
         </Alert>
       ))}
       {retries.map((job) => (
-        <ErrorList key={job.id} job={job} busy={working} ids={failedIds[job.id] ?? job.errored_enrollment_ids ?? []} onRetry={() => submit.mutate(job.school_id)} />
+        <ErrorList key={job.id} job={job} busy={working} ids={failedIds[job.id] ?? job.errored_enrollment_ids ?? []} onRetry={() => submit.mutate({ schoolId: job.school_id, enrollmentIds: failedIds[job.id] ?? job.errored_enrollment_ids ?? [] })} />
       ))}
 
       <AlertDialog open={confirm} onOpenChange={setConfirm}>
@@ -147,7 +147,7 @@ export function AiFeedbackPanel({ projectId }: { projectId: string }) {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="min-h-11">Cancel</AlertDialogCancel>
-            <AlertDialogAction className="min-h-11" onClick={() => submit.mutate(null)}>Start writing</AlertDialogAction>
+            <AlertDialogAction className="min-h-11" onClick={() => submit.mutate({ schoolId: null })}>Start writing</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

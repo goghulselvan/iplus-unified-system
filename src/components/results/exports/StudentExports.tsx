@@ -12,7 +12,7 @@ import { downloadBlob } from "@/lib/results/downloadBlob";
 
 export function StudentExports({ data, className }: { data: StudentResult; className: string }) {
   const [busy, setBusy] = useState<"score" | "skill" | null>(null);
-  const { data: fb } = useStudentFeedback(data.enrollmentId);
+  const { data: fb } = useStudentFeedback(data.enrollmentId, data.paper?.project_id, data.schoolId);
   const score = data.score;
   if (!score || !data.evaluation) return null;
 

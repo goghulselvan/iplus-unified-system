@@ -1,11 +1,11 @@
 import { assert, assertEquals, assertFalse } from "jsr:@std/assert@1";
 import {
   batchPercent, buildBatchRequest, buildFeedbackSchema, buildSchoolRequest, chunk, parseResultLine,
-  readLines, stripName, SCHOOL_SCHEMA, validateFeedback,
+  groupBulkRows, packCustomId, unpackCustomId, readLines, stripName, SCHOOL_SCHEMA, validateFeedback,
 } from "./prompt.ts";
 
 const input = {
-  enrollmentId: "11111111-2222-3333-4444-555555555555",
+  enrollmentId: "11111111-2222-3333-4444-555555555555", basisHash: "0123456789abcdef0123456789abcdef",
   classCode: "04", olympiadCode: "MPO", grade: "B+",
   skills: [{ skill: "Fractions", correct: 3, total: 4 }, { skill: "Geometry", correct: 1.5, total: 3 }],
 };
@@ -20,7 +20,9 @@ Deno.test("request has only class, olympiad, grade label and skill counts", () =
   for (const bad of ["Arun", "Kumar", "123456789012", "Greenfield", "student_name", "registrationNumber", "schoolName"]) {
     assertFalse(s.toLowerCase().includes(bad.toLowerCase()), bad);
   }
-  assertEquals(req.custom_id, input.enrollmentId);
+  assertEquals(req.custom_id, "11111111222233334444555555555555" + "0123456789abcdef0123456789abcdef");
+  assertEquals(req.custom_id.length, 64);
+  assertEquals(unpackCustomId(req.custom_id), { enrollmentId: input.enrollmentId, basisHash: input.basisHash });
   const p = req.params as Record<string, any>;
   assertEquals(p.model, "claude-haiku-5-5");
   assertEquals(p.max_tokens, 2000);
@@ -99,4 +101,19 @@ Deno.test("percent and chunk", () => {
   assertEquals(batchPercent(0, 0), 0);
   assertEquals(chunk([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]]);
   assertEquals(chunk(Array.from({ length: 25000 }, (_, i) => i), 10000).map((c) => c.length), [10000, 10000, 5000]);
+});
+
+Deno.test("custom_id unpack rejects junk", () => {
+  assertEquals(unpackCustomId("e1"), null);
+  assertEquals(unpackCustomId("z".repeat(64)), null);
+  assertEquals(packCustomId("11111111-2222-3333-4444-555555555555", "AB".repeat(16)).length, 64);
+});
+
+Deno.test("groupBulkRows groups per student, keeps hash, honours the retry filter", () => {
+  const r = (e: string, skill: string) => ({ enrollment_id: e, class_code: "04", olympiad_code: "MPO", grade: "A", skill, correct: "2.5", total: 3, basis_hash: "h" + e });
+  const rows = [r("a", "S1"), r("a", "S2"), r("b", "S1"), { ...r("c", "S1"), total: 0 }];
+  const all = groupBulkRows(rows);
+  assertEquals(all.map((x) => [x.enrollmentId, x.skills.length, x.basisHash]), [["a", 2, "ha"], ["b", 1, "hb"]]);
+  assertEquals(all[0].skills[0].correct, 2.5);
+  assertEquals(groupBulkRows(rows, new Set(["b"])).map((x) => x.enrollmentId), ["b"]);
 });

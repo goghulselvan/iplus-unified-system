@@ -56,7 +56,7 @@ export async function scoreSheetJob(ctx: SchoolZipContext, allRows: RankRow[], w
 }
 
 export async function skillReportJob(ctx: SchoolZipContext, allRows: RankRow[], wrap: MakeWrap = (m) => m()): Promise<ZipJob> {
-  const [skills, fb] = await Promise.all([fetchSchoolSkills(ctx.projectId, ctx.schoolId), fetchFeedback(allRows.map((r) => r.enrollment_id))]);
+  const [skills, fb] = await Promise.all([fetchSchoolSkills(ctx.projectId, ctx.schoolId), fetchFeedback(allRows.map((r) => r.enrollment_id), { projectId: ctx.projectId, schoolId: ctx.schoolId })]);
   const none = allRows.filter((r) => !(skills.get(r.enrollment_id)?.length));
   const rows = allRows.filter((r) => skills.get(r.enrollment_id)?.length);
   if (rows.length === 0) throw new NothingToMake("None of these students have skill results, so no skill reports were made.");

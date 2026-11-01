@@ -2,9 +2,9 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.55.0";
 import { OLYMPIAD_NAMES } from "../analyze-paper/prompt.ts";
 import {
-  ANTHROPIC_VERSION, batchPercent, buildBatchRequest, buildSchoolRequest, chunk, classDisplayName,
-  FeedbackInput, MAX_BATCH_REQUESTS, MODEL, parseResultLine, readLines, SchoolInputCombo,
-  stripFeedbackName, validateFeedback,
+  ANTHROPIC_VERSION, batchPercent, BulkSkillRow, buildBatchRequest, buildSchoolRequest, classDisplayName,
+  groupBulkRows, MAX_BATCH_REQUESTS, MODEL, parseResultLine, readLines, SchoolInputCombo,
+  stripFeedbackName, unpackCustomId, validateFeedback,
 } from "./prompt.ts";
 
 const corsHeaders = {
@@ -23,7 +23,6 @@ class Fail extends Error {
 
 const API = "https://api.anthropic.com/v1";
 const PAGE = 1000;
-const SKILL_RPC_CONCURRENCY = 25;
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -42,18 +41,6 @@ const adminClient = (): Db => {
   return createClient(Deno.env.get("SUPABASE_URL")!, key, { auth: { persistSession: false } });
 };
 
-async function mapPool<T, R>(items: T[], n: number, fn: (x: T) => Promise<R>): Promise<R[]> {
-  const out: R[] = new Array(items.length);
-  let next = 0;
-  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
-    while (next < items.length) {
-      const i = next++;
-      out[i] = await fn(items[i]);
-    }
-  }));
-  return out;
-}
-
 async function pagedScores(db: Db, projectId: string, schoolId: string | null, cols: string) {
   // deno-lint-ignore no-explicit-any
   const rows: any[] = [];
@@ -70,70 +57,62 @@ async function pagedScores(db: Db, projectId: string, schoolId: string | null, c
 
 // ---- submit ---------------------------------------------------------------
 
-async function submit(db: Db, projectId: string, schoolId: string | null) {
+const RUNNING_MSG = "Feedback is already being written for this school. Please wait for it to finish.";
+
+async function submit(db: Db, projectId: string, schoolId: string | null, only: Set<string> | null) {
   const headers = apiHeaders();
-  const scores = await pagedScores(db, projectId, schoolId, "enrollment_id, class_code, olympiad_code, grade, school_id");
 
-  // Skip students whose feedback is already fresh.
-  const fresh = new Set<string>();
-  for (const ids of chunk(scores.map((s) => s.enrollment_id as string), 200)) {
-    const { data, error } = await db.from("result_feedback").select("enrollment_id, outdated").in("enrollment_id", ids);
-    if (error) throw new Fail(502, "We could not check existing feedback. Please try again.");
-    for (const r of data ?? []) if (r.outdated !== true) fresh.add(r.enrollment_id);
-  }
-  const todo = scores.filter((s) => !fresh.has(s.enrollment_id));
-  if (todo.length === 0) return { batches: [], total: 0, skipped: scores.length, message: "Everyone already has up-to-date feedback." };
-
-  // Per-student skills (correct/total only).
-  let noSkills = 0;
-  const inputs = (await mapPool(todo, SKILL_RPC_CONCURRENCY, async (s): Promise<FeedbackInput | null> => {
-    const { data, error } = await db.rpc("results_student_skills", { p_enrollment_id: s.enrollment_id });
+  // ONE bulk call (paged because PostgREST caps rows per response): only students with no
+  // fresh feedback, each row carrying the student's basis_hash.
+  const rows: BulkSkillRow[] = [];
+  for (let from = 0;; from += PAGE) {
+    const { data, error } = await db
+      .rpc("results_bulk_student_skills", { p_project_id: projectId, p_school_id: schoolId, p_only_needing_feedback: true })
+      .range(from, from + PAGE - 1);
     if (error) throw new Fail(502, "We could not work out the skills. Please try again.");
-    // deno-lint-ignore no-explicit-any
-    const skills = (data ?? []).filter((r: any) => Number(r.total) > 0)
-      // deno-lint-ignore no-explicit-any
-      .map((r: any) => ({ skill: String(r.skill), correct: Number(r.correct), total: Number(r.total) }));
-    if (skills.length === 0) {
-      noSkills++;
-      return null;
-    }
-    return { enrollmentId: s.enrollment_id, classCode: s.class_code, olympiadCode: s.olympiad_code, grade: s.grade, skills };
-  })).filter((x): x is FeedbackInput => x !== null);
-  if (inputs.length === 0) throw new Fail(422, "None of these students have skill results to write about yet.");
+    rows.push(...(data ?? []));
+    if ((data ?? []).length < PAGE) break;
+  }
+  const all = groupBulkRows(rows, only);
+  if (all.length === 0) {
+    return { batches: [], total: 0, message: "Everyone already has up-to-date feedback." };
+  }
+  // The database allows ONE running batch per project x school, so one call sends at most
+  // 10,000 students; the rest are sent by clicking again once this batch is saved.
+  const inputs = all.slice(0, MAX_BATCH_REQUESTS);
+  const remaining = all.length - inputs.length;
 
   const admin = adminClient();
-  const batches: { id: string; total: number }[] = [];
-  let failedAt: number | null = null;
-  for (const part of chunk(inputs, MAX_BATCH_REQUESTS)) {
-    let anthropicId: string;
-    try {
-      const res = await fetch(`${API}/messages/batches`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ requests: part.map(buildBatchRequest) }),
-      });
-      if (!res.ok) throw new Error(`AI ${res.status}`);
-      anthropicId = (await res.json()).id;
-    } catch {
-      failedAt = batches.reduce((n, b) => n + b.total, 0);
-      break;
-    }
-    const { data, error } = await admin.from("result_ai_batches").insert({
-      project_id: projectId, school_id: schoolId, kind: "student_feedback",
-      anthropic_batch_id: anthropicId, status: "submitted", total: part.length, succeeded: 0, errored: 0,
-    }).select("id").single();
-    if (error) throw new Fail(502, "The AI job was started but we could not record it. Please contact the administrator.");
-    batches.push({ id: data.id, total: part.length });
+  // Reserve the slot first so a double click never pays for the same students twice.
+  const { data: row, error: insErr } = await admin.from("result_ai_batches").insert({
+    project_id: projectId, school_id: schoolId, kind: "student_feedback",
+    status: "submitted", total: inputs.length, succeeded: 0, errored: 0,
+  }).select("id").single();
+  if (insErr) {
+    if (insErr.code === "23505") throw new Fail(409, RUNNING_MSG);
+    throw new Fail(502, "We could not start the AI job. Please try again.");
   }
-  if (batches.length === 0) throw new Fail(502, "The AI could not be reached. Please try again in a minute.");
-  return {
-    batches: batches.map((b) => b.id),
-    batchId: batches[0].id,
-    total: batches.reduce((n, b) => n + b.total, 0),
-    skipped: scores.length - todo.length,
-    withoutSkills: noSkills,
-    ...(failedAt !== null ? { warning: `Only the first ${failedAt} students were sent. Please click again to send the rest.` } : {}),
+  const markFailed = async (why: string) => {
+    try {
+      await admin.from("result_ai_batches").update({ status: "failed", error: why }).eq("id", row.id);
+    } catch { /* best effort */ }
   };
+  try {
+    const res = await fetch(`${API}/messages/batches`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ requests: inputs.map(buildBatchRequest) }),
+    });
+    if (!res.ok) throw new Error(`AI ${res.status}`);
+    const anthropicId = (await res.json()).id;
+    const { error } = await admin.from("result_ai_batches").update({ anthropic_batch_id: anthropicId }).eq("id", row.id);
+    if (error) throw new Error("save");
+  } catch {
+    await markFailed("The AI job could not be started.");
+    throw new Fail(502, "The AI could not be reached. Please try again in a minute.");
+  }
+  return { batches: [row.id], batchId: row.id, total: inputs.length, ...(remaining > 0 ? { remaining } : {}),
+    ...(remaining > 0 ? { warning: `${remaining} more students are waiting. Click again once this job has finished.` } : {}) };
 }
 
 // ---- status / collect -----------------------------------------------------
@@ -200,16 +179,15 @@ async function collect(db: Db, batchId: unknown) {
   if (!res.ok || !res.body) throw new Fail(502, "We could not download the AI results. Please try again in a minute.");
 
   const admin = adminClient();
-  const failed: string[] = [];
+  const failed = new Set<string>();
   let saved = 0;
-  // deno-lint-ignore no-explicit-any
-  let pending: { customId: string; text: string; model: string | null }[] = [];
+  let pending: { enrollmentId: string; basisHash: string; text: string; model: string | null }[] = [];
 
   const flush = async () => {
     if (pending.length === 0) return;
     const batch = pending;
     pending = [];
-    const names = await namesFor(db, batch.map((p) => p.customId));
+    const names = await namesFor(db, batch.map((p) => p.enrollmentId));
     const rows = [];
     for (const p of batch) {
       let fb = null;
@@ -217,12 +195,13 @@ async function collect(db: Db, batchId: unknown) {
         fb = validateFeedback(JSON.parse(p.text));
       } catch { /* unusable */ }
       if (!fb) {
-        failed.push(p.customId);
+        failed.add(p.enrollmentId);
         continue;
       }
       rows.push({
-        enrollment_id: p.customId,
-        feedback: stripFeedbackName(fb, names.get(p.customId) ?? ""),
+        enrollment_id: p.enrollmentId,
+        feedback: stripFeedbackName(fb, names.get(p.enrollmentId) ?? ""),
+        basis_hash: p.basisHash,
         model: p.model ?? MODEL,
         batch_id: row.id,
         outdated: false,
@@ -238,21 +217,24 @@ async function collect(db: Db, batchId: unknown) {
 
   for await (const line of readLines(res.body)) {
     const r = parseResultLine(line);
-    if (!r) continue;
+    if (!r || r.kind === "invalid") continue;
+    const id = unpackCustomId(r.customId);
+    if (!id) continue;
     if (r.kind === "succeeded") {
-      pending.push(r);
+      pending.push({ ...id, text: r.text, model: r.model });
       if (pending.length >= 200) await flush();
-    } else if (r.kind === "failed") {
-      failed.push(r.customId);
+    } else {
+      failed.add(id.enrollmentId);
     }
   }
   await flush();
 
   const { error } = await admin.from("result_ai_batches").update({
-    status: "collected", collected_at: new Date().toISOString(), succeeded: saved, errored: failed.length,
+    status: "collected", collected_at: new Date().toISOString(), succeeded: saved, errored: failed.size,
+    errored_enrollment_ids: [...failed],
   }).eq("id", row.id);
   if (error) throw new Fail(502, "The feedback was saved but the job could not be marked done. Please collect again (it is safe).");
-  return { saved, failedEnrollmentIds: failed };
+  return { saved, failedEnrollmentIds: [...failed] };
 }
 
 // ---- school analysis ------------------------------------------------------
@@ -349,7 +331,7 @@ serve(async (req: Request): Promise<Response> => {
     if (roleError) return json({ error: "We could not check your permissions. Please sign in again." }, 401);
     if (allowed !== true) return json({ error: "You don't have permission to write feedback." }, 403);
 
-    let body: { action?: unknown; projectId?: unknown; schoolId?: unknown; batchId?: unknown };
+    let body: { action?: unknown; projectId?: unknown; schoolId?: unknown; batchId?: unknown; enrollmentIds?: unknown };
     try {
       body = await req.json();
     } catch {
@@ -361,7 +343,14 @@ serve(async (req: Request): Promise<Response> => {
       case "submit": {
         if (!uuid(body.projectId)) return json({ error: "Please choose a project." }, 422);
         if (body.schoolId != null && !uuid(body.schoolId)) return json({ error: "Please choose a valid school." }, 422);
-        return json(await submit(db, body.projectId as string, (body.schoolId as string | null | undefined) ?? null));
+        let only: Set<string> | null = null;
+        if (body.enrollmentIds != null) {
+          if (!Array.isArray(body.enrollmentIds) || !body.enrollmentIds.every(uuid)) {
+            return json({ error: "The list of students was not valid." }, 422);
+          }
+          only = new Set((body.enrollmentIds as string[]).map((x) => x.toLowerCase()));
+        }
+        return json(await submit(db, body.projectId as string, (body.schoolId as string | null | undefined) ?? null, only));
       }
       case "status":
         return json(await status(db, body.batchId));

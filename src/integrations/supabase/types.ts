@@ -7813,6 +7813,7 @@ export type Database = {
         Args: {
           p_evaluation_id: string
           p_question_number: number
+          p_reason?: string
           p_value: string
         }
         Returns: undefined

@@ -17,6 +17,7 @@ vi.mock("@/hooks/results/usePapers", () => ({
   useClasses: () => ({ data: [{ code: "01", display_name: "Class 1" }] }),
   useSlotTemplates: () => ({ data: [{ id: "s1" }, { id: "s2" }] }),
 }));
+const correctMock = vi.hoisted(() => vi.fn());
 vi.mock("@/hooks/results/useEvaluations", () => ({
   PAGE_SIZE: 50,
   useStudentList: () => ({ data: { rows: [row("e1", "Asha"), row("e2", "Bala")], total: 2 }, isLoading: false, isError: false }),
@@ -24,7 +25,7 @@ vi.mock("@/hooks/results/useEvaluations", () => ({
   useRestoreResult: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useSetAbsent: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useDeleteResults: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useCorrectAnswer: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useCorrectAnswer: () => ({ mutateAsync: correctMock, isPending: false }),
   useResultHistory: () => ({ data: [], isLoading: false, isError: false }),
   findPapersForStudents: vi.fn(async () => [{ id: "p1", slot_template_id: "s1" }]),
   bookedSlotFor: vi.fn(async () => "s1"),
@@ -73,5 +74,7 @@ describe("Students pages", () => {
     expect(save.disabled).toBe(true); // value unchanged
     await user.selectOptions(screen.getByLabelText(/New answer/), "B");
     expect(save.disabled).toBe(false);
+    await user.click(save);
+    expect(correctMock).toHaveBeenCalledWith({ evaluationId: "ev1", question: 3, value: "B", reason: "Operator mis-keyed it" });
   });
 });

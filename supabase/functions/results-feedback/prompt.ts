@@ -89,6 +89,7 @@ const fmt = (n: number) => String(Math.round(n * 10) / 10);
 
 export interface FeedbackInput {
   enrollmentId: string;
+  basisHash: string; // md5 from results_bulk_student_skills; travels in custom_id, never in the prompt
   classCode: string;
   olympiadCode: string;
   grade: string;
@@ -108,9 +109,44 @@ export function userText(i: FeedbackInput): string {
   ].join("\n");
 }
 
+// custom_id must be <= 64 chars of [A-Za-z0-9_-]. We pack the enrolment id (32 hex, dashes
+// removed) and its basis hash (32 hex) into exactly 64 chars, so the hash the feedback was
+// written from survives to collect time without any extra storage.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export function packCustomId(enrollmentId: string, basisHash: string): string {
+  return enrollmentId.replace(/-/g, "").toLowerCase() + basisHash.toLowerCase();
+}
+export function unpackCustomId(id: string): { enrollmentId: string; basisHash: string } | null {
+  if (!/^[0-9a-f]{64}$/.test(id)) return null;
+  const h = id.slice(0, 32);
+  const e = `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+  return UUID_RE.test(e) ? { enrollmentId: e, basisHash: id.slice(32) } : null;
+}
+
+export interface BulkSkillRow {
+  enrollment_id: string; class_code: string; olympiad_code: string; grade: string;
+  skill: string; correct: number | string; total: number | string; basis_hash: string;
+}
+// Groups the bulk RPC rows (one per student x skill) into one input per student.
+export function groupBulkRows(rows: BulkSkillRow[], only?: Set<string> | null): FeedbackInput[] {
+  const m = new Map<string, FeedbackInput>();
+  for (const r of rows) {
+    if (only && !only.has(r.enrollment_id)) continue;
+    const total = Number(r.total);
+    if (!(total > 0)) continue;
+    let i = m.get(r.enrollment_id);
+    if (!i) {
+      i = { enrollmentId: r.enrollment_id, basisHash: r.basis_hash, classCode: r.class_code, olympiadCode: r.olympiad_code, grade: r.grade, skills: [] };
+      m.set(r.enrollment_id, i);
+    }
+    i.skills.push({ skill: String(r.skill), correct: Number(r.correct), total });
+  }
+  return [...m.values()];
+}
+
 export function buildBatchRequest(i: FeedbackInput): { custom_id: string; params: Record<string, unknown> } {
   return {
-    custom_id: i.enrollmentId,
+    custom_id: packCustomId(i.enrollmentId, i.basisHash),
     params: {
       model: MODEL,
       max_tokens: 2000,

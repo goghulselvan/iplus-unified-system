@@ -188,7 +188,6 @@ function RulesTab({ projectId }: { projectId: string }) {
               </div>
               <div><Label htmlFor="r-order" className="text-sm">Order (1 is checked first)</Label>
                 <Input id="r-order" type="number" className="h-11 text-base" value={edit.sort_order} onChange={(e) => setEdit({ ...edit, sort_order: e.target.value === "" ? NaN : Number(e.target.value) })} /></div>
-              {edit.id && <p className="text-sm text-muted-foreground">If you rename this award, awards you removed earlier under the old name come back the next time you allot awards.</p>}
               {valueProblem && <p className="text-sm text-red-700" role="alert">{valueProblem}</p>}
             </div>
           )}

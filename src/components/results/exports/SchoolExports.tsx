@@ -91,7 +91,7 @@ export function SchoolExports({ projectId, school, groups }: { projectId: string
     const lossy = rows.filter((r) => lossyText(r.student_name)).map((r) => r.student_name);
     let outdated = 0;
     if (kind === "skillZip") {
-      const fb = await fetchFeedback(rows.map((r) => r.enrollment_id));
+      const fb = await fetchFeedback(rows.map((r) => r.enrollment_id), { projectId, schoolId: school.school_id });
       outdated = [...fb.values()].filter((f) => f.outdated).length;
     }
     if (lossy.length > 0 || outdated > 0) { setPending({ kind, rows, lossy, outdated }); return; }

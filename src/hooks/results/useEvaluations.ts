@@ -157,9 +157,9 @@ export const useRestoreResult = () =>
   });
 
 export const useCorrectAnswer = () =>
-  useResultMutation(async (v: { evaluationId: string; question: number; value: string }) => {
+  useResultMutation(async (v: { evaluationId: string; question: number; value: string; reason: string }) => {
     const { error } = await supabase.rpc("results_correct_answer", {
-      p_evaluation_id: v.evaluationId, p_question_number: v.question, p_value: v.value,
+      p_evaluation_id: v.evaluationId, p_question_number: v.question, p_value: v.value, p_reason: v.reason.trim(),
     });
     if (error) fail(error);
   });
