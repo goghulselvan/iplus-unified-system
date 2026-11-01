@@ -1393,7 +1393,7 @@ BEGIN
     RAISE EXCEPTION 'Only managers can do this.';
   END IF;
   BEGIN
-    UPDATE public.result_awards SET removed = false WHERE id = p_award_id;
+    UPDATE public.result_awards SET removed = false, removed_note = NULL, removed_by = NULL, removed_at = NULL WHERE id = p_award_id;
     IF NOT FOUND THEN
       RAISE EXCEPTION 'This award no longer exists.';
     END IF;
