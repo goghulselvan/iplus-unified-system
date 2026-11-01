@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -38,13 +37,18 @@ export function CorrectDialog({ open, onOpenChange, evaluationId, question, curr
         <DialogHeader>
           <DialogTitle>Correct Q{question}</DialogTitle>
           <DialogDescription>
-            {kind === "omr" ? "Type A, B, C or D. Leave it empty for not answered." : "Type 0, 0.5 or 1."} The score and ranks are recalculated straight away.
+            {kind === "omr" ? "Pick A, B, C or D, or Not answered." : "Pick 0, 0.5 or 1."} The score and ranks are recalculated straight away.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="new-value" className="text-sm">New {kind === "omr" ? "answer" : "mark"}</Label>
-            <Input id="new-value" className="h-11 text-base" value={value} onChange={(e) => setValue(e.target.value)} maxLength={3} />
+            <select id="new-value" value={value} onChange={(e) => setValue(e.target.value)}
+              className="h-11 w-full rounded-md border border-input bg-background px-3 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              {(kind === "omr" ? ["A", "B", "C", "D", ""] : ["0", "0.5", "1"]).map((o) => (
+                <option key={o} value={o}>{o === "" ? "Not answered" : o}</option>
+              ))}
+            </select>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="reason" className="text-sm">Why are you changing this? (required)</Label>
@@ -54,7 +58,7 @@ export function CorrectDialog({ open, onOpenChange, evaluationId, question, curr
         </div>
         <DialogFooter className="gap-2">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="min-h-11">Cancel</Button>
-          <Button type="button" onClick={save} disabled={!reason.trim() || correct.isPending} className="min-h-11">
+          <Button type="button" onClick={save} disabled={!reason.trim() || value === current || correct.isPending} className="min-h-11">
             {correct.isPending ? "Saving" : "Save correction"}
           </Button>
         </DialogFooter>

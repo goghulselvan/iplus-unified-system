@@ -40,9 +40,9 @@ export function AnswerReview({ result }: { result: StudentResult }) {
                 <TableCell>{r.v === null ? "–" : String(r.v)}</TableCell>
                 <TableCell>{r.q?.is_grace ? "Grace" : kind === "omr" ? r.q?.correct_answer ?? "–" : "1"}</TableCell>
                 <TableCell>
-                  {r.outcome === "right" && <span className="inline-flex items-center gap-1 text-green-800"><Check className="h-4 w-4" aria-hidden="true" /><span className="sr-only">Correct</span><span aria-hidden="true">✓</span></span>}
+                  {r.outcome === "right" && <span className="inline-flex items-center gap-1 text-green-800"><Check className="h-4 w-4" aria-hidden="true" /><span className="sr-only">Correct</span></span>}
                   {r.outcome === "half" && <span className="font-medium text-amber-800"><span className="sr-only">Half mark</span><span aria-hidden="true">½</span></span>}
-                  {r.outcome === "wrong" && <span className="inline-flex items-center gap-1 text-red-800"><X className="h-4 w-4" aria-hidden="true" /><span className="sr-only">Wrong</span><span aria-hidden="true">✗</span></span>}
+                  {r.outcome === "wrong" && <span className="inline-flex items-center gap-1 text-red-800"><X className="h-4 w-4" aria-hidden="true" /><span className="sr-only">Wrong</span></span>}
                 </TableCell>
                 <TableCell>{r.q?.skill_category ?? "–"}</TableCell>
                 <TableCell className="text-right">

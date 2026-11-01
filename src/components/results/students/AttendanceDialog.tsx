@@ -24,13 +24,14 @@ interface Props {
   rows: StudentListRow[];
   projectId: string;
   slots: SlotTemplate[];
+  classNames?: Record<string, string>;
   onDone: () => void;
 }
 
 const selectClass =
   "h-11 w-full rounded-md border border-input bg-background px-3 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
-export function AttendanceDialog({ open, onOpenChange, mode, rows, projectId, slots, onDone }: Props) {
+export function AttendanceDialog({ open, onOpenChange, mode, rows, projectId, slots, classNames = {}, onDone }: Props) {
   const setAbsent = useSetAbsent();
   const [groups, setGroups] = useState<Group[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -53,10 +54,18 @@ export function AttendanceDialog({ open, onOpenChange, mode, rows, projectId, sl
         const paperCache = new Map<string, Awaited<ReturnType<typeof findPapersForStudents>>>();
         for (const [key, rs] of byKey) {
           const first = rs[0];
+          // Present: the absent rows already carry the paper they were marked against.
+          if (mode === "present" && rs.every((r) => r.paper_id)) {
+            const ids = [...new Set(rs.map((r) => r.paper_id!))];
+            if (ids.length === 1) {
+              out.push({ key, label: `${classNames[first.class_code] ?? `Class ${first.class_code}`} · ${OLYMPIAD_NAMES[first.olympiad_code as OlympiadCode] ?? first.olympiad_code}`, rows: rs, candidates: [], chosen: ids[0], reason: "" });
+              continue;
+            }
+          }
           const pk = `${first.class_code}|${first.olympiad_code}`;
           if (!paperCache.has(pk)) paperCache.set(pk, await findPapersForStudents(projectId, first.class_code, first.olympiad_code));
           const candidates = paperCache.get(pk)!;
-          const label = `Class ${first.class_code} · ${OLYMPIAD_NAMES[first.olympiad_code as OlympiadCode] ?? first.olympiad_code}`;
+          const label = `${classNames[first.class_code] ?? `Class ${first.class_code}`} · ${OLYMPIAD_NAMES[first.olympiad_code as OlympiadCode] ?? first.olympiad_code}`;
           let chosen = "";
           let reason = "";
           if (candidates.length === 0) {
@@ -89,8 +98,14 @@ export function AttendanceDialog({ open, onOpenChange, mode, rows, projectId, sl
     if (!groups) return;
     try {
       let changed = 0;
-      for (const g of groups) {
-        changed += await setAbsent.mutateAsync({ paperId: g.chosen, enrollmentIds: g.rows.map((r) => r.enrollment_id), absent: mode === "absent" });
+      let done = 0;
+      try {
+        for (const g of groups) {
+          changed += await setAbsent.mutateAsync({ paperId: g.chosen, enrollmentIds: g.rows.map((r) => r.enrollment_id), absent: mode === "absent" });
+          done += g.rows.length;
+        }
+      } catch (e) {
+        throw new Error(done > 0 ? `${(e as Error).message} ${done} of ${n} students were already updated; try the rest again.` : (e as Error).message);
       }
       toast.success(mode === "absent" ? `${changed} ${changed === 1 ? "student" : "students"} marked absent.` : `${changed} ${changed === 1 ? "student" : "students"} marked present. They are now Pending.`);
       onOpenChange(false);

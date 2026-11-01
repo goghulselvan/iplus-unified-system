@@ -70,4 +70,20 @@ describe("UploadAnswersPage", () => {
     const draft = screen.getByRole("option", { name: /Class 2/ }) as HTMLOptionElement;
     expect(draft.disabled).toBe(true);
   });
+
+  it("clears the file box after a failed check so the same file can be chosen again", async () => {
+    check.mockResolvedValue({ ok: false, errors: [{ row: 2, message: "Row 2 problem" }], moreErrors: 0 });
+    await pickAndUpload();
+    await screen.findByText(/Nothing was saved/);
+    expect((screen.getByLabelText(/answers file/i) as HTMLInputElement).value).toBe("");
+  });
+
+  it("locks the paper picker while a check is running", async () => {
+    let release: (v: unknown) => void = () => {};
+    check.mockReturnValue(new Promise((r) => { release = r; }));
+    await pickAndUpload();
+    await waitFor(() => expect((screen.getByLabelText(/which paper/i) as HTMLSelectElement).disabled).toBe(true));
+    release({ ok: false, errors: [{ row: 2, message: "x" }], moreErrors: 0 });
+    await waitFor(() => expect((screen.getByLabelText(/which paper/i) as HTMLSelectElement).disabled).toBe(false));
+  });
 });

@@ -18,9 +18,10 @@ interface Props {
   slots: SlotTemplate[];
   value: string;
   onChange: (paperId: string) => void;
+  disabled?: boolean;
 }
 
-export function PaperPicker({ kind, papers, classes, slots, value, onChange }: Props) {
+export function PaperPicker({ kind, papers, classes, slots, value, onChange, disabled }: Props) {
   const rank = (c: string) => CLASS_ORDER.indexOf(c);
   const list = papers
     .filter((p) => isManualClass(p.class_code) === (kind === "manual"))
@@ -35,6 +36,7 @@ export function PaperPicker({ kind, papers, classes, slots, value, onChange }: P
       <select
         id={id}
         value={value}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
         className="h-11 w-full rounded-md border border-input bg-background px-3 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >

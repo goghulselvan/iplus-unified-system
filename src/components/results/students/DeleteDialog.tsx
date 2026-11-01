@@ -30,7 +30,7 @@ export function DeleteDialog({ open, onOpenChange, enrollmentIds, onDone }: Prop
         {error && <p role="alert" className="text-sm font-medium text-destructive">{error}</p>}
         <DialogFooter className="gap-2">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="min-h-11">Cancel</Button>
-          <Button type="button" variant="destructive" onClick={go} disabled={del.isPending} className="min-h-11">
+          <Button type="button" variant="destructive" onClick={go} disabled={del.isPending || n === 0} className="min-h-11">
             {del.isPending ? "Deleting" : "Delete result"}
           </Button>
         </DialogFooter>

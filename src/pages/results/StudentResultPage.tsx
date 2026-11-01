@@ -34,7 +34,7 @@ export default function StudentResultPage() {
   const className = classes?.find((c) => c.code === data.classCode)?.display_name ?? data.classCode;
   const { score, totals, evaluation } = data;
   const rank = (r: number | null, n?: number) => (r && n ? `${r} of ${n}` : "–");
-  const grade = score ? studentGrade(score.percentage) : null;
+  const grade = score ? { grade: score.grade, label: studentGrade(score.percentage).label } : null;
 
   return (
     <div className="space-y-6">

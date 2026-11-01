@@ -70,6 +70,8 @@ describe("Students pages", () => {
     const save = screen.getByRole("button", { name: "Save correction" }) as HTMLButtonElement;
     expect(save.disabled).toBe(true);
     await user.type(screen.getByLabelText(/Why are you changing this/), "Operator mis-keyed it");
+    expect(save.disabled).toBe(true); // value unchanged
+    await user.selectOptions(screen.getByLabelText(/New answer/), "B");
     expect(save.disabled).toBe(false);
   });
 });

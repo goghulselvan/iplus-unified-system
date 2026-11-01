@@ -34,7 +34,7 @@ export function useUploadRpc() {
       p_paper_id: a.paperId, p_kind: a.kind, p_file_name: a.fileName,
       p_rows: payload(a.rows) as never, p_dry_run: dry,
     });
-    if (error) fail(error, "We could not check this file. Please try again.");
+    if (error) fail(error, dry ? "We could not check this file. Please try again." : "We could not save this file. Nothing was saved. Please try again.");
     return data as unknown;
   };
   return {
@@ -124,7 +124,7 @@ export async function findPapersForStudents(projectId: string, classCode: string
 export async function bookedSlotFor(projectId: string, schoolId: string): Promise<string | null> {
   const { data, error } = await supabase
     .from("exam_slots").select("slot_template_id").eq("project_id", projectId).eq("school_id", schoolId)
-    .not("slot_template_id", "is", null).limit(1);
+    .not("slot_template_id", "is", null).order("updated_at", { ascending: false }).limit(1);
   if (error) fail(error);
   return data?.[0]?.slot_template_id ?? null;
 }

@@ -1,5 +1,6 @@
 export function downloadText(fileName: string, text: string, type = "text/csv;charset=utf-8") {
-  const url = URL.createObjectURL(new Blob([text], { type }));
+  const body = type.startsWith("text/csv") && !text.startsWith("\uFEFF") ? "\uFEFF" + text : text;
+  const url = URL.createObjectURL(new Blob([body], { type }));
   const a = document.createElement("a");
   a.href = url;
   a.download = fileName;

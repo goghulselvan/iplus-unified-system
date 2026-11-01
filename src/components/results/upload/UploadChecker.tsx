@@ -12,14 +12,14 @@ import { ErrorList } from "./ErrorList";
 import { ReplaceWarning } from "./ReplaceWarning";
 import { downloadText } from "./download";
 
-interface Props { paper: PaperSummary; kind: "manual" | "omr"; label: string }
+interface Props { paper: PaperSummary; kind: "manual" | "omr"; label: string; onBusyChange?: (busy: boolean) => void }
 
 type Phase =
   | { t: "idle" }
   | { t: "reading"; pct: number }
   | { t: "checking"; pct: number; count: number }
   | { t: "errors"; errors: UploadError[]; more: number }
-  | { t: "ready"; result: UploadDryRun; rows: CsvRow[]; fileName: string }
+  | { t: "ready"; result: UploadDryRun; rows: CsvRow[]; fileName: string; paperId: string }
   | { t: "saving"; pct: number };
 
 /** Moves a bar between two values while a server call with no progress events is running. */
@@ -32,7 +32,7 @@ function useCreep(active: boolean, set: (pct: number) => void, from: number, to:
   }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
-export function UploadChecker({ paper, kind, label }: Props) {
+export function UploadChecker({ paper, kind, label, onBusyChange }: Props) {
   const rpc = useUploadRpc();
   const input = useRef<HTMLInputElement>(null);
   const [phase, setPhase] = useState<Phase>({ t: "idle" });
@@ -41,6 +41,9 @@ export function UploadChecker({ paper, kind, label }: Props) {
   const [drag, setDrag] = useState(false);
 
   useEffect(() => { setPhase({ t: "idle" }); setAck(false); }, [paper.id]);
+  const isBusy = phase.t === "reading" || phase.t === "checking" || phase.t === "saving";
+  useEffect(() => { onBusyChange?.(isBusy); }, [isBusy]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => onBusyChange?.(false), []); // eslint-disable-line react-hooks/exhaustive-deps
   useCreep(phase.t === "checking", (pct) => setPhase((p) => (p.t === "checking" ? { ...p, pct } : p)), 40, 90);
   useCreep(phase.t === "saving", (pct) => setPhase((p) => (p.t === "saving" ? { ...p, pct } : p)), 10, 90);
 
@@ -65,6 +68,8 @@ export function UploadChecker({ paper, kind, label }: Props) {
 
   const choose = async (file: File | undefined) => {
     if (!file) return;
+    // Clear now so choosing the same (edited) file again still fires a change event.
+    if (input.current) input.current.value = "";
     setAck(false);
     if (!/\.csv$/i.test(file.name)) {
       setPhase({ t: "errors", errors: [{ row: 0, message: "Please choose a .csv file. Save your spreadsheet as CSV first." }], more: 0 });
@@ -78,19 +83,20 @@ export function UploadChecker({ paper, kind, label }: Props) {
       setPhase({ t: "checking", pct: 40, count: parsed.rows.length });
       const result: UploadCheckResult = await rpc.check({ paperId: paper.id, kind, fileName: file.name, rows: parsed.rows });
       if (result.ok === false) { setPhase({ t: "errors", errors: result.errors, more: result.moreErrors }); return; }
-      setPhase({ t: "ready", result, rows: parsed.rows, fileName: file.name });
+      setPhase({ t: "ready", result, rows: parsed.rows, fileName: file.name, paperId: paper.id });
     } catch (e) {
       setPhase({ t: "errors", errors: [{ row: 0, message: (e as Error).message }], more: 0 });
+    } finally {
+      if (input.current) input.current.value = "";
     }
-    if (input.current) input.current.value = "";
   };
 
   const confirm = async () => {
     if (phase.t !== "ready") return;
-    const { rows, fileName } = phase;
+    const { rows, fileName, paperId } = phase;
     setPhase({ t: "saving", pct: 10 });
     try {
-      const r = await rpc.save({ paperId: paper.id, kind, fileName, rows });
+      const r = await rpc.save({ paperId, kind, fileName, rows });
       if (r.ok === false) { setPhase({ t: "errors", errors: r.errors, more: r.moreErrors }); return; }
       toast.success(`${r.saved} results saved. Ranks updated.`);
       setPhase({ t: "idle" });

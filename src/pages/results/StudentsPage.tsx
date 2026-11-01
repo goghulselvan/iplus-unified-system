@@ -143,12 +143,12 @@ export default function StudentsPage() {
 
       {(dialog === "absent" || dialog === "present") && (
         <AttendanceDialog
-          open mode={dialog} rows={chosen} projectId={project.id} slots={slots ?? []}
+          open mode={dialog} rows={chosen} projectId={project.id} slots={slots ?? []} classNames={classNames}
           onOpenChange={(o) => !o && setDialog(null)} onDone={() => setSelected(new Set())}
         />
       )}
       {dialog === "delete" && (
-        <DeleteDialog open enrollmentIds={chosen.map((r) => r.enrollment_id)} onOpenChange={(o) => !o && setDialog(null)} onDone={() => setSelected(new Set())} />
+        <DeleteDialog open enrollmentIds={chosen.filter((r) => r.evaluation_id).map((r) => r.enrollment_id)} onOpenChange={(o) => !o && setDialog(null)} onDone={() => setSelected(new Set())} />
       )}
     </div>
   );
