@@ -10,6 +10,9 @@ import QuestionPapersPage, { PaperEditorRoute } from "./QuestionPapersPage";
 import UploadAnswersPage from "./UploadAnswersPage";
 import StudentsPage from "./StudentsPage";
 import StudentResultPage from "./StudentResultPage";
+import RankingsPage from "./RankingsPage";
+import SchoolResultsPage from "./SchoolResultsPage";
+import SchoolResultDetailPage from "./SchoolResultDetailPage";
 
 const linkClass = (active: boolean) =>
   `flex items-center whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
@@ -63,7 +66,10 @@ export default function ResultsLayout() {
                 <Route path="upload" element={<UploadAnswersPage />} />
                 <Route path="students" element={<StudentsPage />} />
                 <Route path="students/:enrollmentId" element={<StudentResultPage />} />
-                {RESULTS_NAV.filter((n) => n.path !== "/results" && n.key !== "papers" && n.key !== "upload" && n.key !== "students").map((n) => (
+                <Route path="rankings" element={<RankingsPage />} />
+                <Route path="schools" element={<SchoolResultsPage />} />
+                <Route path="schools/:schoolId" element={<SchoolResultDetailPage />} />
+                {RESULTS_NAV.filter((n) => n.path !== "/results" && !["papers", "rankings", "schools", "upload", "students", "student"].includes(n.key)).map((n) => (
                   <Route
                     key={n.key}
                     path={n.path.replace("/results/", "") + (n.key === "schools" || n.key === "student" ? "/*" : "")}
