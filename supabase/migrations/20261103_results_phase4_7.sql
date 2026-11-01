@@ -9,8 +9,10 @@
 --                                 whose score changed. Everything else is unchanged.
 --   * results_correct_answer      a NEW 4-argument overload that records a reason in
 --                                 result_corrections; the 3-argument version is untouched.
--- No DROP, no ALTER of any existing table. Rows in school_result_release are inserted /
--- deleted only by the superadmin RPCs below.
+-- No DROP. One ALTER of an existing table, approved separately by Goghul at apply time:
+-- the email trigger on school_result_release is DISABLED (see below; reversible with
+-- ENABLE TRIGGER). Rows in school_result_release are inserted / deleted by the
+-- superadmin RPCs below.
 --
 --   result_ai_batches        one row per Claude Message Batch (AI feedback); one running
 --                            batch per project x school at a time
@@ -24,16 +26,17 @@
 --   result_corrections       the reason given for each single-answer correction
 --
 -- Access: SELECT via RLS for managers / superadmins (send tables: superadmin only).
--- Writes go through SECURITY DEFINER RPCs, except award rules (manager CRUD) and
--- manual awards (manager insert of source='manual', update of removed/notes only).
+-- Writes go through SECURITY DEFINER RPCs, except award rules (manager CRUD via RLS,
+-- limited columns).
 -- AI tables are written by the results-feedback edge function with service_role.
 --
 -- !! school_result_release has a live AFTER INSERT trigger (trg_notify_results_released)
 -- that calls the notify-results-released edge function through pg_net, which is meant
--- to EMAIL the school. So results_release_schools can cause an email outside the staged
--- send flow. (Checked 2026-11-01: the deployed function selects olympiad_projects.name,
--- which does not exist on the CRM, so today it errors before sending. That is luck, not
--- a guard.) Goghul must decide whether to drop that trigger before releasing for real.
+-- to EMAIL the school, outside the staged, superadmin-approved send flow ("No autonomous
+-- sends"). This migration DISABLES it. To undo:
+--   ALTER TABLE public.school_result_release ENABLE TRIGGER trg_notify_results_released;
+-- (The deployed edge function itself is still callable with the public anon key; that is
+-- handled outside this migration.)
 --
 -- SCALE LIMITS (authenticated statement_timeout = 8s; one PostgREST call = one statement):
 --   * results_integrity_scan unnests every OMR answer in the project once (8k enrolments
@@ -83,6 +86,10 @@ CREATE TABLE public.result_feedback (
   model         text NOT NULL,
   batch_id      uuid REFERENCES public.result_ai_batches(id) ON DELETE SET NULL,
   outdated      boolean NOT NULL DEFAULT false,
+  -- results_feedback_basis_hash() of the skills + grade the feedback was written from.
+  -- Shown as Outdated when it no longer matches (covers skill-tag edits, and feedback
+  -- collected after a re-score).
+  basis_hash    text NOT NULL,
   created_at    timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX result_feedback_batch_idx ON public.result_feedback (batch_id);
@@ -174,7 +181,10 @@ CREATE TABLE public.result_awards (
   source        text NOT NULL CHECK (source IN ('rule','manual')),
   rule_id       uuid REFERENCES public.result_award_rules(id) ON DELETE SET NULL,
   removed       boolean NOT NULL DEFAULT false,
-  notes         text,
+  notes         text,              -- why a manual award was given (kept when removed)
+  removed_note  text,              -- why it was removed (results_remove_award)
+  removed_by    uuid,
+  removed_at    timestamptz,
   created_by    uuid DEFAULT auth.uid(),
   created_at    timestamptz NOT NULL DEFAULT now(),
   updated_by    uuid,
@@ -259,6 +269,59 @@ AS $$
    GROUP BY p_skills[g.n]
 $$;
 
+-- What a student's AI feedback is based on: grade + every "skill:correct/total", sorted.
+CREATE FUNCTION public.results_basis_hash(p_grade text, p_answers text[], p_marks numeric[], p_keys text[],
+                                         p_grace boolean[], p_skills text[])
+  RETURNS text
+  LANGUAGE sql IMMUTABLE PARALLEL SAFE
+  SET search_path = public
+AS $$
+  SELECT md5(COALESCE(p_grade, '') || '|' ||
+             COALESCE(string_agg(x.skill || ':' || x.correct::text || '/' || x.total::text, ';' ORDER BY x.skill), ''))
+    FROM public.results_skill_credit(p_answers, p_marks, p_keys, p_grace, p_skills) x
+$$;
+
+-- Current basis hash of one evaluated student (NULL if not scored). The feedback function
+-- stores this (or the bulk column below) in result_feedback.basis_hash.
+CREATE FUNCTION public.results_feedback_basis_hash(p_enrollment_id uuid)
+  RETURNS text
+  LANGUAGE sql STABLE
+  SET search_path = public
+AS $$
+  SELECT public.results_basis_hash(rs.grade, e.answers, e.marks, pk.keys, pk.grace, pk.skills)
+    FROM public.result_scores rs
+    JOIN public.result_evaluations e ON e.id = rs.evaluation_id
+    JOIN public.results_paper_skill_keys(ARRAY(SELECT r2.paper_id FROM public.result_scores r2
+                                                WHERE r2.enrollment_id = p_enrollment_id)) pk
+      ON pk.paper_id = rs.paper_id
+   WHERE rs.enrollment_id = p_enrollment_id
+$$;
+
+-- Feedback status per evaluated student: has_feedback, and is_outdated = marked outdated
+-- by a re-score OR its basis_hash no longer matches the student's current one.
+CREATE FUNCTION public.results_feedback_status(p_project_id uuid, p_school_id uuid DEFAULT NULL)
+  RETURNS TABLE (enrollment_id uuid, has_feedback boolean, is_outdated boolean)
+  LANGUAGE sql STABLE
+  SET search_path = public
+AS $$
+  WITH sc AS (
+    SELECT rs.enrollment_id, rs.evaluation_id, rs.paper_id, rs.grade
+      FROM public.result_scores rs
+     WHERE rs.project_id = p_project_id
+       AND (p_school_id IS NULL OR rs.school_id = p_school_id)
+  )
+  SELECT sc.enrollment_id,
+         f.enrollment_id IS NOT NULL,
+         CASE WHEN f.enrollment_id IS NULL THEN false
+              ELSE f.outdated OR f.basis_hash IS DISTINCT FROM
+                   public.results_basis_hash(sc.grade, e.answers, e.marks, pk.keys, pk.grace, pk.skills) END
+    FROM sc
+    JOIN public.result_evaluations e ON e.id = sc.evaluation_id
+    JOIN public.results_paper_skill_keys(ARRAY(SELECT DISTINCT s2.paper_id FROM sc s2)) pk ON pk.paper_id = sc.paper_id
+    LEFT JOIN public.result_feedback f ON f.enrollment_id = sc.enrollment_id
+   ORDER BY sc.enrollment_id
+$$;
+
 CREATE FUNCTION public.results_student_skills(p_enrollment_id uuid)
   RETURNS TABLE (skill text, correct numeric, total int, percentage int)
   LANGUAGE sql STABLE
@@ -278,11 +341,12 @@ $$;
 
 -- Per-student skill rows for many students at once (the AI feedback function builds one
 -- request per enrolment from these). p_only_needing_feedback: only evaluated students
--- with no result_feedback row, or an outdated one. Same credit rules as above.
+-- with no result_feedback row, an outdated one, or one whose basis_hash no longer matches.
+-- basis_hash (same on every row of a student) is what the feedback function must store.
 CREATE FUNCTION public.results_bulk_student_skills(p_project_id uuid, p_school_id uuid DEFAULT NULL,
                                                    p_only_needing_feedback boolean DEFAULT true)
   RETURNS TABLE (enrollment_id uuid, class_code text, olympiad_code text, grade text,
-                 skill text, correct numeric, total int)
+                 skill text, correct numeric, total int, basis_hash text)
   LANGUAGE sql STABLE
   SET search_path = public
 AS $$
@@ -291,16 +355,32 @@ AS $$
       FROM public.result_scores rs
      WHERE rs.project_id = p_project_id
        AND (p_school_id IS NULL OR rs.school_id = p_school_id)
-       AND (NOT COALESCE(p_only_needing_feedback, true)
-            OR NOT EXISTS (SELECT 1 FROM public.result_feedback f
-                            WHERE f.enrollment_id = rs.enrollment_id AND NOT f.outdated))
+  ),
+  -- Skill rows built once; the hash is the same formula as results_basis_hash, taken
+  -- over those rows (students with no tagged question have no rows, so never appear).
+  rows AS MATERIALIZED (
+    SELECT sc.enrollment_id, sc.class_code, sc.olympiad_code, sc.grade, x.skill, x.correct, x.total, x.first_q
+      FROM sc
+      JOIN public.result_evaluations e ON e.id = sc.evaluation_id
+      JOIN public.results_paper_skill_keys(ARRAY(SELECT DISTINCT s2.paper_id FROM sc s2)) pk ON pk.paper_id = sc.paper_id
+     CROSS JOIN LATERAL public.results_skill_credit(e.answers, e.marks, pk.keys, pk.grace, pk.skills) x
+  ),
+  h AS MATERIALIZED (
+    SELECT r.enrollment_id,
+           md5(COALESCE(min(r.grade), '') || '|' ||
+               string_agg(r.skill || ':' || r.correct::text || '/' || r.total::text, ';' ORDER BY r.skill)) AS h
+      FROM rows r GROUP BY r.enrollment_id
+  ),
+  need AS MATERIALIZED (
+    SELECT h.* FROM h
+     WHERE NOT COALESCE(p_only_needing_feedback, true)
+        OR NOT EXISTS (SELECT 1 FROM public.result_feedback f
+                        WHERE f.enrollment_id = h.enrollment_id AND NOT f.outdated AND f.basis_hash = h.h)
   )
-  SELECT sc.enrollment_id, sc.class_code, sc.olympiad_code, sc.grade, x.skill, x.correct, x.total
-    FROM sc
-    JOIN public.result_evaluations e ON e.id = sc.evaluation_id
-    JOIN public.results_paper_skill_keys(ARRAY(SELECT DISTINCT sc2.paper_id FROM sc sc2)) pk ON pk.paper_id = sc.paper_id
-   CROSS JOIN LATERAL public.results_skill_credit(e.answers, e.marks, pk.keys, pk.grace, pk.skills) x
-   ORDER BY sc.enrollment_id, x.first_q
+  SELECT r.enrollment_id, r.class_code, r.olympiad_code, r.grade, r.skill, r.correct, r.total, need.h
+    FROM rows r
+    JOIN need ON need.enrollment_id = r.enrollment_id
+   ORDER BY r.enrollment_id, r.first_q
 $$;
 
 -- Pooled skill % (sum of credit / number of questions answered by all students).
@@ -584,7 +664,9 @@ $$;
 
 -- Locks every project x class x olympiad group these schools have scores in (ascending
 -- key order, same as every other writer), so a rescore running at the same time sees
--- the release set either fully before or fully after (no false resend flags).
+-- the release set either fully before or fully after (no false resend flags). A group
+-- the school has no scores in yet isn't locked: a release that commits during the
+-- school's first upload into that group can raise one resend flag (arguably correct).
 CREATE FUNCTION public.results_lock_school_groups(p_project_id uuid, p_school_ids uuid[])
   RETURNS void
   LANGUAGE plpgsql
@@ -676,6 +758,16 @@ BEGIN
   INSERT INTO public.result_audit_log (table_name, row_id, action, before, after)
   SELECT 'school_result_release', del.id, 'UNRELEASE', to_jsonb(del), NULL FROM del;
   GET DIAGNOSTICS v_n = ROW_COUNT;
+
+  -- Anything still waiting to go to this school is stopped (never sent automatically).
+  UPDATE public.result_send_items i
+     SET status = 'failed', error = 'School was unreleased before sending.'
+    FROM public.result_send_batches b
+   WHERE b.id = i.batch_id
+     AND b.project_id = p_project_id
+     AND b.status IN ('staged','sending')
+     AND i.school_id = p_school_id
+     AND i.status = 'pending';
   RETURN v_n;
 END
 $$;
@@ -789,7 +881,7 @@ $$;
 -- ---------------------------------------------------------------------------
 -- Groups are school x paper (= school x class x olympiad x slot). Answer-based checks
 -- use OMR answers only; LKG-Class 2 (manual marks) get only the score-based checks.
---   identical_answers        >= 3 identical full answer strings (at least one answer)
+--   identical_answers        >= 3 identical full answer strings (at least half answered)
 --                            -> medium; >= 5 high; >= 10 critical
 --   same_wrong_answers       pairs where both have >= 5 wrong answers and the same wrong
 --                            option on >= 60% of the larger wrong count -> high; >= 80%
@@ -874,7 +966,7 @@ BEGIN
     FROM pg_temp.results_scan_students s
    CROSS JOIN LATERAL (SELECT array_to_string(s.answers, '', '-') AS astr) a
    WHERE s.answers IS NOT NULL
-     AND cardinality(array_remove(s.answers, NULL)) > 0
+     AND cardinality(array_remove(s.answers, NULL)) * 2 >= s.nq   -- at least half answered
    GROUP BY s.school_id, s.paper_id, a.astr
   HAVING count(*) >= 3;
 
@@ -1106,7 +1198,9 @@ $$;
 --   * Students of schools with a Verified integrity flag are not eligible; those schools
 --     come back in manualReview.
 -- Manual awards are never touched. A rule award a person marked removed stays removed
--- while the rule still gives it; one the rules no longer give is deleted.
+-- while the rule still gives it, even if the rule is renamed (rows are matched to the
+-- wanted award by rule_id first, then by award name); one the rules no longer give is
+-- deleted.
 CREATE FUNCTION public.results_allot_awards(p_project_id uuid)
   RETURNS jsonb
   LANGUAGE plpgsql
@@ -1151,7 +1245,8 @@ BEGIN
                                         ORDER BY e.total DESC) AS rk
                       FROM elig e
                      WHERE (r.class_code IS NULL OR e.class_code = r.class_code)
-                       AND (r.olympiad_code IS NULL OR e.olympiad_code = r.olympiad_code)) y
+                       AND (r.olympiad_code IS NULL OR e.olympiad_code = r.olympiad_code)
+                       AND (r.level <> 'school' OR e.school_id IS NOT NULL)) y
              WHERE (r.rule_type = 'top_n' AND y.rk <= r.value)
                 OR (r.rule_type = 'min_percentage' AND y.percentage >= r.value)
           ) x
@@ -1161,19 +1256,45 @@ BEGIN
     FROM hits h
    ORDER BY h.enrollment_id, h.sort_order, h.award_name, h.rule_id;
 
+  -- 1. Drop rule rows that match no wanted award (by rule or by name) for that student.
   DELETE FROM public.result_awards a
    WHERE a.project_id = p_project_id
      AND a.source = 'rule'
      AND NOT EXISTS (SELECT 1 FROM pg_temp.results_award_want w
-                      WHERE w.enrollment_id = a.enrollment_id AND w.award_name = a.award_name);
+                      WHERE w.enrollment_id = a.enrollment_id
+                        AND (w.rule_id = a.rule_id OR w.award_name = a.award_name));
   GET DIAGNOSTICS v_deleted = ROW_COUNT;
 
-  INSERT INTO public.result_awards AS a (project_id, enrollment_id, award_name, source, rule_id)
+  -- 2. If a student has both a row from the wanted rule and a same-name row from another
+  --    rule, keep the wanted rule's row (it carries any "removed" decision).
+  DELETE FROM public.result_awards a
+   USING pg_temp.results_award_want w
+   WHERE a.project_id = p_project_id
+     AND a.source = 'rule'
+     AND w.enrollment_id = a.enrollment_id
+     AND a.rule_id IS DISTINCT FROM w.rule_id
+     AND EXISTS (SELECT 1 FROM public.result_awards b
+                  WHERE b.project_id = p_project_id AND b.source = 'rule'
+                    AND b.enrollment_id = a.enrollment_id AND b.rule_id = w.rule_id);
+
+  -- 3. Bring the kept rows up to date (a renamed rule renames its awards; removed stays).
+  UPDATE public.result_awards a
+     SET award_name = w.award_name, rule_id = w.rule_id
+    FROM pg_temp.results_award_want w
+   WHERE a.project_id = p_project_id
+     AND a.source = 'rule'
+     AND w.enrollment_id = a.enrollment_id
+     AND (w.rule_id = a.rule_id OR w.award_name = a.award_name)
+     AND (a.award_name, a.rule_id) IS DISTINCT FROM (w.award_name, w.rule_id);
+
+  -- 4. New awards.
+  INSERT INTO public.result_awards (project_id, enrollment_id, award_name, source, rule_id)
   SELECT p_project_id, w.enrollment_id, w.award_name, 'rule', w.rule_id
     FROM pg_temp.results_award_want w
-  ON CONFLICT (project_id, enrollment_id, award_name) WHERE source = 'rule'
-  DO UPDATE SET rule_id = EXCLUDED.rule_id
-   WHERE a.rule_id IS DISTINCT FROM EXCLUDED.rule_id;
+   WHERE NOT EXISTS (SELECT 1 FROM public.result_awards a
+                      WHERE a.project_id = p_project_id AND a.source = 'rule'
+                        AND a.enrollment_id = w.enrollment_id)
+  ON CONFLICT (project_id, enrollment_id, award_name) WHERE source = 'rule' DO NOTHING;
 
   SELECT jsonb_build_object(
            'awarded', (SELECT count(*) FROM public.result_awards a
@@ -1204,9 +1325,104 @@ BEGIN
 END
 $$;
 
+-- Manual awards (managers). A note is required to add or remove one.
+CREATE FUNCTION public.results_add_manual_award(p_project_id uuid, p_enrollment_id uuid, p_award_name text, p_note text)
+  RETURNS uuid
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = public
+AS $$
+DECLARE
+  v_id uuid;
+BEGIN
+  IF NOT public.is_manager_or_superadmin() THEN
+    RAISE EXCEPTION 'Only managers can do this.';
+  END IF;
+  IF NULLIF(btrim(p_award_name), '') IS NULL THEN
+    RAISE EXCEPTION 'Please give the award a name.';
+  END IF;
+  IF NULLIF(btrim(p_note), '') IS NULL THEN
+    RAISE EXCEPTION 'Please add a note for this award.';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.portal_student_enrollments pe
+                  WHERE pe.id = p_enrollment_id AND pe.project_id = p_project_id) THEN
+    RAISE EXCEPTION 'This student is not registered in this project.';
+  END IF;
+  BEGIN
+    INSERT INTO public.result_awards (project_id, enrollment_id, award_name, source, notes)
+    VALUES (p_project_id, p_enrollment_id, btrim(p_award_name), 'manual', btrim(p_note))
+    RETURNING id INTO v_id;
+  EXCEPTION WHEN unique_violation THEN
+    RAISE EXCEPTION 'This student already has this award.';
+  END;
+  RETURN v_id;
+END
+$$;
+
+-- Removes a rule or manual award (soft: removed = true). The original notes are kept.
+CREATE FUNCTION public.results_remove_award(p_award_id uuid, p_note text)
+  RETURNS void
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = public
+AS $$
+BEGIN
+  IF NOT public.is_manager_or_superadmin() THEN
+    RAISE EXCEPTION 'Only managers can do this.';
+  END IF;
+  IF NULLIF(btrim(p_note), '') IS NULL THEN
+    RAISE EXCEPTION 'Please add a note for this award.';
+  END IF;
+  UPDATE public.result_awards
+     SET removed = true, removed_note = btrim(p_note), removed_by = auth.uid(), removed_at = now()
+   WHERE id = p_award_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'This award no longer exists.';
+  END IF;
+END
+$$;
+
+CREATE FUNCTION public.results_restore_award(p_award_id uuid)
+  RETURNS void
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = public
+AS $$
+BEGIN
+  IF NOT public.is_manager_or_superadmin() THEN
+    RAISE EXCEPTION 'Only managers can do this.';
+  END IF;
+  BEGIN
+    UPDATE public.result_awards SET removed = false WHERE id = p_award_id;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'This award no longer exists.';
+    END IF;
+  EXCEPTION WHEN unique_violation THEN
+    RAISE EXCEPTION 'This student already has this award.';
+  END;
+END
+$$;
+
 -- ---------------------------------------------------------------------------
 -- (h) Read RPCs (SECURITY INVOKER, STABLE) and the portal RPC
 -- ---------------------------------------------------------------------------
+
+-- Find a student by registration number (any spacing / hyphens). Uses
+-- pse_results_reg_digits_idx.
+CREATE FUNCTION public.results_find_enrollment(p_project_id uuid, p_reg text)
+  RETURNS TABLE (enrollment_id uuid, registration_number text, student_name text, school_name text,
+                 class_code text, olympiad_code text)
+  LANGUAGE sql STABLE
+  SET search_path = public
+AS $$
+  SELECT pe.id, pe.registration_number, st.student_name, sc.school_name, st.class_code, pe.olympiad_code
+    FROM public.portal_student_enrollments pe
+    JOIN public.portal_registered_students st ON st.id = pe.student_id
+    LEFT JOIN public.schools sc ON sc.id = pe.school_id
+   WHERE pe.project_id = p_project_id
+     AND public.results_digits(pe.registration_number) = NULLIF(public.results_digits(p_reg), '')
+   ORDER BY pe.registration_number, pe.id
+$$;
 
 -- Class x olympiad pairs that have scores (Rankings page picker).
 CREATE FUNCTION public.results_score_combinations(p_project_id uuid)
@@ -1268,8 +1484,8 @@ AS $$
          rs.class_code, rs.olympiad_code, rs.total, rs.max_marks, rs.percentage, rs.grade,
          rs.rank_school, rs.rank_district, rs.rank_state, rs.rank_national
     FROM me
-    JOIN public.result_scores rs ON rs.school_id = me.school_id AND rs.project_id = p_project_id
-    JOIN public.portal_student_enrollments pe ON pe.id = rs.enrollment_id
+    JOIN public.portal_student_enrollments pe ON pe.school_id = me.school_id AND pe.project_id = p_project_id
+    JOIN public.result_scores rs ON rs.enrollment_id = pe.id
     JOIN public.portal_registered_students st ON st.id = pe.student_id
    WHERE EXISTS (SELECT 1 FROM public.school_result_release r
                   WHERE r.project_id = p_project_id AND r.school_id = me.school_id)
@@ -1318,10 +1534,6 @@ CREATE POLICY results_delete_award_rules ON public.result_award_rules FOR DELETE
 
 CREATE POLICY results_select_awards ON public.result_awards FOR SELECT
   USING (public.is_manager_or_superadmin());
-CREATE POLICY results_insert_awards ON public.result_awards FOR INSERT
-  WITH CHECK (public.is_manager_or_superadmin() AND source = 'manual');
-CREATE POLICY results_update_awards ON public.result_awards FOR UPDATE
-  USING (public.is_manager_or_superadmin()) WITH CHECK (public.is_manager_or_superadmin());
 
 REVOKE ALL ON public.result_ai_batches, public.result_feedback, public.result_school_analysis,
               public.result_send_batches, public.result_send_items, public.result_integrity_flags,
@@ -1332,15 +1544,21 @@ REVOKE ALL ON public.result_ai_batches, public.result_feedback, public.result_sc
 GRANT SELECT ON public.result_ai_batches, public.result_feedback, public.result_school_analysis,
                 public.result_send_batches, public.result_send_items, public.result_integrity_flags,
                 public.result_award_rules, public.result_awards, public.result_corrections TO authenticated;
-GRANT INSERT, UPDATE, DELETE ON public.result_award_rules TO authenticated;
--- Manual awards: add (source must be 'manual', checked by the policy) and remove / note only.
-GRANT INSERT (project_id, enrollment_id, award_name, source, notes) ON public.result_awards TO authenticated;
-GRANT UPDATE (removed, notes) ON public.result_awards TO authenticated;
+GRANT INSERT (project_id, award_name, level, rule_type, value, class_code, olympiad_code, sort_order),
+      UPDATE (award_name, level, rule_type, value, class_code, olympiad_code, sort_order),
+      DELETE ON public.result_award_rules TO authenticated;
+-- result_awards: read-only for staff; manual add / remove / restore go through RPCs.
 REVOKE ALL ON SEQUENCE public.result_corrections_id_seq FROM anon, authenticated;
+-- A correction must carry a reason: the 4-argument version is the only client path. It
+-- calls the 3-argument one as owner, so that keeps working.
+REVOKE EXECUTE ON FUNCTION public.results_correct_answer(uuid, int, text) FROM authenticated;
 
 REVOKE ALL ON FUNCTION
   public.results_paper_skill_keys(uuid[]),
   public.results_skill_credit(text[], numeric[], text[], boolean[], text[]),
+  public.results_basis_hash(text, text[], numeric[], text[], boolean[], text[]),
+  public.results_feedback_basis_hash(uuid),
+  public.results_feedback_status(uuid, uuid),
   public.results_student_skills(uuid),
   public.results_skill_summary(uuid, uuid, text, text),
   public.results_bulk_student_skills(uuid, uuid, boolean),
@@ -1353,6 +1571,10 @@ REVOKE ALL ON FUNCTION
   public.results_integrity_scan(uuid),
   public.results_review_integrity_flag(uuid, text, text),
   public.results_allot_awards(uuid),
+  public.results_add_manual_award(uuid, uuid, text, text),
+  public.results_remove_award(uuid, text),
+  public.results_restore_award(uuid),
+  public.results_find_enrollment(uuid, text),
   public.results_score_combinations(uuid),
   public.results_registered_vs_evaluated(uuid),
   public.portal_school_results(uuid)
@@ -1363,6 +1585,9 @@ GRANT EXECUTE ON FUNCTION
   -- invoker RPCs that use them need the caller to hold EXECUTE.
   public.results_paper_skill_keys(uuid[]),
   public.results_skill_credit(text[], numeric[], text[], boolean[], text[]),
+  public.results_basis_hash(text, text[], numeric[], text[], boolean[], text[]),
+  public.results_feedback_basis_hash(uuid),
+  public.results_feedback_status(uuid, uuid),
   public.results_student_skills(uuid),
   public.results_skill_summary(uuid, uuid, text, text),
   public.results_bulk_student_skills(uuid, uuid, boolean),
@@ -1374,9 +1599,18 @@ GRANT EXECUTE ON FUNCTION
   public.results_integrity_scan(uuid),
   public.results_review_integrity_flag(uuid, text, text),
   public.results_allot_awards(uuid),
+  public.results_add_manual_award(uuid, uuid, text, text),
+  public.results_remove_award(uuid, text),
+  public.results_restore_award(uuid),
+  public.results_find_enrollment(uuid, text),
   public.results_score_combinations(uuid),
   public.results_registered_vs_evaluated(uuid),
   public.portal_school_results(uuid)
 TO authenticated;
+
+-- ---------------------------------------------------------------------------
+-- (j) Stop the release-time email (see header). Reversible with ENABLE TRIGGER.
+-- ---------------------------------------------------------------------------
+ALTER TABLE public.school_result_release DISABLE TRIGGER trg_notify_results_released;
 
 COMMIT;

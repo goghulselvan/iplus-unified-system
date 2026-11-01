@@ -13,9 +13,9 @@
 -- portal login. Test papers / results are created inside the transaction; any live MPO
 -- Class 1 / Class 4 papers and results are soft-deleted first (inside the transaction).
 --
--- NOTE: school_result_release has a live trigger that queues a pg_net call to
--- notify-results-released. pg_net only sends queued requests after COMMIT, and this
--- test always rolls back, so nothing is sent.
+-- NOTE: the migration disables school_result_release's email trigger
+-- (trg_notify_results_released); check (tg) asserts that. Even if it were enabled,
+-- pg_net only sends after COMMIT and this test always rolls back.
 BEGIN;
 
 -- 0. Fixtures (as postgres).
@@ -132,6 +132,11 @@ BEGIN
   IF NOT public.is_manager_or_superadmin() THEN
     RAISE EXCEPTION 'FIXTURE: impersonation failed (auth.uid() = %)', auth.uid();
   END IF;
+  -- (tg) the release-time email trigger is disabled.
+  IF (SELECT tgenabled FROM pg_trigger WHERE tgname = 'trg_notify_results_released'
+         AND tgrelid = 'public.school_result_release'::regclass) IS DISTINCT FROM 'D' THEN
+    RAISE EXCEPTION 'FAIL tg: trg_notify_results_released is not disabled';
+  END IF;
 
   -- Clean slate for the two groups the test uses.
   PERFORM results_delete_evaluations(ARRAY(
@@ -227,8 +232,12 @@ BEGIN
      OR (SELECT total FROM result_scores WHERE enrollment_id = v_ea[6]) <> 1 THEN
     RAISE EXCEPTION 'FAIL cr2: correction not recorded';
   END IF;
-  PERFORM results_correct_answer(v_ev, 1, 'D');   -- the 3-argument version still works
-  IF (SELECT answers[1] FROM result_evaluations WHERE id = v_ev) IS DISTINCT FROM 'D' THEN RAISE EXCEPTION 'FAIL cr3'; END IF;
+  -- (cr3) the reason-less 3-argument version is no longer callable by staff ...
+  IF has_function_privilege('authenticated', 'public.results_correct_answer(uuid,integer,text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL cr3: 3-argument results_correct_answer still granted';
+  END IF;
+  PERFORM results_correct_answer(v_ev, 1, 'D', 'Back to the sheet');   -- ... the 4-argument one still calls it
+  IF (SELECT answers[1] FROM result_evaluations WHERE id = v_ev) IS DISTINCT FROM 'D' THEN RAISE EXCEPTION 'FAIL cr4'; END IF;
 
   PERFORM set_config('test.paper', v_paper::text, true);
 END
@@ -246,6 +255,7 @@ DECLARE
   v_flag uuid;
   v_n    int;
   v_msg  text;
+  v_award uuid;
 BEGIN
   -- (in1) the planted identical group of 5 is one 'high' flag listing exactly those 5.
   v_res := results_integrity_scan(v_proj);
@@ -285,9 +295,19 @@ BEGIN
     RAISE EXCEPTION 'FAIL aw2: %', v_res;
   END IF;
 
-  -- A manual award, then verify A's flag and re-scan.
-  INSERT INTO result_awards (project_id, enrollment_id, award_name, source, notes)
-  VALUES (v_proj, v_ea[6], 'Special Mention', 'manual', 'test');
+  -- (ma) manual awards go through the RPC; a note is required.
+  v_msg := NULL;
+  BEGIN PERFORM results_add_manual_award(v_proj, v_ea[6], 'Special Mention', ' '); EXCEPTION WHEN OTHERS THEN v_msg := SQLERRM; END;
+  IF v_msg IS DISTINCT FROM 'Please add a note for this award.' THEN RAISE EXCEPTION 'FAIL ma1: %', v_msg; END IF;
+  v_award := results_add_manual_award(v_proj, v_ea[6], 'Special Mention', 'Helped run the exam hall');
+  IF (SELECT ARRAY[source, notes] FROM result_awards WHERE id = v_award) IS DISTINCT FROM ARRAY['manual', 'Helped run the exam hall'] THEN
+    RAISE EXCEPTION 'FAIL ma2: manual award not stored';
+  END IF;
+  v_msg := NULL;
+  BEGIN PERFORM results_add_manual_award(v_proj, v_ea[6], 'Special Mention', 'again'); EXCEPTION WHEN OTHERS THEN v_msg := SQLERRM; END;
+  IF v_msg IS DISTINCT FROM 'This student already has this award.' THEN RAISE EXCEPTION 'FAIL ma3: %', v_msg; END IF;
+
+  -- Verify A's flag and re-scan.
   PERFORM results_review_integrity_flag(v_flag, 'verified', 'Checked the answer sheets');
   v_res := results_integrity_scan(v_proj);
   -- (in3) the verified flag is kept and not raised again as pending.
@@ -307,12 +327,54 @@ BEGIN
      OR NOT EXISTS (SELECT 1 FROM result_awards WHERE enrollment_id = v_ea[6] AND source = 'manual' AND NOT removed) THEN
     RAISE EXCEPTION 'FAIL aw3: %', v_res;
   END IF;
-  -- (aw4) managers can't insert rule awards directly.
+  -- (aw3b) a manual award must be in its enrolment's project.
+  v_msg := NULL;
+  BEGIN PERFORM results_add_manual_award(gen_random_uuid(), v_ea[1], 'X', 'note'); EXCEPTION WHEN OTHERS THEN v_msg := SQLERRM; END;
+  IF v_msg IS DISTINCT FROM 'This student is not registered in this project.' THEN RAISE EXCEPTION 'FAIL aw3b: %', v_msg; END IF;
+
+  -- (rm) remove needs a note and keeps the original notes; restore brings it back.
+  v_msg := NULL;
+  BEGIN PERFORM results_remove_award(v_award, ''); EXCEPTION WHEN OTHERS THEN v_msg := SQLERRM; END;
+  IF v_msg IS DISTINCT FROM 'Please add a note for this award.' THEN RAISE EXCEPTION 'FAIL rm1: %', v_msg; END IF;
+  PERFORM results_remove_award(v_award, 'Entered by mistake');
+  IF (SELECT ARRAY[removed::text, notes, removed_note] FROM result_awards WHERE id = v_award)
+     IS DISTINCT FROM ARRAY['true', 'Helped run the exam hall', 'Entered by mistake'] THEN
+    RAISE EXCEPTION 'FAIL rm2: remove';
+  END IF;
+  PERFORM results_restore_award(v_award);
+  IF (SELECT removed FROM result_awards WHERE id = v_award) THEN RAISE EXCEPTION 'FAIL rm3: restore'; END IF;
+
+  -- (rn) a removed rule award stays removed through a re-allot and a rule rename.
+  SELECT id INTO v_award FROM result_awards WHERE enrollment_id = v_eb[1] AND source = 'rule';
+  PERFORM results_remove_award(v_award, 'Duplicate entry');
+  PERFORM results_allot_awards(v_proj);
+  UPDATE result_award_rules SET award_name = 'National Champion' WHERE project_id = v_proj AND award_name = 'National Topper';
+  v_res := results_allot_awards(v_proj);
+  IF (SELECT ARRAY[award_name, removed::text] FROM result_awards WHERE id = v_award)
+       IS DISTINCT FROM ARRAY['National Champion', 'true']
+     OR (SELECT ARRAY[award_name, removed::text] FROM result_awards WHERE enrollment_id = v_eb[2] AND source = 'rule')
+       IS DISTINCT FROM ARRAY['National Champion', 'false']
+     OR (v_res->>'removedKept')::int <> 1 THEN
+    RAISE EXCEPTION 'FAIL rn: %', (SELECT array_agg(row_to_json(a)) FROM result_awards a WHERE a.project_id = v_proj AND source = 'rule');
+  END IF;
+
+  -- (fe) find a student by registration number, however it is typed.
+  IF (SELECT array_agg(enrollment_id) FROM results_find_enrollment(v_proj, ' ' || replace(current_setting('test.rb1'), '-', ' ') || ' '))
+     IS DISTINCT FROM ARRAY[v_eb[1]]
+     OR EXISTS (SELECT 1 FROM results_find_enrollment(v_proj, 'abc')) THEN
+    RAISE EXCEPTION 'FAIL fe: find enrolment';
+  END IF;
+
+  -- (aw4) managers can't write result_awards directly.
   v_msg := NULL;
   BEGIN
     INSERT INTO result_awards (project_id, enrollment_id, award_name, source) VALUES (v_proj, v_ea[1], 'Fake', 'rule');
   EXCEPTION WHEN insufficient_privilege THEN v_msg := 'denied'; END;
   IF v_msg IS DISTINCT FROM 'denied' THEN RAISE EXCEPTION 'FAIL aw4: rule award inserted directly'; END IF;
+  v_msg := NULL;
+  BEGIN UPDATE result_awards SET removed = true WHERE enrollment_id = v_ea[6];
+  EXCEPTION WHEN insufficient_privilege THEN v_msg := 'denied'; END;
+  IF v_msg IS DISTINCT FROM 'denied' THEN RAISE EXCEPTION 'FAIL aw5: award updated directly'; END IF;
   -- (au) awards are audited.
   IF NOT EXISTS (SELECT 1 FROM result_audit_log WHERE table_name = 'result_awards' AND action = 'DELETE') THEN
     RAISE EXCEPTION 'FAIL au: award changes not audited';
@@ -344,7 +406,7 @@ BEGIN
   END IF;
   v_msg := NULL;
   BEGIN
-    INSERT INTO result_feedback (enrollment_id, feedback, model) VALUES (v_ea[1], '{"overall":"x"}', 'm');
+    INSERT INTO result_feedback (enrollment_id, feedback, model, basis_hash) VALUES (v_ea[1], '{"overall":"x"}', 'm', 'h');
   EXCEPTION WHEN insufficient_privilege THEN v_msg := 'denied'; END;
   IF v_msg IS DISTINCT FROM 'denied' THEN RAISE EXCEPTION 'FAIL pv3: authenticated wrote result_feedback'; END IF;
   v_msg := NULL;
@@ -368,8 +430,9 @@ $i$;
 
 -- AI feedback / analysis rows (written by the edge function with service_role in real life).
 RESET ROLE;
-INSERT INTO result_feedback (enrollment_id, feedback, model)
-SELECT x, '{"overall":"Well done","strengths":[],"focus_areas":[],"tips":[],"goals":[]}'::jsonb, 'claude-haiku-5-5'
+INSERT INTO result_feedback (enrollment_id, feedback, model, basis_hash)
+SELECT x, '{"overall":"Well done","strengths":[],"focus_areas":[],"tips":[],"goals":[]}'::jsonb, 'claude-haiku-5-5',
+       results_feedback_basis_hash(x)
   FROM unnest(ARRAY[(current_setting('test.ea')::uuid[])[1], (current_setting('test.ea')::uuid[])[6],
                     (current_setting('test.eb')::uuid[])[1]]) AS x;
 INSERT INTO result_school_analysis (school_id, project_id, analysis, model)
@@ -405,7 +468,22 @@ DECLARE
   v_batch uuid;
   v_flag  uuid;
   v_msg   text;
+  v_bitem uuid;
 BEGIN
+  -- (fs1) feedback status: fresh feedback is not outdated; a student without any has none.
+  IF (SELECT ARRAY[has_feedback, is_outdated] FROM results_feedback_status(v_proj, v_a) WHERE enrollment_id = v_ea[6])
+       IS DISTINCT FROM ARRAY[true, false]
+     OR (SELECT ARRAY[has_feedback, is_outdated] FROM results_feedback_status(v_proj, v_a) WHERE enrollment_id = v_ea[2])
+       IS DISTINCT FROM ARRAY[false, false]
+     OR (SELECT count(*) FROM results_feedback_status(v_proj, v_a)) <> 6 THEN
+    RAISE EXCEPTION 'FAIL fs1: %', (SELECT array_agg(f) FROM results_feedback_status(v_proj, v_a) f);
+  END IF;
+  -- (bh1) the bulk rows carry the same basis hash the single-student function gives.
+  IF (SELECT DISTINCT basis_hash FROM results_bulk_student_skills(v_proj, v_a, false) WHERE enrollment_id = v_ea[1])
+     IS DISTINCT FROM results_feedback_basis_hash(v_ea[1]) THEN
+    RAISE EXCEPTION 'FAIL bh1: bulk basis_hash differs';
+  END IF;
+
   -- (po1) the portal sees nothing before release.
   PERFORM set_config('request.jwt.claims',
                      json_build_object('sub', current_setting('test.portal'), 'role', 'authenticated')::text, true);
@@ -448,6 +526,10 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM result_audit_log WHERE table_name = 'result_send_batches' AND row_id = v_batch) THEN
     RAISE EXCEPTION 'FAIL se2: send batch not audited';
   END IF;
+  -- A staged item for B, to check that unreleasing B stops it (un5).
+  v_batch := results_stage_send(v_proj, 'email', ARRAY[v_b], 'qa@example.com');
+  SELECT i.id INTO v_bitem FROM result_send_items i WHERE i.batch_id = v_batch AND i.status = 'pending';
+  IF v_bitem IS NULL THEN RAISE EXCEPTION 'FIXTURE: no pending item for B'; END IF;
 
   -- (ou) Q4 key D -> A: A1..A5 (answered A) 4 -> 5, B (answered D) 5 -> 4, A6 (C) stays 1.
   PERFORM set_config('request.jwt.claims',
@@ -466,6 +548,11 @@ BEGIN
      OR (SELECT outdated FROM result_school_analysis WHERE school_id = v_b AND project_id = v_proj) IS DISTINCT FROM true THEN
     RAISE EXCEPTION 'FAIL ou3: school analysis not outdated';
   END IF;
+  -- (fs2) status after the re-score agrees.
+  IF (SELECT is_outdated FROM results_feedback_status(v_proj, v_a) WHERE enrollment_id = v_ea[1]) IS DISTINCT FROM true
+     OR (SELECT is_outdated FROM results_feedback_status(v_proj, v_a) WHERE enrollment_id = v_ea[6]) IS DISTINCT FROM false THEN
+    RAISE EXCEPTION 'FAIL fs2: status after re-score';
+  END IF;
   -- (bk2) only students needing feedback: A6 (fresh feedback) is left out, A1 (outdated) is in.
   IF EXISTS (SELECT 1 FROM results_bulk_student_skills(v_proj, v_a) WHERE enrollment_id = v_ea[6])
      OR NOT EXISTS (SELECT 1 FROM results_bulk_student_skills(v_proj, v_a) WHERE enrollment_id = v_ea[1])
@@ -476,6 +563,14 @@ BEGIN
      AND (SELECT outdated FROM result_school_analysis WHERE school_id = current_setting('test.c')::uuid AND project_id = v_proj)
          IS DISTINCT FROM false THEN
     RAISE EXCEPTION 'FAIL ou4: unrelated school analysis marked outdated';
+  END IF;
+
+  -- (bh2) a skill-tag edit (no re-score) makes A6's feedback Outdated via its basis hash,
+  --       and A6 is offered for new feedback again.
+  UPDATE questions SET skill_category = 'Logic' WHERE paper_id = v_paper AND question_number = 3;
+  IF (SELECT is_outdated FROM results_feedback_status(v_proj, v_a) WHERE enrollment_id = v_ea[6]) IS DISTINCT FROM true
+     OR NOT EXISTS (SELECT 1 FROM results_bulk_student_skills(v_proj, v_a) WHERE enrollment_id = v_ea[6]) THEN
+    RAISE EXCEPTION 'FAIL bh2: skill-tag edit not seen as outdated';
   END IF;
 
   -- (cl) Review focus 1: released A got a resend flag; the superadmin clears it.
@@ -495,6 +590,10 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM result_audit_log WHERE table_name = 'school_result_release' AND action = 'UNRELEASE'
                     AND (before->>'school_id')::uuid = v_b) THEN
     RAISE EXCEPTION 'FAIL un3: unrelease not audited';
+  END IF;
+  IF (SELECT ARRAY[status, error] FROM result_send_items WHERE id = v_bitem)
+     IS DISTINCT FROM ARRAY['failed', 'School was unreleased before sending.'] THEN
+    RAISE EXCEPTION 'FAIL un5: staged item for an unreleased school not stopped';
   END IF;
   v_msg := NULL;
   BEGIN PERFORM results_stage_send(v_proj, 'whatsapp', ARRAY[v_b], NULL); EXCEPTION WHEN OTHERS THEN v_msg := SQLERRM; END;
