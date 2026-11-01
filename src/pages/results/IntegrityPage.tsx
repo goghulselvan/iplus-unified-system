@@ -23,7 +23,7 @@ const selectClass =
   "h-11 w-full rounded-md border border-input bg-background px-3 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const SEV_CLASS: Record<string, string> = {
   critical: "bg-red-700 text-white hover:bg-red-700",
-  high: "bg-amber-600 text-white hover:bg-amber-600",
+  high: "bg-amber-700 text-white hover:bg-amber-700",
   medium: "bg-slate-600 text-white hover:bg-slate-600",
 };
 const STATUS_ORDER: FlagStatus[] = ["pending", "investigating", "verified", "dismissed"];
@@ -206,14 +206,18 @@ function FlagDrawer({ flag, projectId, schoolName, className, onClose }: {
                 <li key={s.enrollmentId} className="rounded-md border p-3">
                   <p className="text-base font-medium">{s.name}</p>
                   <p className="text-sm text-muted-foreground">{formatReg(s.regNumber)}</p>
-                  {s.answers ? <AnswerString answers={s.answers} keyMap={data.key} /> : <p className="mt-1 text-sm text-muted-foreground">No answer sheet (marked by hand, so only scores are compared).</p>}
+                  {!s.answers && <p className="mt-1 text-sm text-muted-foreground">No answer sheet (marked by hand, so only scores are compared).</p>}
                 </li>
               ))}
               {total > (data?.students.length ?? 0) && <li className="text-sm text-muted-foreground">Showing the first {data?.students.length} of {total} students.</li>}
             </ul>
           )}
-          {data && Object.keys(data.key).length > 0 && (
-            <p className="text-sm text-muted-foreground">Answers in red are wrong against the answer key. A dash means not answered.</p>
+          {data && data.students.some((s) => s.answers) && <SideBySide students={data.students} keyMap={data.key} />}
+          {data && data.students.some((s) => s.answers) && (
+            <p className="text-sm text-muted-foreground">
+              Shaded columns are questions every student answered the same way.
+              {Object.keys(data.key).length > 0 ? " Answers in red are wrong against the answer key." : " The answer key is not shown because these students sat different papers."} A dash means not answered.
+            </p>
           )}
         </div>
 
@@ -244,21 +248,31 @@ function FlagDrawer({ flag, projectId, schoolName, className, onClose }: {
   );
 }
 
-function AnswerString({ answers, keyMap }: { answers: string[]; keyMap: Record<number, string> }) {
-  const groups: string[][] = [];
-  for (let i = 0; i < answers.length; i += 10) groups.push(answers.slice(i, i + 10).map((a, j) => `${i + j}|${a ?? ""}`));
+function SideBySide({ students, keyMap }: { students: { enrollmentId: string; name: string; regNumber: string; answers: string[] | null }[]; keyMap: Record<number, string> }) {
+  const withAnswers = students.filter((s) => s.answers);
+  const len = Math.max(0, ...withAnswers.map((s) => s.answers!.length));
+  // Questions where every listed student gave the same answer are shaded.
+  const same = Array.from({ length: len }, (_, i) => withAnswers.length > 1 && !!withAnswers[0].answers![i] && withAnswers.every((s) => s.answers![i] === withAnswers[0].answers![i]));
   return (
-    <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 font-mono text-base" aria-label="Answers in order">
-      {groups.map((g, gi) => (
-        <span key={gi}>
-          {g.map((cell) => {
-            const [idx, a] = cell.split("|");
-            const q = Number(idx) + 1;
-            const wrong = a && keyMap[q] && keyMap[q] !== a;
-            return <span key={idx} className={wrong ? "font-bold text-red-700" : undefined}>{a || "-"}</span>;
-          })}
-        </span>
-      ))}
-    </p>
+    <div className="overflow-x-auto rounded-md border p-3" aria-label="Answers side by side">
+      <table className="font-mono text-base">
+        <tbody>
+          <tr>
+            <th scope="row" className="pr-3 text-left font-sans text-sm font-normal text-muted-foreground">Question</th>
+            {Array.from({ length: len }, (_, i) => <td key={i} className={`px-0.5 text-center text-xs text-muted-foreground ${i % 10 === 9 ? "pr-2" : ""}`}>{i + 1}</td>)}
+          </tr>
+          {withAnswers.map((s) => (
+            <tr key={s.enrollmentId}>
+              <th scope="row" className="whitespace-nowrap pr-3 text-left font-sans text-sm font-medium">{s.name}</th>
+              {Array.from({ length: len }, (_, i) => {
+                const a = s.answers![i];
+                const wrong = a && keyMap[i + 1] && keyMap[i + 1] !== a;
+                return <td key={i} className={`px-0.5 text-center ${same[i] ? "bg-muted" : ""} ${wrong ? "font-bold text-red-700" : ""} ${i % 10 === 9 ? "pr-2" : ""}`}>{a || "-"}</td>;
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

@@ -10,24 +10,39 @@ import { plainError } from "./useResultsReads";
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Loose = any;
+/** Turn database errors into sentences for office staff. Our own RPC messages are already plain and pass through. */
+export function friendlyError(error: { message?: string; code?: string } | null, fallback: string): Error {
+  const m = error?.message ?? "";
+  if (error?.code === "57014" || /statement timeout/i.test(m))
+    return new Error("This took too long. Please try again in a minute, or ask the administrator.");
+  if (error?.code === "23505") return new Error("This was already saved by someone else. Please refresh.");
+  if (error?.code === "23514") return new Error("One of the values is not allowed. Check the name, the number and the percentage, then try again.");
+  if (error?.code === "42501" || /row-level security/i.test(m)) return new Error("You do not have permission to do this.");
+  return plainError(error, fallback);
+}
 async function rpc<T>(name: string, args: Record<string, unknown>): Promise<T> {
   const { data, error } = await supabase.rpc(name as never, args as never);
-  if (error) throw plainError(error, "That did not work. Please try again.");
+  if (error) throw friendlyError(error, "That did not work. Please try again.");
   return data as T;
 }
 function table(name: string): Loose {
   return supabase.from(name as never) as Loose;
 }
-const fail = (error: { message?: string } | null, fallback: string): never => {
-  throw plainError(error, fallback);
+const fail = (error: { message?: string; code?: string } | null, fallback: string): never => {
+  throw friendlyError(error, fallback);
 };
 
 // ---------- shared ----------
 const CHUNK = 150;
-export async function inChunks<T>(ids: string[], run: (chunk: string[]) => Promise<T[]>): Promise<T[]> {
+export async function inChunks<T>(
+  ids: string[], run: (chunk: string[]) => Promise<T[]>, onChunk?: (done: number, total: number) => void,
+): Promise<T[]> {
   const out: T[] = [];
   const uniq = [...new Set(ids)];
-  for (let i = 0; i < uniq.length; i += CHUNK) out.push(...(await run(uniq.slice(i, i + CHUNK))));
+  for (let i = 0; i < uniq.length; i += CHUNK) {
+    out.push(...(await run(uniq.slice(i, i + CHUNK))));
+    onChunk?.(Math.min(i + CHUNK, uniq.length), uniq.length);
+  }
   return out;
 }
 
@@ -60,18 +75,18 @@ export interface SchoolInfo {
   principal: string | null;
 }
 
-export async function fetchStudents(enrollmentIds: string[]): Promise<Map<string, StudentInfo>> {
+export async function fetchStudents(enrollmentIds: string[], onProgress?: (fraction: number) => void): Promise<Map<string, StudentInfo>> {
   const enrs = await inChunks<Loose>(enrollmentIds, async (c) => {
     const { data, error } = await table("portal_student_enrollments")
       .select("id, registration_number, school_id, olympiad_code, student_id").in("id", c);
     if (error) fail(error, "We could not load the students.");
     return data ?? [];
-  });
+  }, (d, t) => onProgress?.((d / t) / 2));
   const studs = await inChunks<Loose>(enrs.map((e: Loose) => e.student_id), async (c) => {
     const { data, error } = await table("portal_registered_students").select("id, student_name, class_code").in("id", c);
     if (error) fail(error, "We could not load the students.");
     return data ?? [];
-  });
+  }, (d, t) => onProgress?.(0.5 + (d / t) / 2));
   const byStud = new Map<string, Loose>(studs.map((s: Loose) => [s.id, s]));
   return new Map(
     enrs.map((e: Loose) => {
@@ -84,12 +99,12 @@ export async function fetchStudents(enrollmentIds: string[]): Promise<Map<string
   );
 }
 
-export async function fetchSchools(ids: string[]): Promise<Map<string, SchoolInfo>> {
+export async function fetchSchools(ids: string[], onProgress?: (fraction: number) => void): Promise<Map<string, SchoolInfo>> {
   const rows = await inChunks<Loose>(ids.filter(Boolean), async (c) => {
     const { data, error } = await table("schools").select("id, school_name, district, ss_no, principal_name").in("id", c);
     if (error) fail(error, "We could not load the schools.");
     return data ?? [];
-  });
+  }, (d, t) => onProgress?.(d / t));
   return new Map(rows.map((r: Loose) => [r.id, { id: r.id, name: r.school_name ?? "", district: r.district ?? null, ssNo: r.ss_no ?? null, principal: r.principal_name ?? null } as SchoolInfo]));
 }
 
@@ -182,7 +197,9 @@ export function useFlagDetail(enrollmentIds: string[] | undefined, enabled: bool
         return data ?? [];
       });
       const ev = new Map<string, Loose>(evs.map((e: Loose) => [e.enrollment_id, e]));
-      const paperId = evs.find((e: Loose) => e.answers)?.paper_id as string | undefined;
+      // The answer key is only used when everyone listed sat the same paper; otherwise "wrong" marks could mislead.
+      const paperIds = new Set(evs.filter((e: Loose) => e.answers).map((e: Loose) => e.paper_id as string));
+      const paperId = paperIds.size === 1 ? [...paperIds][0] : undefined;
       const key: Record<number, string> = {};
       if (paperId) {
         const { data, error } = await table("questions").select("question_number, correct_answer, is_grace").eq("paper_id", paperId).order("question_number");
@@ -229,6 +246,7 @@ export interface AwardRow {
   source: "rule" | "manual";
   removed: boolean;
   notes: string | null;
+  removed_note: string | null;
 }
 export interface AwardWithStudent extends AwardRow {
   student: StudentInfo | null;
@@ -293,7 +311,7 @@ export function useAllotAwards(projectId?: string) {
 
 export async function fetchAwards(projectId: string): Promise<AwardWithStudent[]> {
   const rows = await readAll<AwardRow>((from, to) =>
-    table("result_awards").select("id, enrollment_id, award_name, source, removed, notes")
+    table("result_awards").select("id, enrollment_id, award_name, source, removed, notes, removed_note")
       .eq("project_id", projectId).order("award_name").order("id").range(from, to));
   const students = await fetchStudents(rows.map((r) => r.enrollment_id));
   const schools = await fetchSchools([...students.values()].map((s) => s.schoolId ?? ""));
@@ -307,53 +325,63 @@ export function useAwards(projectId?: string) {
   return useQuery({ queryKey: awardsKey(projectId), enabled: !!projectId, queryFn: () => fetchAwards(projectId!) });
 }
 
-export function useUpdateAward(projectId?: string) {
+export function useRemoveAward(projectId?: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (v: { id: string; removed?: boolean; notes?: string }) => {
-      const patch: Record<string, unknown> = {};
-      if (v.removed !== undefined) patch.removed = v.removed;
-      if (v.notes !== undefined) patch.notes = v.notes;
-      const { error } = await table("result_awards").update(patch).eq("id", v.id);
-      if (error) fail(error, "We could not update this award.");
-    },
+    mutationFn: (v: { id: string; note: string }) => rpc<void>("results_remove_award", { p_award_id: v.id, p_note: v.note }),
     onSuccess: () => qc.invalidateQueries({ queryKey: awardsKey(projectId) }),
   });
 }
 
-/** Find a registered student for a manual award by registration number (digits, hyphens allowed). */
-export async function findEnrollmentByReg(projectId: string, reg: string): Promise<StudentInfo | null> {
+export function useRestoreAward(projectId?: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => rpc<void>("results_restore_award", { p_award_id: id }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: awardsKey(projectId) }),
+  });
+}
+
+export interface FoundStudent {
+  enrollmentId: string;
+  regNumber: string;
+  name: string;
+  schoolName: string | null;
+  classCode: string;
+  olympiad: string;
+}
+
+/** Find a registered student for a manual award. Hyphens and spaces in the number are fine; matching happens on the server by digits. */
+export async function findEnrollmentByReg(projectId: string, reg: string): Promise<FoundStudent | null> {
   const digits = reg.replace(/\D/g, "");
   if (digits.length !== 12) return null;
-  const { data, error } = await table("portal_student_enrollments").select("id").eq("project_id", projectId).eq("registration_number", digits).limit(1);
-  if (error) fail(error, "We could not look up that registration number.");
-  const id = (data as Loose[] | null)?.[0]?.id as string | undefined;
-  return id ? (await fetchStudents([id])).get(id) ?? null : null;
+  const rows = await rpc<Loose[] | null>("results_find_enrollment", { p_project_id: projectId, p_reg: digits });
+  const r = rows?.[0];
+  return r
+    ? { enrollmentId: r.enrollment_id, regNumber: r.registration_number ?? "", name: r.student_name ?? "", schoolName: r.school_name ?? null, classCode: r.class_code ?? "", olympiad: r.olympiad_code ?? "" }
+    : null;
 }
 
 export function useAddManualAward(projectId?: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (v: { enrollmentId: string; awardName: string; notes: string }) => {
-      const { error } = await table("result_awards").insert({
-        project_id: projectId, enrollment_id: v.enrollmentId, award_name: v.awardName.trim(), source: "manual", notes: v.notes.trim(),
-      });
-      if (error) {
-        if ((error as Loose).code === "23505") throw new Error("This student already has that award.");
-        fail(error, "We could not add this award.");
-      }
-    },
+    mutationFn: (v: { enrollmentId: string; awardName: string; notes: string }) =>
+      rpc<string>("results_add_manual_award", {
+        p_project_id: projectId, p_enrollment_id: v.enrollmentId, p_award_name: v.awardName.trim(), p_note: v.notes.trim(),
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: awardsKey(projectId) }),
   });
 }
 
 /** Every student with a score (for the participation list), with their name, school and class. */
-export async function fetchParticipants(projectId: string, onProgress?: (n: number) => void): Promise<{ s: StudentInfo; school: SchoolInfo | null; classCode: string; olympiad: string }[]> {
+export async function fetchParticipants(projectId: string, onProgress?: (pct: number) => void): Promise<{ s: StudentInfo; school: SchoolInfo | null; classCode: string; olympiad: string }[]> {
+  // Progress: reading the scores is 0-30%, looking up students 30-85%, schools 85-100%.
+  const { count } = await table("result_scores").select("enrollment_id", { count: "exact", head: true }).eq("project_id", projectId);
   const scores = await readAll<Loose>((from, to) =>
     table("result_scores").select("enrollment_id, class_code, olympiad_code, school_id")
-      .eq("project_id", projectId).order("enrollment_id").range(from, to), onProgress);
-  const students = await fetchStudents(scores.map((r) => r.enrollment_id));
-  const schools = await fetchSchools(scores.map((r) => r.school_id ?? ""));
+      .eq("project_id", projectId).order("enrollment_id").range(from, to),
+    (n) => onProgress?.(Math.min(30, (n / Math.max(1, count ?? n)) * 30)));
+  const students = await fetchStudents(scores.map((r) => r.enrollment_id), (f) => onProgress?.(30 + f * 55));
+  const schools = await fetchSchools(scores.map((r) => r.school_id ?? ""), (f) => onProgress?.(85 + f * 15));
   return scores.flatMap((r) => {
     const s = students.get(r.enrollment_id);
     return s ? [{ s, school: r.school_id ? schools.get(r.school_id) ?? null : null, classCode: r.class_code as string, olympiad: r.olympiad_code as string }] : [];

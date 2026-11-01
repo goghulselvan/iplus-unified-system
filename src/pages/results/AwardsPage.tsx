@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Award, Download, Plus, Trash2, Undo2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -17,8 +17,8 @@ import { useActiveProject } from "@/hooks/useOlympiadProjects";
 import { useClasses } from "@/hooks/results/usePapers";
 import {
   fetchAwards, fetchParticipants, findEnrollmentByReg, useAddManualAward, useAllotAwards, useAwardRules, useAwards,
-  useDeleteAwardRule, useSaveAwardRule, useUpdateAward,
-  type AllotResult, type AwardLevel, type AwardRule, type AwardRuleInput, type AwardRuleType, type AwardWithStudent, type StudentInfo,
+  useDeleteAwardRule, useRemoveAward, useRestoreAward, useSaveAwardRule,
+  type AllotResult, type AwardLevel, type AwardRule, type AwardRuleInput, type AwardRuleType, type AwardWithStudent, type FoundStudent,
 } from "@/hooks/results/usePhase47";
 import { CLASS_ORDER, OLYMPIAD_NAMES, type OlympiadCode } from "@/lib/results/paperRules";
 import { formatReg } from "@/lib/results/regNumber";
@@ -47,7 +47,7 @@ export default function AwardsPage() {
       </TabsList>
       <TabsContent value="rules"><RulesTab projectId={project.id} /></TabsContent>
       <TabsContent value="list"><ListTab projectId={project.id} /></TabsContent>
-      <TabsContent value="export"><ExportTab projectId={project.id} /></TabsContent>
+      <TabsContent value="export"><ExportTab projectId={project.id} year={project.project_year} /></TabsContent>
     </Tabs>
   );
 }
@@ -76,15 +76,18 @@ function RulesTab({ projectId }: { projectId: string }) {
   const timer = useRef<ReturnType<typeof setInterval>>();
   const [result, setResult] = useState<AllotResult | null>(null);
   const className = (c: string) => classes?.find((x) => x.code === c)?.display_name ?? `Class ${c}`;
+  useEffect(() => () => clearInterval(timer.current), []);
 
   const valueProblem = edit && (
     !edit.award_name.trim() ? "Give the award a name." :
     !(edit.value > 0) ? "Enter a number above zero." :
+    !Number.isInteger(edit.sort_order) ? "The order must be a whole number." :
     edit.rule_type === "top_n" && !Number.isInteger(edit.value) ? "Top N must be a whole number." :
     edit.rule_type === "min_percentage" && edit.value > 100 ? "A percentage cannot be above 100." : null);
 
   const runAllot = () => {
     setConfirmAllot(false); setResult(null); setPct(3);
+    clearInterval(timer.current);
     timer.current = setInterval(() => setPct((p) => (p < 95 ? p + Math.max(1, (95 - p) / 10) : p)), 500);
     allot.mutate(undefined, {
       onSuccess: (r) => { setResult(r); toast.success(`Awards allotted: ${r.awarded} students.`); },
@@ -107,7 +110,7 @@ function RulesTab({ projectId }: { projectId: string }) {
             <ol className="space-y-2">
               {rules!.map((r, i) => (
                 <li key={r.id} className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-base"><span className="font-semibold">{i + 1}. {r.award_name}</span>: {ruleSentence(r, className)}</p>
+                  <p className="text-base"><span className="font-semibold">{i + 1}. {r.award_name}</span> <span className="text-sm text-muted-foreground">(order {r.sort_order})</span>: {ruleSentence(r, className)}</p>
                   <div className="flex shrink-0 gap-2">
                     <Button variant="outline" className="min-h-11" onClick={() => setEdit(r)}>Edit</Button>
                     <Button variant="outline" className="min-h-11" aria-label={`Delete rule ${r.award_name}`} onClick={() => setConfirmDel(r)}><Trash2 className="h-4 w-4" aria-hidden="true" /></Button>
@@ -139,7 +142,7 @@ function RulesTab({ projectId }: { projectId: string }) {
                 <TableBody>{result.byAward.map((a) => <TableRow key={a.award}><TableCell className="text-base">{a.award}</TableCell><TableCell className="text-right text-base tabular-nums">{a.students}</TableCell></TableRow>)}</TableBody>
               </Table>
               {result.manualReview.length > 0 && (
-                <div className="rounded-md border border-amber-600 p-3">
+                <div className="rounded-md border border-amber-700 p-3">
                   <p className="text-base font-semibold">Schools to handle by hand ({result.manualReview.length})</p>
                   <p className="text-sm">These schools have a Verified integrity flag, so none of their students got an automatic award.</p>
                   <ul className="mt-2 list-disc pl-5 text-base">
@@ -184,7 +187,8 @@ function RulesTab({ projectId }: { projectId: string }) {
                   </select></div>
               </div>
               <div><Label htmlFor="r-order" className="text-sm">Order (1 is checked first)</Label>
-                <Input id="r-order" type="number" className="h-11 text-base" value={edit.sort_order} onChange={(e) => setEdit({ ...edit, sort_order: Number(e.target.value) })} /></div>
+                <Input id="r-order" type="number" className="h-11 text-base" value={edit.sort_order} onChange={(e) => setEdit({ ...edit, sort_order: e.target.value === "" ? NaN : Number(e.target.value) })} /></div>
+              {edit.id && <p className="text-sm text-muted-foreground">If you rename this award, awards you removed earlier under the old name come back the next time you allot awards.</p>}
               {valueProblem && <p className="text-sm text-red-700" role="alert">{valueProblem}</p>}
             </div>
           )}
@@ -220,7 +224,8 @@ function RulesTab({ projectId }: { projectId: string }) {
 function ListTab({ projectId }: { projectId: string }) {
   const { data: awards, isLoading, isError } = useAwards(projectId);
   const { data: classes } = useClasses();
-  const update = useUpdateAward(projectId);
+  const remove = useRemoveAward(projectId);
+  const restore = useRestoreAward(projectId);
   const add = useAddManualAward(projectId);
   const [award, setAward] = useState("");
   const [classCode, setClassCode] = useState("");
@@ -281,10 +286,10 @@ function ListTab({ projectId }: { projectId: string }) {
                     <TableCell className="text-base">{a.student ? className(a.student.classCode) : ""}</TableCell>
                     <TableCell className="text-base">{OLYMPIAD_NAMES[a.student?.olympiad as OlympiadCode] ?? a.student?.olympiad}</TableCell>
                     <TableCell className="text-base">{a.school?.name}</TableCell>
-                    <TableCell className="text-sm">{a.source === "manual" ? "By hand" : "Rule"}{a.notes && <span className="block text-muted-foreground">{a.notes}</span>}</TableCell>
+                    <TableCell className="text-sm">{a.source === "manual" ? "By hand" : "Rule"}{a.notes && <span className="block text-muted-foreground">{a.notes}</span>}{a.removed && a.removed_note && <span className="block text-muted-foreground">Removed because: {a.removed_note}</span>}</TableCell>
                     <TableCell>
                       {a.removed
-                        ? <Button variant="outline" className="min-h-11" onClick={() => update.mutate({ id: a.id, removed: false }, { onSuccess: () => toast.success("Award put back."), onError: (e) => toast.error(e.message) })}><Undo2 className="mr-1 h-4 w-4" aria-hidden="true" />Put back</Button>
+                        ? <Button variant="outline" className="min-h-11" onClick={() => restore.mutate(a.id, { onSuccess: () => toast.success("Award put back."), onError: (e) => toast.error(e.message) })}><Undo2 className="mr-1 h-4 w-4" aria-hidden="true" />Put back</Button>
                         : <Button variant="outline" className="min-h-11" onClick={() => { setRemoving(a); setNote(""); }}>Remove</Button>}
                     </TableCell>
                   </TableRow>
@@ -310,8 +315,8 @@ function ListTab({ projectId }: { projectId: string }) {
             <Textarea id="rm-note" className="text-base" rows={3} value={note} onChange={(e) => setNote(e.target.value)} /></div>
           <DialogFooter>
             <Button variant="outline" className="min-h-11" onClick={() => setRemoving(null)}>Keep it</Button>
-            <Button className="min-h-11" disabled={!note.trim() || update.isPending}
-              onClick={() => update.mutate({ id: removing!.id, removed: true, notes: note.trim() }, { onSuccess: () => { toast.success("Award removed."); setRemoving(null); }, onError: (e) => toast.error(e.message) })}>Remove award</Button>
+            <Button className="min-h-11" disabled={!note.trim() || remove.isPending}
+              onClick={() => remove.mutate({ id: removing!.id, note: note.trim() }, { onSuccess: () => { toast.success("Award removed."); setRemoving(null); }, onError: (e) => toast.error(e.message) })}>Remove award</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -325,7 +330,7 @@ function ManualAddDialog({ projectId, onClose, add, className }: {
   projectId: string; onClose: () => void; add: ReturnType<typeof useAddManualAward>; className: (c: string) => string;
 }) {
   const [reg, setReg] = useState("");
-  const [student, setStudent] = useState<StudentInfo | null>(null);
+  const [student, setStudent] = useState<FoundStudent | null>(null);
   const [looked, setLooked] = useState(false);
   const [name, setName] = useState("");
   const [note, setNote] = useState("");
@@ -348,7 +353,7 @@ function ManualAddDialog({ projectId, onClose, add, className }: {
             <Button className="min-h-11" variant="outline" onClick={find} disabled={busy || reg.replace(/\D/g, "").length !== 12}>Find student</Button>
           </div>
           {looked && !student && <p className="text-sm text-red-700" role="alert">No student has this registration number this year.</p>}
-          {student && <p className="rounded-md border p-2 text-base">{student.name}, {className(student.classCode)}, {OLYMPIAD_NAMES[student.olympiad as OlympiadCode] ?? student.olympiad}</p>}
+          {student && <p className="rounded-md border p-2 text-base">{student.name}, {className(student.classCode)}, {OLYMPIAD_NAMES[student.olympiad as OlympiadCode] ?? student.olympiad}{student.schoolName ? `, ${student.schoolName}` : ""}. Check this is the right student before adding.</p>}
           <div><Label htmlFor="m-name" className="text-sm">Award name</Label><Input id="m-name" className="h-11 text-base" value={name} onChange={(e) => setName(e.target.value)} /></div>
           <div><Label htmlFor="m-note" className="text-sm">Why (required)</Label><Textarea id="m-note" className="text-base" rows={2} value={note} onChange={(e) => setNote(e.target.value)} /></div>
         </div>
@@ -363,7 +368,7 @@ function ManualAddDialog({ projectId, onClose, add, className }: {
 }
 
 // ---------------- exports ----------------
-function ExportTab({ projectId }: { projectId: string }) {
+function ExportTab({ projectId, year }: { projectId: string; year?: number }) {
   const { data: classes } = useClasses();
   const [job, setJob] = useState<{ stage: string; pct: number } | null>(null);
   const className = (c: string) => classes?.find((x) => x.code === c)?.display_name ?? `Class ${c}`;
@@ -377,7 +382,16 @@ function ExportTab({ projectId }: { projectId: string }) {
     } catch (e) { toast.error((e as Error).message || "That did not work. Please try again."); }
     finally { setJob(null); }
   };
-  const activeAwards = async () => (await fetchAwards(projectId)).filter((a) => !a.removed && a.student);
+  const activeAwards = async () => {
+    const seen = new Set<string>();
+    // A student with the same award from a rule and by hand is listed once.
+    return (await fetchAwards(projectId)).filter((a) => {
+      if (a.removed || !a.student) return false;
+      const k = `${a.enrollment_id}|${a.award_name}`;
+      return seen.has(k) ? false : (seen.add(k), true);
+    });
+  };
+  const safeName = (n: string) => n.replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, " ").trim() || "School";
 
   const letters = () => run("Making award letters", async (set) => {
     const all = await activeAwards();
@@ -386,14 +400,15 @@ function ExportTab({ projectId }: { projectId: string }) {
     for (const a of all) { const k = a.school?.id ?? "none"; bySchool.set(k, [...(bySchool.get(k) ?? []), a]); }
     const groups = [...bySchool.values()].sort((x, y) => (x[0].school?.name ?? "").localeCompare(y[0].school?.name ?? ""));
     const make = (list: AwardWithStudent[]) => generateAwardLetter({
+      year,
       school: { name: list[0].school?.name ?? "Your school", city: list[0].school?.district ?? undefined, principal: list[0].school?.principal ?? undefined },
       awardees: list.map((a) => ({ name: a.student!.name, className: className(a.student!.classCode), olympiad: olyName(a.student!.olympiad), award: a.award_name })),
     });
-    if (groups.length === 1) { saveBlob(`${groups[0][0].school?.name ?? "School"} - Award letter.pdf`, await make(groups[0])); set(100); return "Award letter saved."; }
+    if (groups.length === 1) { saveBlob(`${safeName(groups[0][0].school?.name ?? "School")} - Award letter.pdf`, await make(groups[0])); set(100); return "Award letter saved."; }
     async function* files() {
       for (let i = 0; i < groups.length; i++) {
         const g = groups[i];
-        yield { name: `${(g[0].school?.name ?? "School").replace(/[\\/:*?"<>|]/g, "-")} - Award letter.pdf`, blob: await make(g) };
+        yield { name: `${safeName(g[0].school?.name ?? "School")} - Award letter.pdf`, blob: await make(g) };
         await new Promise((r) => setTimeout(r, 0));
       }
     }
@@ -401,7 +416,7 @@ function ExportTab({ projectId }: { projectId: string }) {
       count: groups.length, partName: zipPartName("Award letters"), onProgress: set,
       onPart: (p) => saveBlob(p.name, p.blob),
     });
-    return `${groups.length} letters saved in ${r.parts} zip ${r.parts === 1 ? "file" : "files"}.`;
+    return `${groups.length} letters saved in ${r.parts} zip ${r.parts === 1 ? "file" : "files"}.${r.parts > 1 ? " If only some downloaded, allow multiple downloads in your browser and try again." : ""}`;
   });
 
   const achievers = () => run("Preparing the achievers list", async (set) => {
@@ -416,7 +431,7 @@ function ExportTab({ projectId }: { projectId: string }) {
   });
 
   const participation = () => run("Preparing the participation list", async (set) => {
-    const [people, awards] = await Promise.all([fetchParticipants(projectId, (n) => set(Math.min(90, n / 100))), activeAwards()]);
+    const [people, awards] = await Promise.all([fetchParticipants(projectId, (p) => set(Math.min(95, p))), activeAwards()]);
     const won = new Set(awards.map((a) => a.student!.enrollmentId));
     const rows: PrinterRow[] = people.filter((p) => !won.has(p.s.enrollmentId)).map((p) => ({
       regNumber: p.s.regNumber, name: p.s.name, className: className(p.classCode), olympiad: olyName(p.olympiad),
@@ -440,7 +455,7 @@ function ExportTab({ projectId }: { projectId: string }) {
   const items: [string, string, () => void][] = [
     ["Award letters (PDF)", "One letter for each school listing its award winners. Many schools are saved as zip files of up to 25 MB each.", letters],
     ["Achievers list (CSV)", "Every award winner, for the certificate printer: Reg no, Name, Class, Olympiad, School, Award.", achievers],
-    ["Participation list (CSV)", "Every evaluated student who did not win an award, with the award shown as Participation.", participation],
+    ["Participation list (CSV)", "Every evaluated student who has no award, with the award shown as Participation. Students whose award was removed are included; students of schools under a Verified integrity flag are included too.", participation],
     ["Courier pack data (JSON)", "The school and winner list the parcel scripts read to prepare award parcels (schools.json).", courier],
   ];
   return (

@@ -36,3 +36,10 @@ describe("courierPackData", () => {
     expect(schoolCodeFromReg("123")).toBeNull();
   });
 });
+
+import { csvCell } from "../rankingsCsv";
+describe("csvCell formula guard", () => {
+  it.each(["=1+1", "+1", "-1", "@a", "\tx", "\rx"])("neutralises %j", (v) => {
+    expect(csvCell(v).replace(/^"/, "").startsWith("'")).toBe(true);
+  });
+});
