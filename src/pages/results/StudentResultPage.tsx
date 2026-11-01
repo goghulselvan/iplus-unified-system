@@ -8,6 +8,7 @@ import { OLYMPIAD_NAMES, type OlympiadCode } from "@/lib/results/paperRules";
 import { studentGrade } from "@/lib/results/grading";
 import { formatReg } from "@/lib/results/regNumber";
 import { AnswerReview } from "@/components/results/students/AnswerReview";
+import { StudentExports } from "@/components/results/exports/StudentExports";
 import { ChangeHistory } from "@/components/results/students/ChangeHistory";
 
 const Tile = ({ label, value, hint }: { label: string; value: string; hint?: string }) => (
@@ -62,6 +63,7 @@ export default function StudentResultPage() {
             <Tile label="State rank" value={rank(score.rank_state, totals?.state)} />
             <Tile label="All-India rank" value={rank(score.rank_national, totals?.national)} />
           </div>
+          <StudentExports data={data} className={className} />
           <section aria-labelledby="review-h" className="space-y-3">
             <h3 id="review-h" className="text-lg font-semibold">Answer review</h3>
             <AnswerReview result={data} />

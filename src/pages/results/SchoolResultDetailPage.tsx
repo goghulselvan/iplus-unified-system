@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { SchoolExports } from "@/components/results/exports/SchoolExports";
+import { SchoolAnalysisCard } from "@/components/results/skills/SchoolAnalysisCard";
 import { useActiveProject } from "@/hooks/useOlympiadProjects";
 import { useClassOlympiadSummary, useSchoolStudents, useSchoolSummary } from "@/hooks/results/useResultsReads";
 import { OLYMPIAD_NAMES, type OlympiadCode } from "@/lib/results/paperRules";
@@ -16,8 +17,6 @@ import { vsStateDiff, vsStateText } from "@/lib/results/schoolResults";
 import { VsState } from "./SchoolResultsPage";
 
 const PAGE = 50;
-const LATER = "Available after skill reports are built";
-const LATER_BUTTONS = ["AI analysis", "School PDFs", "Download zips"];
 
 const Tile = ({ label, value, sub }: { label: string; value: React.ReactNode; sub?: string }) => (
   <Card>
@@ -74,20 +73,8 @@ export default function SchoolResultDetailPage() {
         <Tile label="Compared with state average" value={<VsState avg={school.avg_percentage} stateAvg={school.state_avg_percentage} />} sub={diff == null ? undefined : vsStateText(diff)} />
       </div>
 
-      <TooltipProvider delayDuration={100}>
-        <div className="flex flex-wrap gap-3">
-          {LATER_BUTTONS.map((b) => (
-            <Tooltip key={b}>
-              <TooltipTrigger asChild>
-                <span tabIndex={0} className="inline-block rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <Button type="button" variant="outline" disabled className="min-h-11 pointer-events-none" aria-describedby={undefined}>{b}</Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>{LATER}</TooltipContent>
-            </Tooltip>
-          ))}
-        </div>
-      </TooltipProvider>
+      <SchoolExports projectId={project!.id} school={school} groups={groups ?? []} />
+      <SchoolAnalysisCard projectId={project!.id} schoolId={school.school_id} hasResults={Number(school.evaluated) > 0} />
 
       <section aria-labelledby="co-h" className="space-y-2">
         <h4 id="co-h" className="text-lg font-semibold">Class and olympiad</h4>
