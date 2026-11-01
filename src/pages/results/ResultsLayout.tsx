@@ -7,6 +7,9 @@ import { RESULTS_NAV, isNavLive } from "@/lib/results/nav";
 import ComingSoon from "./ComingSoon";
 import ResultsDashboard from "./ResultsDashboard";
 import QuestionPapersPage, { PaperEditorRoute } from "./QuestionPapersPage";
+import RankingsPage from "./RankingsPage";
+import SchoolResultsPage from "./SchoolResultsPage";
+import SchoolResultDetailPage from "./SchoolResultDetailPage";
 
 const linkClass = (active: boolean) =>
   `flex items-center whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
@@ -57,6 +60,9 @@ export default function ResultsLayout() {
                 <Route index element={<ResultsDashboard />} />
                 <Route path="papers" element={<QuestionPapersPage />} />
                 <Route path="papers/:paperId" element={<PaperEditorRoute />} />
+                <Route path="rankings" element={<RankingsPage />} />
+                <Route path="schools" element={<SchoolResultsPage />} />
+                <Route path="schools/:schoolId" element={<SchoolResultDetailPage />} />
                 {RESULTS_NAV.filter((n) => n.path !== "/results" && n.key !== "papers").map((n) => (
                   <Route
                     key={n.key}
