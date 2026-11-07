@@ -2,15 +2,10 @@
  * Columns added by the answer-key cross-check migration. The generated database
  * types are not regenerated yet, so the question row is extended here, in ONE place.
  */
-export type Letter = "A" | "B" | "C" | "D";
+import { KEY_ANSWERS, isAnswer, type Answer, type CheckStatus } from "./keyCheck";
 
-export type CheckStatus =
-  | "unchecked"
-  | "confirmed"
-  | "key_only"
-  | "mismatch"
-  | "mismatch_strong"
-  | "resolved";
+export type { CheckStatus };
+export type Letter = Answer;
 
 /** Fractions (0 to 1) of the page, measured from the top-left corner. */
 export interface FigureBox {
@@ -29,7 +24,7 @@ export interface KeyFields {
   ai_answer: Letter | null;
   ai_reason: string | null;
   recheck_answer: Letter | null;
-  recheck_confidence: number | string | null;
+  recheck_confidence: number | null;
   recheck_reason: string | null;
   rechecked_at: string | null;
   figure_page: number | null;
@@ -37,5 +32,5 @@ export interface KeyFields {
   check_status: CheckStatus;
 }
 
-export const LETTERS: readonly Letter[] = ["A", "B", "C", "D"];
-export const isLetter = (v: unknown): v is Letter => v === "A" || v === "B" || v === "C" || v === "D";
+export const LETTERS: readonly Letter[] = KEY_ANSWERS;
+export const isLetter = isAnswer;

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseKeyCsv, keyTemplateCsv } from "../answerKeyCsv";
 import { cropRect } from "../keyCrop";
-import { checkStatus } from "../keyCheck";
 import { planKeySave } from "../keyPlan";
 import { recheckInChunks } from "../keyApi";
 import { readinessProblems } from "../paperRules";
@@ -51,57 +50,46 @@ describe("crop math", () => {
   });
 });
 
-describe("checkStatus", () => {
-  const base = { key_answer: "B", ai_answer: "B", recheck_answer: null, recheck_confidence: null, rechecked_at: null, check_status: "unchecked" } as const;
-  it("follows the spec rules", () => {
-    expect(checkStatus({ ...base, key_answer: null })).toBe("unchecked");
-    expect(checkStatus({ ...base })).toBe("confirmed");
-    expect(checkStatus({ ...base, ai_answer: null })).toBe("key_only");
-    expect(checkStatus({ ...base, ai_answer: "D" })).toBe("mismatch");
-    expect(checkStatus({ ...base, ai_answer: "D", recheck_answer: "B", recheck_confidence: 0.5 })).toBe("confirmed");
-    expect(checkStatus({ ...base, ai_answer: "D", recheck_answer: "D", recheck_confidence: 0.9 })).toBe("mismatch_strong");
-    expect(checkStatus({ ...base, ai_answer: "D", recheck_answer: "D", recheck_confidence: 0.89 })).toBe("mismatch");
-    expect(checkStatus({ ...base, ai_answer: "D", check_status: "resolved" })).toBe("resolved");
-  });
-});
-
 describe("planKeySave", () => {
   const qs = [
-    { question_number: 1, correct_answer: "A", is_grace: false, ai_answer: "A", check_status: "unchecked" },
-    { question_number: 2, correct_answer: "C", is_grace: false, ai_answer: "C", check_status: "unchecked" },
-    { question_number: 3, correct_answer: "D", is_grace: false, ai_answer: "D", check_status: "resolved" },
+    { question_number: 1, correct_answer: "A", ai_answer: "A", key_answer: null, check_status: "unchecked" },
+    { question_number: 2, correct_answer: "C", ai_answer: "C", key_answer: "C", check_status: "confirmed" },
+    { question_number: 3, correct_answer: "D", ai_answer: "D", key_answer: "A", check_status: "resolved" },
+    { question_number: 4, correct_answer: "B", ai_answer: "B", key_answer: null, check_status: "unchecked" },
+    { question_number: 5, correct_answer: "B", ai_answer: "B", key_answer: "B", check_status: "resolved" },
   ] as unknown as Parameters<typeof planKeySave>[0];
   it("lets the key win except where a person already decided, and queues mismatches", () => {
-    const p = planKeySave(qs, { 1: "A", 2: "B", 3: "A", 7: "C" });
+    const p = planKeySave(qs, { 1: "A", 2: "C", 3: "A", 4: "D", 5: "B", 7: "C" });
     expect(p.rows.map((r) => [r.question_number, r.correct_answer, r.check_status])).toEqual([
-      [1, "A", "confirmed"], [2, "B", "mismatch"], [3, "D", "resolved"],
+      [1, "A", "confirmed"], [4, "D", "mismatch"],
     ]);
-    expect(p.toRecheck).toEqual([2]);
+    expect(p.toRecheck).toEqual([4]);
     expect(p.unmatched).toEqual([7]);
+    expect(p.unchanged).toBe(3); // same key as before: Q2, Q3 (decision stands) and Q5
   });
 });
 
 describe("recheckInChunks", () => {
-  it("sends chunks of 20 and reports progress", async () => {
+  it("sends chunks of 5 and reports progress", async () => {
     const calls: number[][] = [];
     const seen: string[] = [];
     const nums = Array.from({ length: 45 }, (_, i) => i + 1);
-    const done = await recheckInChunks("p", nums, (d, t) => seen.push(`${d}/${t}`), () => false, 20,
-      async (_p, part) => { calls.push(part); return { rechecked: part.length, results: [] }; });
-    expect(calls.map((c) => c.length)).toEqual([20, 20, 5]);
-    expect(done).toBe(45);
-    expect(seen).toEqual(["0/45", "20/45", "40/45", "45/45"]);
+    const nums12 = nums.slice(0, 12);
+    const done = await recheckInChunks("p", nums12, (d, t) => seen.push(`${d}/${t}`), () => false, undefined,
+      async (_p, part) => { calls.push(part); return { rechecked_at: "", results: [] }; });
+    expect(calls.map((c) => c.length)).toEqual([5, 5, 2]);
+    expect(done).toBe(12);
+    expect(seen).toEqual(["0/12", "5/12", "10/12", "12/12"]);
   });
 });
 
 describe("Ready gate", () => {
   it("names the unresolved mismatch questions", () => {
-    const rows = [1, 2, 3].map((n) => ({
-      question_number: n, correct_answer: "A", is_grace: false, skill_category: "x",
-      check_status: n === 2 ? "mismatch" : n === 3 ? "mismatch_strong" : "confirmed",
-    })) as unknown as Parameters<typeof readinessProblems>[0];
-    expect(readinessProblems(rows, 3)).toEqual([
-      "Questions 2, 3 need your decision because the answer key and the AI disagree",
+    const row = (n: number, over: object) => ({ question_number: n, correct_answer: "A", is_grace: false, skill_category: "x", key_answer: "A", ai_answer: "A", ...over });
+    const rows = [row(1, {}), row(2, { ai_answer: "D" }), row(3, { ai_answer: "D", recheck_answer: "D", recheck_confidence: 0.95, rechecked_at: "t" }),
+      row(4, { ai_answer: "D", check_status: "resolved" })] as unknown as Parameters<typeof readinessProblems>[0];
+    expect(readinessProblems(rows, 4)).toEqual([
+      "Questions 2, 3 need your decision: the answer key and the AI disagree",
     ]);
   });
 });

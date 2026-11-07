@@ -1,5 +1,6 @@
 import type { Tables } from "@/integrations/supabase/types";
 import type { KeyFields } from "./questionRow";
+import { checkStatus, isBlockingStatus, keyCheckProblems, type KeyCheckFields } from "./keyCheck";
 
 export type OlympiadCode = "EPO" | "MPO" | "SPO" | "GKSSPO" | "LRPO" | "KidsPO";
 export type ClassGroup = "lkg_ukg" | "class_1_2" | "class_3_5" | "class_6_8";
@@ -39,12 +40,12 @@ export const CLASS_ORDER = ["14", "15", "01", "02", "03", "04", "05", "06", "07"
 const list = (nums: number[]) => nums.join(", ");
 
 type ReadinessRow = Pick<QuestionRow, "question_number" | "correct_answer" | "is_grace" | "skill_category"> &
-  Partial<Pick<QuestionRow, "check_status">>;
+  Partial<KeyCheckFields>;
 
 /** Questions where the key and the AI disagree and nobody has decided yet. */
 export function unresolvedMismatches(questions: ReadinessRow[]): number[] {
   return questions
-    .filter((q) => q.check_status === "mismatch" || q.check_status === "mismatch_strong")
+    .filter((q) => isBlockingStatus(checkStatus({ key_answer: null, ai_answer: null, ...q })))
     .map((q) => q.question_number)
     .sort((a, b) => a - b);
 }
@@ -64,10 +65,7 @@ export function readinessProblems(questions: ReadinessRow[], total: number): str
   if (noSkill.length) {
     problems.push(`Questions ${list(noSkill)} have no skill`);
   }
-  const mismatches = unresolvedMismatches(questions);
-  if (mismatches.length) {
-    problems.push(`${mismatches.length === 1 ? "Question" : "Questions"} ${list(mismatches)} ${mismatches.length === 1 ? "needs" : "need"} your decision because the answer key and the AI disagree`);
-  }
+  problems.push(...keyCheckProblems(questions.map((q) => ({ key_answer: null, ai_answer: null, ...q }))));
   return problems;
 }
 

@@ -1,43 +1,39 @@
-import { checkStatus } from "./keyCheck";
-import type { Letter, KeyFields } from "./questionRow";
-import type { QuestionRow } from "./paperRules";
+import { keyUploadPatch, needsRecheck, type KeyCheckFields } from "./keyCheck";
+import type { Letter } from "./questionRow";
 
 export interface KeyPlan {
-  rows: { question_number: number; key_answer: Letter; correct_answer: string | null; check_status: string }[];
+  /** Only questions whose key actually changes. */
+  rows: { question_number: number; key_answer: Letter | null; correct_answer: Letter | null; check_status: string }[];
   /** Questions whose key differs from the AI's answer; these need an automatic recheck. */
   toRecheck: number[];
   /** Answers in the key for questions that do not exist on this paper yet. */
   unmatched: number[];
+  /** Questions where the key is the same as the one already saved. */
+  unchanged: number;
 }
 
-type PlanQuestion = Pick<QuestionRow, "question_number" | "correct_answer" | "is_grace"> &
-  Pick<KeyFields, "ai_answer" | "check_status">;
+type PlanQuestion = KeyCheckFields & { question_number: number; correct_answer: string | null };
 
 /**
- * What saving an answer key changes. The key wins by default: correct_answer
- * becomes the key unless a person already decided that question (resolved) or marked grace.
+ * What saving an answer key changes, decided by Part A's keyUploadPatch. Earlier
+ * rechecks were against the old key, so they are cleared for changed questions
+ * (done by the save) and the status is worked out as if they had not happened.
  */
 export function planKeySave(questions: PlanQuestion[], answers: Record<number, Letter>): KeyPlan {
   const rows: KeyPlan["rows"] = [];
   const toRecheck: number[] = [];
   const known = new Set<number>();
+  let unchanged = 0;
   for (const q of questions) {
     known.add(q.question_number);
     const key = answers[q.question_number];
     if (!key) continue;
-    const resolved = q.check_status === "resolved";
-    const status = checkStatus({
-      key_answer: key, ai_answer: q.ai_answer, recheck_answer: null, recheck_confidence: null,
-      rechecked_at: null, check_status: resolved ? "resolved" : "unchecked",
-    });
-    rows.push({
-      question_number: q.question_number,
-      key_answer: key,
-      correct_answer: resolved || q.is_grace ? q.correct_answer : key,
-      check_status: status,
-    });
-    if (status === "mismatch") toRecheck.push(q.question_number);
+    if (key === q.key_answer) { unchanged++; continue; }
+    const cleared = { ...q, recheck_answer: null, recheck_confidence: null, rechecked_at: null };
+    const patch = keyUploadPatch(cleared, key);
+    rows.push({ question_number: q.question_number, ...patch });
+    if (needsRecheck({ ...cleared, ...patch })) toRecheck.push(q.question_number);
   }
   const unmatched = Object.keys(answers).map(Number).filter((n) => !known.has(n));
-  return { rows, toRecheck, unmatched };
+  return { rows, toRecheck, unmatched, unchanged };
 }

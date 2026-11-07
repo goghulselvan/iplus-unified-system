@@ -6,7 +6,19 @@ export interface RecheckResult {
   answer: Letter | null;
   confidence: number;
   reason: string;
+  key_answer: Letter | null;
   check_status: CheckStatus;
+}
+
+export interface RecheckResponse { results: RecheckResult[]; rechecked_at: string }
+
+export interface ReadKeyResponse {
+  answers: { question_number: number; answer: string | null }[];
+  /** Questions the AI could not read an answer for. */
+  missing: number[];
+  /** Questions the key seems to answer twice with different letters. */
+  conflicts: number[];
+  total: number;
 }
 
 const GENERIC = "The AI could not do this right now. Please try again.";
@@ -27,18 +39,21 @@ async function call<T>(body: Record<string, unknown>): Promise<T> {
 }
 
 export const recheckQuestions = (paperId: string, questionNumbers: number[]) =>
-  call<{ rechecked: number; results: RecheckResult[] }>({ action: "recheck", paperId, questionNumbers });
+  call<RecheckResponse>({ action: "recheck", paperId, questionNumbers });
 
 export const readKey = (paperId: string, fileKey: string) =>
-  call<{ answers: { question_number: number; answer: string | null }[] }>({ action: "read_key", paperId, fileKey });
+  call<ReadKeyResponse>({ action: "read_key", paperId, fileKey });
 
-/** Rechecks in chunks of 20, reporting progress. Stops quietly when `shouldStop()` is true. */
+/** Questions per recheck call: the AI works at high effort, so small batches stay inside the time limit. */
+export const RECHECK_CHUNK = 5;
+
+/** Rechecks in small chunks, reporting progress after each. Stops quietly when `shouldStop()` is true. */
 export async function recheckInChunks(
   paperId: string,
   numbers: number[],
   onProgress: (done: number, total: number) => void,
   shouldStop: () => boolean = () => false,
-  chunk = 20,
+  chunk = RECHECK_CHUNK,
   recheck: typeof recheckQuestions = recheckQuestions,
 ): Promise<number> {
   let done = 0;

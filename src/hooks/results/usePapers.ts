@@ -151,7 +151,7 @@ export async function revertIfNoLongerReady(paperId: string): Promise<string | n
     .from("question_papers").select("status, total_questions").eq("id", paperId).maybeSingle();
   if (!paper || paper.status !== "ready") return null;
   const { data: qs } = await supabase
-    .from("questions").select("question_number, correct_answer, is_grace, skill_category, check_status").eq("paper_id", paperId);
+    .from("questions").select("question_number, correct_answer, is_grace, skill_category, key_answer, ai_answer, recheck_answer, recheck_confidence, rechecked_at, check_status").eq("paper_id", paperId);
   const reason = draftReason((qs ?? []) as unknown as Parameters<typeof draftReason>[0], paper.total_questions);
   if (!reason) return null;
   const { error } = await supabase.from("question_papers").update({ status: "draft" }).eq("id", paperId);
@@ -194,7 +194,7 @@ export function useSetPaperStatus(projectId?: string) {
           .from("question_papers").select("total_questions").eq("id", paperId).single();
         if (pErr) fail(pErr);
         const { data: qs, error: qErr } = await supabase
-          .from("questions").select("question_number, correct_answer, is_grace, skill_category, check_status").eq("paper_id", paperId);
+          .from("questions").select("question_number, correct_answer, is_grace, skill_category, key_answer, ai_answer, recheck_answer, recheck_confidence, rechecked_at, check_status").eq("paper_id", paperId);
         if (qErr) fail(qErr);
         // check_status is not in the generated types yet.
         const problems = readinessProblems((qs ?? []) as unknown as Parameters<typeof readinessProblems>[0], paper!.total_questions);

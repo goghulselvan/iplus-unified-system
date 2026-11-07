@@ -41,7 +41,7 @@ describe("QuestionCard", () => {
 
   it("shows the strong prompt and the three decision buttons for a strong mismatch", async () => {
     const onChange = vi.fn();
-    card(q(2, { ai_answer: "D", recheck_answer: "D", recheck_confidence: 0.94, recheck_reason: "Yellow is the colour of the sun", ai_reason: "The sun is yellow", check_status: "mismatch_strong" }), onChange);
+    card(q(2, { ai_answer: "D", recheck_answer: "D", recheck_confidence: 0.94, rechecked_at: "t", recheck_reason: "Yellow is the colour of the sun", ai_reason: "The sun is yellow", check_status: "mismatch_strong" }), onChange);
     expect(screen.getByText("AI strongly disagrees")).toBeTruthy();
     expect(screen.getByText(/94% sure the answer is D, but the answer key says B/)).toBeTruthy();
     expect(screen.getByText(/Yellow is the colour of the sun/)).toBeTruthy();
@@ -50,7 +50,7 @@ describe("QuestionCard", () => {
     await userEvent.click(screen.getByRole("button", { name: "Keep key (B)" }));
     expect(onChange).toHaveBeenLastCalledWith(2, { correct_answer: "B", is_grace: false, check_status: "resolved" });
     await userEvent.click(screen.getByRole("button", { name: "Mark grace" }));
-    expect(onChange).toHaveBeenLastCalledWith(2, { is_grace: true, correct_answer: null, check_status: "resolved" });
+    expect(onChange).toHaveBeenLastCalledWith(2, { is_grace: true, correct_answer: "B", check_status: "resolved" });
   });
 
   it("sets the answer with the A to D keys and moves with the arrows", async () => {
@@ -81,7 +81,7 @@ describe("PaperEditor answer key", () => {
   });
 
   it("blocks Ready and names the questions that need a decision", async () => {
-    const p = props([q(1), q(2, { ai_answer: "D", check_status: "mismatch" }), q(3, { ai_answer: "A", recheck_answer: "A", recheck_confidence: 0.95, check_status: "mismatch_strong" })]);
+    const p = props([q(1), q(2, { ai_answer: "D", check_status: "mismatch" }), q(3, { ai_answer: "A", recheck_answer: "A", recheck_confidence: 0.95, rechecked_at: "t", check_status: "mismatch_strong" })]);
     render(<PaperEditor {...p} />);
     await userEvent.click(screen.getByRole("button", { name: "Mark as Ready" }));
     expect(screen.getByText(/Questions 2, 3 need your decision/)).toBeTruthy();

@@ -3,7 +3,7 @@ import { Check, CircleCheck, Image as ImageIcon, KeyRound, ShieldAlert, Triangle
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { ANSWERS, COGNITIVE_LEVELS, type QuestionRow } from "@/lib/results/paperRules";
-import { checkStatus } from "@/lib/results/keyCheck";
+import { checkStatus, keyCheckNote, resolvePatch, type Decision } from "@/lib/results/keyCheck";
 import { LETTERS, type CheckStatus, type Letter } from "@/lib/results/questionRow";
 import { QuestionPicture, type PdfSource } from "./QuestionPicture";
 
@@ -77,7 +77,11 @@ export function QuestionCard({ question, edit, skills, pdf, onChange, onNav }: P
     }
   };
 
-  const decide = (patch: QuestionEdit) => onChange(n, { ...patch, check_status: "resolved" });
+  const decide = (d: Decision) => {
+    const { human_edited: _h, ...patch } = resolvePatch(m, d);
+    onChange(n, patch);
+  };
+  const note = keyCheckNote(m);
 
   return (
     <article id={`q-card-${n}`} tabIndex={0} aria-label={`Question ${n}, ${s.label}`} onKeyDown={onKeyDown}
@@ -148,17 +152,15 @@ export function QuestionCard({ question, edit, skills, pdf, onChange, onNav }: P
           {m.recheck_reason && <p className="mt-1 text-sm"><span className="font-semibold">After a second look:</span> {m.recheck_reason}</p>}
           <div className="mt-3 flex flex-wrap gap-2">
             <Button type="button" variant="outline" className="min-h-11 bg-background"
-              onClick={() => decide({ correct_answer: m.key_answer, is_grace: false })}>Keep key ({m.key_answer})</Button>
+              onClick={() => decide("keep_key")}>Keep key ({m.key_answer})</Button>
             <Button type="button" variant="outline" className="min-h-11 bg-background" disabled={!aiPick}
-              onClick={() => decide({ correct_answer: aiPick, is_grace: false })}>Use AI's answer{aiPick ? ` (${aiPick})` : ""}</Button>
+              onClick={() => decide("use_ai")}>Use AI's answer{aiPick ? ` (${aiPick})` : ""}</Button>
             <Button type="button" variant="outline" className="min-h-11 bg-background"
-              onClick={() => decide({ is_grace: true, correct_answer: null })}>Mark grace</Button>
+              onClick={() => decide("grace")}>Mark grace</Button>
           </div>
         </section>
       )}
-      {status === "confirmed" && m.recheck_answer && m.recheck_answer === m.key_answer && m.ai_answer !== m.key_answer && (
-        <p className="mt-3 text-sm font-medium text-green-900">AI rechecked: the key is right.</p>
-      )}
+      {note && <p className={`mt-3 text-sm font-medium ${status === "confirmed" ? "text-green-900" : "text-muted-foreground"}`}>{note}</p>}
       {status === "resolved" && <p className="mt-3 text-sm font-medium text-indigo-900">{resolvedHow}</p>}
       {checkHint && (
         <p className="mt-3 flex items-center gap-1 text-sm font-semibold text-amber-900">

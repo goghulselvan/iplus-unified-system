@@ -196,7 +196,8 @@ export default function PaperEditor(props: PaperEditorProps) {
 
   const saveKey = async (answers: Record<number, Letter>) => {
     const plan = planKeySave(questions, answers);
-    if (!plan.rows.length) throw new Error("None of these answers match a question on this paper yet.");
+    if (!plan.rows.length && plan.unchanged === 0) throw new Error("None of these answers match a question on this paper yet.");
+    if (!plan.rows.length) { setNotice({ kind: "ok", text: "This answer key is the same as the one already saved." }); return; }
     await onSaveKey(plan.rows);
     onChanged();
     setNotice({ kind: "ok", text: `The answer key is saved for ${plan.rows.length} ${plan.rows.length === 1 ? "question" : "questions"}.${plan.toRecheck.length ? ` The AI will now recheck ${plan.toRecheck.length} where it disagrees.` : ""}` });

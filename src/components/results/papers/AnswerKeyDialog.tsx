@@ -27,7 +27,7 @@ interface Props {
 type Grid = Record<number, string>;
 const FAILED = "Something went wrong. Please try again.";
 
-export function KeyGrid({ total, values, onChange }: { total: number; values: Grid; onChange: (n: number, v: string) => void }) {
+export function KeyGrid({ total, values, onChange, flagged = [] }: { total: number; values: Grid; onChange: (n: number, v: string) => void; flagged?: number[] }) {
   const set = (n: number, raw: string) => {
     const ch = raw.slice(-1).toUpperCase();
     onChange(n, ch);
@@ -43,7 +43,7 @@ export function KeyGrid({ total, values, onChange }: { total: number; values: Gr
             <span className="block tabular-nums">{n}</span>
             <input id={`key-cell-${n}`} aria-label={`Answer for question ${n}`} aria-invalid={bad} value={v} autoComplete="off"
               onChange={(e) => set(n, e.target.value)} onFocus={(e) => e.currentTarget.select()}
-              className={`h-11 w-full rounded-md border bg-background text-center text-lg font-semibold uppercase focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${bad ? "border-destructive" : "border-input"}`} />
+              className={`h-11 w-full rounded-md border bg-background text-center text-lg font-semibold uppercase focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${bad ? "border-destructive" : !v && flagged.includes(n) ? "border-amber-600 bg-amber-50" : "border-input"}`} />
           </label>
         );
       })}
@@ -64,6 +64,7 @@ export function AnswerKeyDialog({ open, onOpenChange, paperId, projectId, totalQ
   const [csvName, setCsvName] = useState("");
   const [typed, setTyped] = useState<Grid>({});
   const [read, setRead] = useState<Grid | null>(null);
+  const [unsure, setUnsure] = useState<number[]>([]);
   const [job, setJob] = useState<{ stage: string; percent: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -72,7 +73,7 @@ export function AnswerKeyDialog({ open, onOpenChange, paperId, projectId, totalQ
 
   useEffect(() => {
     if (!open) return;
-    setTab("csv"); setParsed(null); setCsvName(""); setRead(null); setJob(null); setError(null); setSaving(false);
+    setTab("csv"); setParsed(null); setCsvName(""); setRead(null); setUnsure([]); setJob(null); setError(null); setSaving(false);
     setTyped(Object.fromEntries(Object.entries(existing ?? {}).map(([k, v]) => [k, v])));
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => { if (timer.current) clearInterval(timer.current); }, []);
@@ -86,7 +87,7 @@ export function AnswerKeyDialog({ open, onOpenChange, paperId, projectId, totalQ
 
   const onPhoto = async (file?: File) => {
     if (!file) return;
-    setError(null); setRead(null);
+    setError(null); setRead(null); setUnsure([]);
     const ext = (file.name.split(".").pop() ?? "").toLowerCase();
     abort.current = new AbortController();
     try {
@@ -96,7 +97,8 @@ export function AnswerKeyDialog({ open, onOpenChange, paperId, projectId, totalQ
       // One call with no real progress to report: the bar creeps towards 95% until it answers.
       setJob({ stage: "Reading the answer key", percent: 60 });
       timer.current = setInterval(() => setJob((j) => (j && j.percent < 95 ? { ...j, percent: j.percent + 1 } : j)), 400);
-      const { answers } = await readKey(paperId, key);
+      const { answers, missing, conflicts } = await readKey(paperId, key);
+      setUnsure([...new Set([...(missing ?? []), ...(conflicts ?? [])])].sort((a, b) => a - b));
       const g: Grid = {};
       for (const a of answers) if (a.question_number >= 1 && a.question_number <= totalQuestions && a.answer) g[a.question_number] = String(a.answer).toUpperCase();
       setJob({ stage: "Reading the answer key", percent: 100 });
@@ -113,6 +115,7 @@ export function AnswerKeyDialog({ open, onOpenChange, paperId, projectId, totalQ
   const answers = tab === "csv" ? parsed?.answers ?? {} : toAnswers(grid);
   const bad = tab === "csv" ? [] : badCells(grid);
   const count = Object.keys(answers).length;
+  const toType = unsure.filter((n) => !isLetter((read ?? {})[n]));
   const canSave = !saving && !job && count > 0 && bad.length === 0 && (tab !== "csv" || (parsed?.errors.length ?? 1) === 0);
 
   const save = async () => {
@@ -176,7 +179,12 @@ export function AnswerKeyDialog({ open, onOpenChange, paperId, projectId, totalQ
             {read && (
               <div className="space-y-3">
                 <p className="text-base font-medium">Check every answer against the printed key. You can change any of them.</p>
-                <KeyGrid total={totalQuestions} values={read} onChange={(n, v) => setRead({ ...read, [n]: v })} />
+                {toType.length > 0 && (
+                  <p role="alert" className="rounded-md border border-amber-600 bg-amber-50 p-3 text-sm font-medium text-amber-950">
+                    Please type these: {toType.join(", ")}. The AI could not read them, or the key seems to give two different answers.
+                  </p>
+                )}
+                <KeyGrid total={totalQuestions} values={read} flagged={unsure} onChange={(n, v) => setRead({ ...read, [n]: v })} />
               </div>
             )}
           </TabsContent>
