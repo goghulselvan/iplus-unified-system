@@ -4573,6 +4573,72 @@ export type Database = {
         }
         Relationships: []
       }
+      result_ai_batches: {
+        Row: {
+          anthropic_batch_id: string | null
+          collected_at: string | null
+          created_at: string
+          created_by: string | null
+          error: string | null
+          errored: number
+          errored_enrollment_ids: string[]
+          id: string
+          kind: string
+          project_id: string
+          school_id: string | null
+          status: string
+          succeeded: number
+          total: number
+        }
+        Insert: {
+          anthropic_batch_id?: string | null
+          collected_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          error?: string | null
+          errored?: number
+          errored_enrollment_ids?: string[]
+          id?: string
+          kind?: string
+          project_id: string
+          school_id?: string | null
+          status?: string
+          succeeded?: number
+          total?: number
+        }
+        Update: {
+          anthropic_batch_id?: string | null
+          collected_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          error?: string | null
+          errored?: number
+          errored_enrollment_ids?: string[]
+          id?: string
+          kind?: string
+          project_id?: string
+          school_id?: string | null
+          status?: string
+          succeeded?: number
+          total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "result_ai_batches_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "olympiad_projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "result_ai_batches_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       result_audit_log: {
         Row: {
           action: string
@@ -4605,6 +4671,186 @@ export type Database = {
           table_name?: string
         }
         Relationships: []
+      }
+      result_award_rules: {
+        Row: {
+          award_name: string
+          class_code: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          level: string
+          olympiad_code: string | null
+          project_id: string
+          rule_type: string
+          sort_order: number
+          updated_at: string
+          updated_by: string | null
+          value: number
+        }
+        Insert: {
+          award_name: string
+          class_code?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          level: string
+          olympiad_code?: string | null
+          project_id: string
+          rule_type: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+          value: number
+        }
+        Update: {
+          award_name?: string
+          class_code?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          level?: string
+          olympiad_code?: string | null
+          project_id?: string
+          rule_type?: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+          value?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "result_award_rules_class_code_fkey"
+            columns: ["class_code"]
+            isOneToOne: false
+            referencedRelation: "classes"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "result_award_rules_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "olympiad_projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      result_awards: {
+        Row: {
+          award_name: string
+          created_at: string
+          created_by: string | null
+          enrollment_id: string
+          id: string
+          notes: string | null
+          project_id: string
+          removed: boolean
+          removed_at: string | null
+          removed_by: string | null
+          removed_note: string | null
+          rule_id: string | null
+          source: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          award_name: string
+          created_at?: string
+          created_by?: string | null
+          enrollment_id: string
+          id?: string
+          notes?: string | null
+          project_id: string
+          removed?: boolean
+          removed_at?: string | null
+          removed_by?: string | null
+          removed_note?: string | null
+          rule_id?: string | null
+          source: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          award_name?: string
+          created_at?: string
+          created_by?: string | null
+          enrollment_id?: string
+          id?: string
+          notes?: string | null
+          project_id?: string
+          removed?: boolean
+          removed_at?: string | null
+          removed_by?: string | null
+          removed_note?: string | null
+          rule_id?: string | null
+          source?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "result_awards_enrollment_id_fkey"
+            columns: ["enrollment_id"]
+            isOneToOne: false
+            referencedRelation: "portal_student_enrollments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "result_awards_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "olympiad_projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "result_awards_rule_id_fkey"
+            columns: ["rule_id"]
+            isOneToOne: false
+            referencedRelation: "result_award_rules"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      result_corrections: {
+        Row: {
+          after_value: string | null
+          before_value: string | null
+          changed_at: string
+          changed_by: string | null
+          evaluation_id: string
+          id: number
+          question_number: number
+          reason: string
+        }
+        Insert: {
+          after_value?: string | null
+          before_value?: string | null
+          changed_at?: string
+          changed_by?: string | null
+          evaluation_id: string
+          id?: number
+          question_number: number
+          reason: string
+        }
+        Update: {
+          after_value?: string | null
+          before_value?: string | null
+          changed_at?: string
+          changed_by?: string | null
+          evaluation_id?: string
+          id?: number
+          question_number?: number
+          reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "result_corrections_evaluation_id_fkey"
+            columns: ["evaluation_id"]
+            isOneToOne: false
+            referencedRelation: "result_evaluations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       result_evaluations: {
         Row: {
@@ -4673,6 +4919,120 @@ export type Database = {
           },
         ]
       }
+      result_feedback: {
+        Row: {
+          basis_hash: string
+          batch_id: string | null
+          created_at: string
+          enrollment_id: string
+          feedback: Json
+          model: string
+          outdated: boolean
+        }
+        Insert: {
+          basis_hash: string
+          batch_id?: string | null
+          created_at?: string
+          enrollment_id: string
+          feedback: Json
+          model: string
+          outdated?: boolean
+        }
+        Update: {
+          basis_hash?: string
+          batch_id?: string | null
+          created_at?: string
+          enrollment_id?: string
+          feedback?: Json
+          model?: string
+          outdated?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "result_feedback_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "result_ai_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "result_feedback_enrollment_id_fkey"
+            columns: ["enrollment_id"]
+            isOneToOne: true
+            referencedRelation: "portal_student_enrollments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      result_integrity_flags: {
+        Row: {
+          class_code: string | null
+          created_at: string
+          details: Json
+          fingerprint: string
+          flag_type: string
+          id: string
+          notes: string | null
+          olympiad_code: string | null
+          project_id: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          scan_id: string | null
+          school_id: string
+          severity: string
+          status: string
+        }
+        Insert: {
+          class_code?: string | null
+          created_at?: string
+          details?: Json
+          fingerprint: string
+          flag_type: string
+          id?: string
+          notes?: string | null
+          olympiad_code?: string | null
+          project_id: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          scan_id?: string | null
+          school_id: string
+          severity: string
+          status?: string
+        }
+        Update: {
+          class_code?: string | null
+          created_at?: string
+          details?: Json
+          fingerprint?: string
+          flag_type?: string
+          id?: string
+          notes?: string | null
+          olympiad_code?: string | null
+          project_id?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          scan_id?: string | null
+          school_id?: string
+          severity?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "result_integrity_flags_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "olympiad_projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "result_integrity_flags_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       result_resend_flags: {
         Row: {
           cleared_at: string | null
@@ -4711,6 +5071,48 @@ export type Database = {
           },
           {
             foreignKeyName: "result_resend_flags_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      result_school_analysis: {
+        Row: {
+          analysis: Json
+          created_at: string
+          model: string
+          outdated: boolean
+          project_id: string
+          school_id: string
+        }
+        Insert: {
+          analysis: Json
+          created_at?: string
+          model: string
+          outdated?: boolean
+          project_id: string
+          school_id: string
+        }
+        Update: {
+          analysis?: Json
+          created_at?: string
+          model?: string
+          outdated?: boolean
+          project_id?: string
+          school_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "result_school_analysis_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "olympiad_projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "result_school_analysis_school_id_fkey"
             columns: ["school_id"]
             isOneToOne: false
             referencedRelation: "schools"
@@ -4799,6 +5201,104 @@ export type Database = {
             columns: ["paper_id"]
             isOneToOne: false
             referencedRelation: "question_papers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      result_send_batches: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          channel: string
+          created_at: string
+          created_by: string | null
+          id: string
+          project_id: string
+          status: string
+          test_target: string | null
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          channel: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          project_id: string
+          status?: string
+          test_target?: string | null
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          channel?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          project_id?: string
+          status?: string
+          test_target?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "result_send_batches_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "olympiad_projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      result_send_items: {
+        Row: {
+          attempts: number
+          batch_id: string
+          created_at: string
+          error: string | null
+          id: string
+          payload: Json
+          school_id: string | null
+          sent_at: string | null
+          status: string
+          target: string | null
+        }
+        Insert: {
+          attempts?: number
+          batch_id: string
+          created_at?: string
+          error?: string | null
+          id?: string
+          payload?: Json
+          school_id?: string | null
+          sent_at?: string | null
+          status?: string
+          target?: string | null
+        }
+        Update: {
+          attempts?: number
+          batch_id?: string
+          created_at?: string
+          error?: string | null
+          id?: string
+          payload?: Json
+          school_id?: string | null
+          sent_at?: string | null
+          status?: string
+          target?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "result_send_items_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "result_send_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "result_send_items_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
             referencedColumns: ["id"]
           },
         ]
@@ -7714,6 +8214,24 @@ export type Database = {
         Args: { p_project_id: string }
         Returns: boolean
       }
+      portal_school_results: {
+        Args: { p_project_id: string }
+        Returns: {
+          class_code: string
+          enrollment_id: string
+          grade: string
+          max_marks: number
+          olympiad_code: string
+          percentage: number
+          rank_district: number
+          rank_national: number
+          rank_school: number
+          rank_state: number
+          registration_number: string
+          student_name: string
+          total: number
+        }[]
+      }
       process_bulk_registration_new_format: {
         Args: {
           p_project_id: string
@@ -7795,6 +8313,44 @@ export type Database = {
         }
         Returns: undefined
       }
+      results_add_manual_award: {
+        Args: {
+          p_award_name: string
+          p_enrollment_id: string
+          p_note: string
+          p_project_id: string
+        }
+        Returns: string
+      }
+      results_allot_awards: { Args: { p_project_id: string }; Returns: Json }
+      results_basis_hash: {
+        Args: {
+          p_answers: string[]
+          p_grace: boolean[]
+          p_grade: string
+          p_keys: string[]
+          p_marks: number[]
+          p_skills: string[]
+        }
+        Returns: string
+      }
+      results_bulk_student_skills: {
+        Args: {
+          p_only_needing_feedback?: boolean
+          p_project_id: string
+          p_school_id?: string
+        }
+        Returns: {
+          basis_hash: string
+          class_code: string
+          correct: number
+          enrollment_id: string
+          grade: string
+          olympiad_code: string
+          skill: string
+          total: number
+        }[]
+      }
       results_class_olympiad_summary: {
         Args: { p_project_id: string; p_school_id: string }
         Returns: {
@@ -7809,20 +8365,56 @@ export type Database = {
           state_avg_percentage: number
         }[]
       }
-      results_correct_answer: {
-        Args: {
-          p_evaluation_id: string
-          p_question_number: number
-          p_reason?: string
-          p_value: string
-        }
-        Returns: undefined
+      results_clear_resend_flag: {
+        Args: { p_flag_id: string }
+        Returns: boolean
       }
+      results_correct_answer:
+        | {
+            Args: {
+              p_evaluation_id: string
+              p_question_number: number
+              p_value: string
+            }
+            Returns: undefined
+          }
+        | {
+            Args: {
+              p_evaluation_id: string
+              p_question_number: number
+              p_reason: string
+              p_value: string
+            }
+            Returns: undefined
+          }
       results_delete_evaluations: {
         Args: { p_enrollment_ids: string[] }
         Returns: number
       }
       results_digits: { Args: { p: string }; Returns: string }
+      results_feedback_basis_hash: {
+        Args: { p_enrollment_id: string }
+        Returns: string
+      }
+      results_feedback_status: {
+        Args: { p_project_id: string; p_school_id?: string }
+        Returns: {
+          enrollment_id: string
+          has_feedback: boolean
+          is_outdated: boolean
+        }[]
+      }
+      results_find_enrollment: {
+        Args: { p_project_id: string; p_reg: string }
+        Returns: {
+          class_code: string
+          enrollment_id: string
+          olympiad_code: string
+          registration_number: string
+          school_name: string
+          student_name: string
+        }[]
+      }
       results_group_key: {
         Args: {
           p_class_code: string
@@ -7831,6 +8423,7 @@ export type Database = {
         }
         Returns: number
       }
+      results_integrity_scan: { Args: { p_project_id: string }; Returns: Json }
       results_lock_group: {
         Args: {
           p_class_code: string
@@ -7839,7 +8432,20 @@ export type Database = {
         }
         Returns: undefined
       }
+      results_lock_school_groups: {
+        Args: { p_project_id: string; p_school_ids: string[] }
+        Returns: undefined
+      }
       results_olympiad_label: { Args: { p_code: string }; Returns: string }
+      results_paper_skill_keys: {
+        Args: { p_paper_ids: string[] }
+        Returns: {
+          grace: boolean[]
+          keys: string[]
+          paper_id: string
+          skills: string[]
+        }[]
+      }
       results_rank_list: {
         Args: {
           p_class_code: string
@@ -7874,9 +8480,30 @@ export type Database = {
           total_count: number
         }[]
       }
+      results_registered_vs_evaluated: {
+        Args: { p_project_id: string }
+        Returns: {
+          absent: number
+          class_code: string
+          evaluated: number
+          olympiad_code: string
+          pending: number
+          registered: number
+          school_id: string
+          school_name: string
+        }[]
+      }
+      results_release_schools: {
+        Args: { p_notes: string; p_project_id: string; p_school_ids: string[] }
+        Returns: number
+      }
       results_released_school_ids: {
         Args: { p_project_id: string }
         Returns: string[]
+      }
+      results_remove_award: {
+        Args: { p_award_id: string; p_note: string }
+        Returns: undefined
       }
       results_rerank: {
         Args: {
@@ -7902,8 +8529,16 @@ export type Database = {
         Args: { p_paper_id: string }
         Returns: undefined
       }
+      results_restore_award: {
+        Args: { p_award_id: string }
+        Returns: undefined
+      }
       results_restore_evaluation: {
         Args: { p_evaluation_id: string }
+        Returns: undefined
+      }
+      results_review_integrity_flag: {
+        Args: { p_flag_id: string; p_notes: string; p_status: string }
         Returns: undefined
       }
       results_school_grade: {
@@ -7928,6 +8563,14 @@ export type Database = {
           state_name: string
         }[]
       }
+      results_score_combinations: {
+        Args: { p_project_id: string }
+        Returns: {
+          class_code: string
+          olympiad_code: string
+          students: number
+        }[]
+      }
       results_set_absent: {
         Args: {
           p_absent: boolean
@@ -7935,6 +8578,44 @@ export type Database = {
           p_paper_id: string
         }
         Returns: number
+      }
+      results_skill_credit: {
+        Args: {
+          p_answers: string[]
+          p_grace: boolean[]
+          p_keys: string[]
+          p_marks: number[]
+          p_skills: string[]
+        }
+        Returns: {
+          correct: number
+          first_q: number
+          skill: string
+          total: number
+        }[]
+      }
+      results_skill_summary: {
+        Args: {
+          p_class_code: string
+          p_olympiad_code: string
+          p_project_id: string
+          p_school_id: string
+        }
+        Returns: {
+          school_pct: number
+          skill: string
+          state_pct: number
+          students: number
+        }[]
+      }
+      results_stage_send: {
+        Args: {
+          p_channel: string
+          p_project_id: string
+          p_school_ids: string[]
+          p_test_target: string
+        }
+        Returns: string
       }
       results_student_grade: { Args: { p_percentage: number }; Returns: string }
       results_student_list: {
@@ -7965,6 +8646,19 @@ export type Database = {
           total: number
           total_count: number
         }[]
+      }
+      results_student_skills: {
+        Args: { p_enrollment_id: string }
+        Returns: {
+          correct: number
+          percentage: number
+          skill: string
+          total: number
+        }[]
+      }
+      results_unrelease_school: {
+        Args: { p_project_id: string; p_school_id: string }
+        Returns: number
       }
       results_upload: {
         Args: {
