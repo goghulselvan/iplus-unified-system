@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.55.0";
-import { ALLOWED_UPLOAD_TYPES, isAllowedKey } from "./keys.ts";
+import { isAllowedKey, isAllowedUpload } from "./keys.ts";
 import { deleteObject, EXPIRES_IN, presign, R2Config } from "./sign.ts";
 
 const corsHeaders = {
@@ -46,8 +46,8 @@ serve(async (req: Request): Promise<Response> => {
     if (action !== "upload" && action !== "download" && action !== "delete") {
       return json({ error: "Unknown action. Use upload, download or delete." }, 400);
     }
-    if (action === "upload" && (!contentType || !ALLOWED_UPLOAD_TYPES.includes(contentType))) {
-      return json({ error: "Only PDF, ZIP and CSV files can be uploaded." }, 400);
+    if (action === "upload" && !isAllowedUpload(key, contentType)) {
+      return json({ error: "Only PDF, ZIP and CSV files can be uploaded (and JPG or PNG photos of an answer key)." }, 400);
     }
 
     // Secrets resolved lazily, inside the handler.

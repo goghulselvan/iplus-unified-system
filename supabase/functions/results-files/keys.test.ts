@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "https://deno.land/std@0.190.0/testing/asserts.ts";
-import { isAllowedKey, resultsFileName, resultsKeyPrefix, ssSegment } from "./keys.ts";
+import { answerKeyKey, isAllowedKey, isAllowedUpload, parseAnswerKeyKey, resultsFileName, resultsKeyPrefix, ssSegment } from "./keys.ts";
 import { presign } from "./sign.ts";
 
 const U = "123e4567-e89b-12d3-a456-426614174000";
@@ -46,4 +46,28 @@ Deno.test("presign honours a custom expiry", async () => {
     "GET", `${U}/SS1/results/a.zip`, undefined, 604800,
   );
   assert(url.includes("X-Amz-Expires=604800"));
+});
+
+Deno.test("answer key files: allowed, parsed, and image uploads only for them", () => {
+  for (const ext of ["pdf", "jpg", "jpeg", "png"] as const) {
+    const k = answerKeyKey(U, U, ext);
+    assertEquals(k, `${U}/papers/${U}-key.${ext}`);
+    assert(isAllowedKey(k), k);
+    assertEquals(parseAnswerKeyKey(k)?.paperId, U);
+  }
+  assertEquals(parseAnswerKeyKey(`${U}/papers/${U}-key.png`)?.mediaType, "image/png");
+  assertEquals(parseAnswerKeyKey(`${U}/papers/${U}-key.jpg`)?.mediaType, "image/jpeg");
+  assertEquals(parseAnswerKeyKey(`${U}/papers/${U}-key.pdf`)?.mediaType, "application/pdf");
+  for (const k of [`${U}/papers/${U}.pdf`, `${U}/papers/${U}-key.gif`, `${U}/papers/${U}-key.PNG`, `${U}/papers/x-key.png`,
+    `${U}/reports/${U}-key.png`, `${U}/papers/${U}-key.png\n`, `${U}/papers/${U}-key.png.pdf`]) {
+    assertEquals(parseAnswerKeyKey(k), null, k);
+  }
+  assert(isAllowedUpload(`${U}/papers/${U}-key.png`, "image/png"));
+  assert(isAllowedUpload(`${U}/papers/${U}-key.jpeg`, "image/jpeg"));
+  assert(isAllowedUpload(`${U}/papers/${U}-key.pdf`, "application/pdf"));
+  assert(isAllowedUpload(`${U}/papers/${U}.pdf`, "application/pdf"));
+  assertEquals(isAllowedUpload(`${U}/papers/${U}-key.png`, "image/jpeg"), false);
+  assertEquals(isAllowedUpload(`${U}/papers/${U}.png`, "image/png"), false);
+  assertEquals(isAllowedUpload(`${U}/uploads/photo.jpg`, "image/jpeg"), false);
+  assertEquals(isAllowedUpload(`${U}/papers/${U}-key.png`, undefined), false);
 });
