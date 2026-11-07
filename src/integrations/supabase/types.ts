@@ -4353,51 +4353,93 @@ export type Database = {
       }
       questions: {
         Row: {
+          ai_answer: string | null
           ai_confidence: number | null
+          ai_reason: string | null
+          check_status: string
           cognitive_level: string | null
           correct_answer: string | null
+          figure_box: Json | null
+          figure_page: number | null
           has_figure: boolean
           human_edited: boolean
           id: string
           is_grace: boolean
+          key_answer: string | null
           nep_skill_mapping: string | null
+          option_a: string | null
+          option_b: string | null
+          option_c: string | null
+          option_d: string | null
           paper_id: string
           question_number: number
           question_text: string | null
+          recheck_answer: string | null
+          recheck_confidence: number | null
+          recheck_reason: string | null
+          rechecked_at: string | null
           skill_category: string | null
           skill_description: string | null
           updated_at: string
           updated_by: string | null
         }
         Insert: {
+          ai_answer?: string | null
           ai_confidence?: number | null
+          ai_reason?: string | null
+          check_status?: string
           cognitive_level?: string | null
           correct_answer?: string | null
+          figure_box?: Json | null
+          figure_page?: number | null
           has_figure?: boolean
           human_edited?: boolean
           id?: string
           is_grace?: boolean
+          key_answer?: string | null
           nep_skill_mapping?: string | null
+          option_a?: string | null
+          option_b?: string | null
+          option_c?: string | null
+          option_d?: string | null
           paper_id: string
           question_number: number
           question_text?: string | null
+          recheck_answer?: string | null
+          recheck_confidence?: number | null
+          recheck_reason?: string | null
+          rechecked_at?: string | null
           skill_category?: string | null
           skill_description?: string | null
           updated_at?: string
           updated_by?: string | null
         }
         Update: {
+          ai_answer?: string | null
           ai_confidence?: number | null
+          ai_reason?: string | null
+          check_status?: string
           cognitive_level?: string | null
           correct_answer?: string | null
+          figure_box?: Json | null
+          figure_page?: number | null
           has_figure?: boolean
           human_edited?: boolean
           id?: string
           is_grace?: boolean
+          key_answer?: string | null
           nep_skill_mapping?: string | null
+          option_a?: string | null
+          option_b?: string | null
+          option_c?: string | null
+          option_d?: string | null
           paper_id?: string
           question_number?: number
           question_text?: string | null
+          recheck_answer?: string | null
+          recheck_confidence?: number | null
+          recheck_reason?: string | null
+          rechecked_at?: string | null
           skill_category?: string | null
           skill_description?: string | null
           updated_at?: string
