@@ -23,7 +23,7 @@ export interface PaperEditorProps {
   questions: QuestionRow[];
   skills: string[];
   /** Present when another slot holds a paper this one can be copied from. */
-  copySource?: { label: string };
+  copySource?: { label: string; unavailable?: string };
   onBack: () => void;
   onSave: (rows: EditableQuestion[]) => Promise<void>;
   onSetStatus: (status: "draft" | "ready") => Promise<void>;
@@ -202,10 +202,13 @@ export default function PaperEditor(props: PaperEditorProps) {
 
           <div className="flex flex-wrap items-start gap-x-6 gap-y-3 border-t pt-4">
             {copySource && (
-              <Button type="button" variant="outline" className="min-h-11"
-                onClick={() => (questions.length || dirtyCount ? setConfirmCopy(true) : doCopy(false))}>
-                <Copy className="mr-2 h-4 w-4" aria-hidden="true" />Copy from {copySource.label}
-              </Button>
+              <div className="flex flex-col gap-1">
+                <Button type="button" variant="outline" className="min-h-11" disabled={!!copySource.unavailable}
+                  onClick={() => (questions.length || dirtyCount ? setConfirmCopy(true) : doCopy(false))}>
+                  <Copy className="mr-2 h-4 w-4" aria-hidden="true" />Copy from {copySource.label}
+                </Button>
+                {copySource.unavailable && <p className="max-w-xs text-sm text-muted-foreground">{copySource.unavailable}</p>}
+              </div>
             )}
             <AnswerKeyExport paperName={paperName} questions={merged} />
             {ready ? (

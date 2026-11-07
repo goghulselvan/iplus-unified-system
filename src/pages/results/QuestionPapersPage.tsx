@@ -52,7 +52,7 @@ export function PaperEditorRoute() {
       paperName={name}
       questions={data.questions}
       skills={skillsFor(skillLists, paper.olympiad_code, classGroup(paper.class_code))}
-      copySource={source && source.entered > 0 ? { label: "Slot 1" } : undefined}
+      copySource={slotIndex > 0 ? { label: "Slot 1", unavailable: !source ? "Slot 1 has no paper for this class and subject yet." : source.entered === 0 ? "Slot 1 has no questions yet. Set up the Slot 1 paper first, then copy it here." : undefined } : undefined}
       onBack={() => navigate("/results/papers")}
       onSave={async (rows) => { await save.mutateAsync(rows); }}
       onSetStatus={async (status) => { await setStatus.mutateAsync({ paperId: paper.id, status }); }}
