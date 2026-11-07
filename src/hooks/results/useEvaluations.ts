@@ -192,7 +192,7 @@ export function useStudentResult(enrollmentId?: string) {
     queryFn: async (): Promise<StudentResult | null> => {
       const { data: enr, error } = await supabase
         .from("portal_student_enrollments")
-        .select("id, registration_number, olympiad_code, school_id, project_id, portal_registered_students(student_name, class_code), schools(school_name)")
+        .select("id, registration_number, olympiad_code, school_id, project_id, portal_registered_students(student_name, class_code)")
         .eq("id", enrollmentId!).maybeSingle();
       if (error) fail(error, "We could not open this student. Please try again.");
       if (!enr) return null;
@@ -201,6 +201,12 @@ export function useStudentResult(enrollmentId?: string) {
         portal_registered_students: { student_name: string; class_code: string } | null;
         schools: { school_name: string } | null;
       };
+      // No FK from enrolments to schools, so PostgREST can't embed it: fetch the name separately.
+      e.schools = null;
+      if (e.school_id) {
+        const { data: sch } = await supabase.from("schools").select("school_name").eq("id", e.school_id).maybeSingle();
+        e.schools = sch ? { school_name: sch.school_name } : null;
+      }
       const { data: ev, error: evErr } = await supabase
         .from("result_evaluations").select("id, status, answers, marks, paper_id")
         .eq("enrollment_id", enrollmentId!).is("deleted_at", null).maybeSingle();
