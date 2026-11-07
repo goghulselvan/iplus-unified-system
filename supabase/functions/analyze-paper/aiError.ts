@@ -4,7 +4,7 @@ export function aiErrorMessage(status: number, body: unknown): string {
   // deno-lint-ignore no-explicit-any
   const err = (body as any)?.error;
   const type: string = typeof err?.type === "string" ? err.type : "";
-  const detail: string = typeof err?.message === "string" ? err.message.slice(0, 160) : "";
+  const detail: string = typeof err?.message === "string" ? err.message.slice(0, 400) : "";
   if (status === 402 || type === "billing_error" || /credit balance/i.test(detail)) {
     return "The AI account has run out of credits. Please add credits in the Anthropic Console (Billing), then try again.";
   }
