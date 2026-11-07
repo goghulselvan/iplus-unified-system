@@ -20,6 +20,7 @@ vi.mock("@/hooks/results/useRelease", async (orig) => ({
   useSendItems: () => ({
     data: [
       { id: "i1", batch_id: "b1", school_id: "s1", target: "a@x.in", payload: { schoolName: "Sent School" }, status: "sent", error: null, sent_at: null, attempts: 1 },
+      { id: "i3", batch_id: "b1", school_id: "s3", target: "c@x.in", payload: { schoolName: "Unknown School" }, status: "unknown", error: "Unknown. Check with the school before retrying.", sent_at: null, attempts: 1 },
       { id: "i2", batch_id: "b1", school_id: "s2", target: "b@x.in", payload: { schoolName: "Failed School" }, status: "failed", error: "Mailbox does not exist", sent_at: null, attempts: 1 },
     ],
   }),
@@ -57,6 +58,7 @@ describe("Release & Send", () => {
     const failedRow = screen.getByText("Failed School").closest("tr")!;
     expect(failedRow.textContent).toContain("Retry");
     expect(screen.getByText("Sent School").closest("tr")!.textContent).not.toContain("Retry");
+    expect(screen.getByText("Unknown School").closest("tr")!.textContent).not.toContain("Retry");
     expect(screen.getByText("Mailbox does not exist")).toBeTruthy();
   });
 });

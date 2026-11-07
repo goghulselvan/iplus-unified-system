@@ -27,8 +27,8 @@ export interface EmailInput {
 }
 
 export function emailSubject(i: Pick<EmailInput, "schoolName" | "projectName" | "testMode">): string {
-  const base = `${i.projectName ? i.projectName + " " : ""}results for ${i.schoolName}`.replace(/\s+/g, " ").trim();
-  return (i.testMode ? "[TEST] " : "") + base.charAt(0).toUpperCase() + base.slice(1);
+  const base = `${i.projectName ? i.projectName + " results" : "Results"} for ${i.schoolName}`.replace(/\s+/g, " ").trim();
+  return (i.testMode ? "[TEST] " : "") + base;
 }
 
 export function buildEmail(i: EmailInput): { subject: string; html: string; text: string } {
@@ -59,7 +59,8 @@ export function buildWhatsAppParams(
       case "school_name": t = i.schoolName; break;
       case "contact_person": t = greetingName(i.contactName, i.schoolName); break;
       case "project_name": t = i.projectName ?? ""; break;
-      case "results_link": t = i.links.map((l) => l.url).join(" "); break;
+      // One link only: several presigned URLs would exceed WhatsApp's parameter limit. Email carries them all.
+      case "results_link": t = i.links[0]?.url ?? ""; break;
       case "custom": t = v.customText ?? ""; break;
     }
     return one(t) || "-";

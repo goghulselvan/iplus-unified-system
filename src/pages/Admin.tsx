@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import Navbar from '@/components/layout/Navbar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -27,7 +27,6 @@ import { PaymentRecalculator } from '@/components/admin/PaymentRecalculator';
 import { ApiKeyManager } from '@/components/admin/ApiKeyManager';
 import { useActiveProject } from '@/hooks/useOlympiadProjects';
 import { RegistrationApproval } from '@/components/portal/RegistrationApproval';
-import { PortalResultsRelease } from '@/components/portal/PortalResultsRelease';
 import { PaymentQueue } from '@/components/portal/PaymentQueue';
 import BoardManagement from '@/components/admin/BoardManagement';
 
@@ -129,8 +128,9 @@ const Admin = () => {
               <CardHeader>
                 <CardTitle>Release Results to Schools</CardTitle>
               </CardHeader>
-              <CardContent>
-                <PortalResultsRelease />
+              <CardContent className="space-y-3">
+                <p className="text-base">Results are now released from Results → Release &amp; Send.</p>
+                <Button asChild variant="outline"><Link to="/results/release">Open Release &amp; Send</Link></Button>
               </CardContent>
             </Card>
           </TabsContent>

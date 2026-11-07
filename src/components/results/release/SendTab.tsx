@@ -7,11 +7,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { ProgressPanel } from "@/components/results/ProgressPanel";
 import { useSchoolSummary } from "@/hooks/results/useResultsReads";
-import { attachFiles, fetchSsNumbers, stageSend, useWhatsAppTemplate } from "@/hooks/results/useRelease";
+import { attachFiles, fetchContactName, fetchSsNumbers, stageSend, useWhatsAppTemplate } from "@/hooks/results/useRelease";
 import { FilesCancelled, prepareSchoolFiles } from "@/lib/results/uploadSchoolFiles";
 import { buildEmail } from "../../../../supabase/functions/results-send/message";
 import { SendHistory, TEST_DONE_KEY } from "./SendHistory";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useActiveProject } from "@/hooks/useOlympiadProjects";
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const testDone = () => { try { return localStorage.getItem(TEST_DONE_KEY) === "1"; } catch { return false; } };
@@ -31,6 +32,9 @@ export function SendTab({ projectId }: { projectId: string }) {
   const [problems, setProblems] = useState<{ school: string; message: string }[]>([]);
   const cancel = useRef({ cancelled: false });
 
+  const { data: project } = useActiveProject();
+  const firstId = (schools ?? []).find((s) => picked.has(s.school_id))?.school_id;
+  const { data: contact } = useQuery({ queryKey: ["results", "contact", firstId], enabled: !!firstId, queryFn: () => fetchContactName(firstId!) });
   const released = useMemo(
     () => (schools ?? []).filter((s) => s.released && (!q.trim() || (s.school_name ?? "").toLowerCase().includes(q.trim().toLowerCase()))),
     [schools, q],
@@ -38,11 +42,11 @@ export function SendTab({ projectId }: { projectId: string }) {
   if (isLoading) return <Skeleton className="h-64 w-full" />;
 
   const first = (schools ?? []).find((s) => picked.has(s.school_id));
-  const targetOk = !testMode || (channel === "email" ? EMAIL_RE.test(target.trim()) : target.replace(/\D/g, "").length >= 10);
+  const targetOk = !testMode || (channel === "email" ? EMAIL_RE.test(target.trim()) : [10, 12].includes(target.replace(/\D/g, "").length));
   const toggle = (id: string) => setPicked((p) => { const x = new Set(p); x.has(id) ? x.delete(id) : x.add(id); return x; });
   const busy = !!progress;
   const preview = first && channel === "email"
-    ? buildEmail({ schoolName: first.school_name ?? "your school", links: [{ label: "Score sheets - Part 1 of 1", url: "(download link, works for 7 days)" }], testMode })
+    ? buildEmail({ schoolName: first.school_name ?? "your school", contactName: contact ?? null, projectName: (project as { project_name?: string } | undefined)?.project_name ?? null, links: [{ label: "Score sheets - Part 1 of 1", url: "(download link, works for 7 days)" }], testMode })
     : null;
 
   const stage = async () => {

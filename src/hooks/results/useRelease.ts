@@ -1,13 +1,9 @@
-// All access to the release / send database objects lives here. Their generated types do not
-// exist yet, so calls go through ONE loose client; delete `loose` once types are regenerated.
+// All access to the release / send database objects lives here.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { plainError } from "./useResultsReads";
 import type { ResultsFile } from "../../../supabase/functions/results-send/message";
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const loose = supabase as any;
 
 export const NOT_SUPERADMIN = "Only a superadmin can release or send results.";
 export const WA_TEMPLATE_KEY = "results_released";
@@ -18,8 +14,8 @@ export interface SendBatch {
 }
 export interface SendItem {
   id: string; batch_id: string; school_id: string | null; target: string | null;
-  payload: { schoolName?: string; ssNo?: string; files?: ResultsFile[]; testMode?: boolean };
-  status: "pending" | "sent" | "failed"; error: string | null; sent_at: string | null; attempts: number;
+  payload: { schoolName?: string; ssNo?: string; contactName?: string | null; projectName?: string | null; files?: ResultsFile[]; testMode?: boolean };
+  status: "pending" | "sending" | "sent" | "failed" | "unknown"; error: string | null; sent_at: string | null; attempts: number;
 }
 export interface ResendFlag { id: string; school_id: string; reason: string; created_at: string; school_name: string | null }
 export interface SendSummary { sent: number; failed: number; skipped: number }
@@ -37,7 +33,7 @@ export function useResendFlags(projectId?: string, enabled = true) {
     queryKey: ["results", "resend-flags", projectId],
     enabled: !!projectId && enabled,
     queryFn: async (): Promise<ResendFlag[]> => {
-      const { data, error } = await loose.from("result_resend_flags")
+      const { data, error } = await supabase.from("result_resend_flags")
         .select("id, school_id, reason, created_at, schools(school_name)")
         .eq("project_id", projectId).is("cleared_at", null).order("created_at");
       if (error) throw dbError(error, "We could not load the resend flags.");
@@ -52,7 +48,7 @@ export function useWhatsAppTemplate(projectId?: string, enabled = true) {
     queryKey: ["results", "wa-template", projectId],
     enabled: !!projectId && enabled,
     queryFn: async (): Promise<boolean> => {
-      const { data, error } = await loose.from("whatsapp_templates").select("id")
+      const { data, error } = await supabase.from("whatsapp_templates").select("id")
         .eq("project_id", projectId).eq("template_key", WA_TEMPLATE_KEY).eq("is_active", true).limit(1);
       if (error) return false;
       return (data?.length ?? 0) > 0;
@@ -66,11 +62,11 @@ export function useSendBatches(projectId?: string, enabled = true) {
     enabled: !!projectId && enabled,
     refetchInterval: (q: { state: { data?: SendBatch[] } }) => (q.state.data?.some((b) => b.status === "sending") ? 5000 : false),
     queryFn: async (): Promise<SendBatch[]> => {
-      const { data, error } = await loose.from("result_send_batches")
+      const { data, error } = await supabase.from("result_send_batches")
         .select("id, project_id, channel, test_target, status, created_at, approved_at")
         .eq("project_id", projectId).order("created_at", { ascending: false }).limit(30);
       if (error) throw dbError(error, "We could not load the send history.");
-      return data ?? [];
+      return (data ?? []) as SendBatch[];
     },
   });
 }
@@ -80,10 +76,10 @@ export function useSendItems(batchId?: string | null) {
     queryKey: ["results", "send-items", batchId],
     enabled: !!batchId,
     queryFn: async (): Promise<SendItem[]> => {
-      const { data, error } = await loose.from("result_send_items")
+      const { data, error } = await supabase.from("result_send_items")
         .select("id, batch_id, school_id, target, payload, status, error, sent_at, attempts").eq("batch_id", batchId).order("created_at");
       if (error) throw dbError(error, "We could not load this send.");
-      return data ?? [];
+      return (data ?? []) as unknown as SendItem[];
     },
   });
 }
@@ -104,7 +100,7 @@ export function useReleaseActions(projectId?: string) {
   const refresh = () => qc.invalidateQueries({ queryKey: ["results"] });
   const release = useMutation({
     mutationFn: async (schoolIds: string[]): Promise<number> => {
-      const { data, error } = await loose.rpc("results_release_schools", { p_project_id: projectId, p_school_ids: schoolIds, p_notes: null });
+      const { data, error } = await supabase.rpc("results_release_schools", { p_project_id: projectId, p_school_ids: schoolIds, p_notes: null });
       if (error) throw dbError(error, "The results could not be released.");
       return Number(data ?? 0);
     },
@@ -112,14 +108,14 @@ export function useReleaseActions(projectId?: string) {
   });
   const unrelease = useMutation({
     mutationFn: async (schoolId: string) => {
-      const { error } = await loose.rpc("results_unrelease_school", { p_project_id: projectId, p_school_id: schoolId });
+      const { error } = await supabase.rpc("results_unrelease_school", { p_project_id: projectId, p_school_id: schoolId });
       if (error) throw dbError(error, "The release could not be taken back.");
     },
     onSuccess: refresh,
   });
   const clearFlag = useMutation({
     mutationFn: async (flagId: string) => {
-      const { error } = await loose.rpc("results_clear_resend_flag", { p_flag_id: flagId });
+      const { error } = await supabase.rpc("results_clear_resend_flag", { p_flag_id: flagId });
       if (error) throw dbError(error, "The flag could not be cleared.");
     },
     onSuccess: refresh,
@@ -129,7 +125,7 @@ export function useReleaseActions(projectId?: string) {
 
 /** Stages a batch. NOTHING is sent. */
 export async function stageSend(projectId: string, channel: "email" | "whatsapp", schoolIds: string[], testTarget: string | null): Promise<string> {
-  const { data, error } = await loose.rpc("results_stage_send", {
+  const { data, error } = await supabase.rpc("results_stage_send", {
     p_project_id: projectId, p_channel: channel, p_school_ids: schoolIds, p_test_target: testTarget?.trim() || null,
   });
   if (error) throw dbError(error, "The send could not be prepared.");
@@ -152,3 +148,13 @@ export const attachFiles = (batchId: string, files: Record<string, ResultsFile[]
 /** The ONLY call that sends. Requires a staged batch (or explicit failed rows to retry). */
 export const sendBatch = (batchId: string, retryItemIds?: string[]) =>
   callSend<SendSummary>({ action: "send", batchId, ...(retryItemIds ? { retryItemIds } : {}) });
+
+/** Superadmin: close a send stuck in "sending" for 15+ minutes. Rows left "sending" become unknown. */
+export const closeStuckSend = (batchId: string) =>
+  callSend<{ unknown: number; notSent: number }>({ action: "close", batchId });
+
+/** Contact name the email will greet, for the preview before staging. */
+export async function fetchContactName(schoolId: string): Promise<string | null> {
+  const { data } = await supabase.from("schools").select("contact_person_name, principal_name").eq("id", schoolId).maybeSingle();
+  return data?.contact_person_name || data?.principal_name || null;
+}

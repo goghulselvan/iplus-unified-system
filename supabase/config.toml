@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.bonvoice-webhook]
 verify_jwt = false
+
+[functions.results-send]
+verify_jwt = true

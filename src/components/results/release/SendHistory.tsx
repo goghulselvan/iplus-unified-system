@@ -9,12 +9,13 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { sendBatch, useSendBatches, useSendItems, type SendBatch, type SendItem } from "@/hooks/results/useRelease";
+import { closeStuckSend, sendBatch, useSendBatches, useSendItems, type SendBatch, type SendItem } from "@/hooks/results/useRelease";
 import { buildEmail } from "../../../../supabase/functions/results-send/message";
 
 export const TEST_DONE_KEY = "results-send-test-done";
 const STATUS: Record<SendBatch["status"], string> = { staged: "Ready to send", sending: "Sending", done: "Finished" };
-const ITEM: Record<SendItem["status"], string> = { pending: "Waiting", sent: "Sent", failed: "Failed" };
+const ITEM: Record<SendItem["status"], string> = { pending: "Waiting", sending: "Sending", sent: "Sent", failed: "Failed", unknown: "Unknown" };
+const STUCK_MS = 15 * 60 * 1000;
 const when = (iso: string) => new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 
 type Ask = { retryIds?: string[]; count: number };
@@ -44,12 +45,28 @@ export function SendHistory({ projectId, openId, onOpen }: { projectId: string; 
     }
   };
 
+  const closeStuck = async () => {
+    if (!batch) return;
+    setBusy(true);
+    try {
+      const r = await closeStuckSend(batch.id);
+      toast.success(`Closed. ${r.unknown} ${r.unknown === 1 ? "message" : "messages"} marked Unknown, ${r.notSent} not reached.`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "The send could not be closed.");
+    } finally {
+      setBusy(false);
+      void qc.invalidateQueries({ queryKey: ["results", "send-batches"] });
+      void qc.invalidateQueries({ queryKey: ["results", "send-items"] });
+    }
+  };
+  const stuck = !!batch && batch.status === "sending" && !!batch.approved_at && Date.now() - new Date(batch.approved_at).getTime() > STUCK_MS;
+
   if (isLoading) return <Skeleton className="h-32 w-full" />;
   const pending = items?.filter((i) => i.status === "pending").length ?? 0;
   const first = items?.find((i) => i.payload.files?.length);
   const preview = batch?.channel === "email" && first
     ? buildEmail({
-        schoolName: first.payload.schoolName ?? "the school", links: (first.payload.files ?? []).map((f) => ({ label: f.label, url: "(download link, works for 7 days)" })),
+        schoolName: first.payload.schoolName ?? "the school", contactName: first.payload.contactName ?? null, projectName: first.payload.projectName ?? null, links: (first.payload.files ?? []).map((f) => ({ label: f.label, url: "(download link, works for 7 days)" })),
         testMode: !!batch.test_target,
       })
     : null;
@@ -118,6 +135,12 @@ export function SendHistory({ projectId, openId, onOpen }: { projectId: string; 
             </div>
           )}
           {batch.status === "sending" && <p className="text-base" role="status">This batch is being sent. The list updates by itself.</p>}
+          {stuck && (
+            <div className="space-y-2">
+              <p className="text-base">This send started more than 15 minutes ago and has not finished. You can close it. Messages that may or may not have gone out will show as Unknown, and cannot be retried.</p>
+              <Button type="button" variant="outline" className="min-h-11" disabled={busy} onClick={closeStuck}>Close this stuck send</Button>
+            </div>
+          )}
         </div>
       )}
 
