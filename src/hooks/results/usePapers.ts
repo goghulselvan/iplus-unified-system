@@ -140,7 +140,7 @@ export function useCreatePaper() {
 export type EditableQuestion = Pick<
   QuestionRow,
   "question_number" | "correct_answer" | "is_grace" | "skill_category" | "cognitive_level"
->;
+> & Partial<Pick<QuestionRow, "check_status">>;
 
 /**
  * A Ready paper that no longer passes the readiness check goes back to Draft.
@@ -151,8 +151,8 @@ export async function revertIfNoLongerReady(paperId: string): Promise<string | n
     .from("question_papers").select("status, total_questions").eq("id", paperId).maybeSingle();
   if (!paper || paper.status !== "ready") return null;
   const { data: qs } = await supabase
-    .from("questions").select("question_number, correct_answer, is_grace, skill_category").eq("paper_id", paperId);
-  const reason = draftReason(qs ?? [], paper.total_questions);
+    .from("questions").select("question_number, correct_answer, is_grace, skill_category, check_status").eq("paper_id", paperId);
+  const reason = draftReason((qs ?? []) as unknown as Parameters<typeof draftReason>[0], paper.total_questions);
   if (!reason) return null;
   const { error } = await supabase.from("question_papers").update({ status: "draft" }).eq("id", paperId);
   if (error) return null;
@@ -175,6 +175,7 @@ export function useSaveQuestions(paperId: string, projectId?: string) {
         skill_category: r.skill_category,
         cognitive_level: r.cognitive_level,
         human_edited: true,
+        ...(r.check_status ? { check_status: r.check_status } : {}),
       }));
       const { error } = await supabase.from("questions").upsert(payload, { onConflict: "paper_id,question_number" });
       if (error) fail(error, "Your changes could not be saved. Please try again.");
@@ -193,9 +194,10 @@ export function useSetPaperStatus(projectId?: string) {
           .from("question_papers").select("total_questions").eq("id", paperId).single();
         if (pErr) fail(pErr);
         const { data: qs, error: qErr } = await supabase
-          .from("questions").select("question_number, correct_answer, is_grace, skill_category").eq("paper_id", paperId);
+          .from("questions").select("question_number, correct_answer, is_grace, skill_category, check_status").eq("paper_id", paperId);
         if (qErr) fail(qErr);
-        const problems = readinessProblems(qs ?? [], paper!.total_questions);
+        // check_status is not in the generated types yet.
+        const problems = readinessProblems((qs ?? []) as unknown as Parameters<typeof readinessProblems>[0], paper!.total_questions);
         if (problems.length) throw new Error(problems.join(". "));
       }
       const { error } = await supabase.from("question_papers").update({ status }).eq("id", paperId);
@@ -260,5 +262,37 @@ export function useSoftDeletePaper(projectId?: string) {
       if (error) fail(error, "The paper could not be deleted. Please try again.");
     },
     onSuccess: () => invalidate(projectId),
+  });
+}
+
+export interface KeyRowSave {
+  question_number: number;
+  key_answer: string | null;
+  correct_answer: string | null;
+  check_status: string;
+}
+
+/**
+ * Writes an uploaded answer key onto existing questions. The rows are computed by
+ * planKeySave; any earlier AI recheck is cleared because it was against the old key.
+ */
+export function useSaveAnswerKey(paperId: string, projectId?: string) {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async (rows: KeyRowSave[]) => {
+      if (!rows.length) return;
+      const payload = rows.map((r) => ({
+        paper_id: paperId,
+        ...r,
+        recheck_answer: null,
+        recheck_confidence: null,
+        recheck_reason: null,
+        rechecked_at: null,
+      }));
+      const { error } = await supabase.from("questions").upsert(payload, { onConflict: "paper_id,question_number" });
+      if (error) fail(error, "The answer key could not be saved. Please try again.");
+      await revertIfNoLongerReady(paperId);
+    },
+    onSuccess: () => invalidate(projectId, paperId),
   });
 }

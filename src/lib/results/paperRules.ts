@@ -1,8 +1,9 @@
 import type { Tables } from "@/integrations/supabase/types";
+import type { KeyFields } from "./questionRow";
 
 export type OlympiadCode = "EPO" | "MPO" | "SPO" | "GKSSPO" | "LRPO" | "KidsPO";
 export type ClassGroup = "lkg_ukg" | "class_1_2" | "class_3_5" | "class_6_8";
-export type QuestionRow = Tables<"questions">;
+export type QuestionRow = Tables<"questions"> & KeyFields;
 
 export const OLYMPIAD_NAMES: Record<OlympiadCode, string> = {
   EPO: "English",
@@ -37,7 +38,16 @@ export const CLASS_ORDER = ["14", "15", "01", "02", "03", "04", "05", "06", "07"
 
 const list = (nums: number[]) => nums.join(", ");
 
-type ReadinessRow = Pick<QuestionRow, "question_number" | "correct_answer" | "is_grace" | "skill_category">;
+type ReadinessRow = Pick<QuestionRow, "question_number" | "correct_answer" | "is_grace" | "skill_category"> &
+  Partial<Pick<QuestionRow, "check_status">>;
+
+/** Questions where the key and the AI disagree and nobody has decided yet. */
+export function unresolvedMismatches(questions: ReadinessRow[]): number[] {
+  return questions
+    .filter((q) => q.check_status === "mismatch" || q.check_status === "mismatch_strong")
+    .map((q) => q.question_number)
+    .sort((a, b) => a - b);
+}
 
 /** Plain-English reasons a paper cannot be marked Ready. Empty when it is ready. */
 export function readinessProblems(questions: ReadinessRow[], total: number): string[] {
@@ -53,6 +63,10 @@ export function readinessProblems(questions: ReadinessRow[], total: number): str
   const noSkill = sorted.filter((q) => !q.skill_category || !q.skill_category.trim()).map((q) => q.question_number);
   if (noSkill.length) {
     problems.push(`Questions ${list(noSkill)} have no skill`);
+  }
+  const mismatches = unresolvedMismatches(questions);
+  if (mismatches.length) {
+    problems.push(`${mismatches.length === 1 ? "Question" : "Questions"} ${list(mismatches)} ${mismatches.length === 1 ? "needs" : "need"} your decision because the answer key and the AI disagree`);
   }
   return problems;
 }
@@ -83,7 +97,9 @@ export function draftReason(questions: ReadinessRow[], total: number): string | 
   const sorted = [...questions].sort((a, b) => a.question_number - b.question_number);
   const noAnswer = sorted.filter((q) => !q.is_grace && !q.correct_answer).map((q) => q.question_number);
   const noSkill = sorted.filter((q) => !q.skill_category || !q.skill_category.trim()).map((q) => q.question_number);
+  const mismatches = unresolvedMismatches(questions);
   const parts: string[] = [];
+  if (mismatches.length) parts.push(`questions ${list(mismatches)} need your decision`);
   if (questions.length < total) parts.push(`only ${questions.length} of ${total} questions are entered`);
   if (noAnswer.length) parts.push(`questions ${list(noAnswer)} need an answer`);
   if (noSkill.length) parts.push(`questions ${list(noSkill)} need a skill`);
