@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
@@ -27,9 +28,13 @@ export function SendHistory({ projectId, openId, onOpen }: { projectId: string; 
   const qc = useQueryClient();
   const [ask, setAsk] = useState<Ask | null>(null);
   const [busy, setBusy] = useState(false);
+  const [typed, setTyped] = useState("");
+  // A test batch needs the address or number typed again, so a typo cannot send real links elsewhere.
+  const norm = (v: string) => (batch?.channel === "whatsapp" ? v.replace(/\D/g, "") : v.trim().toLowerCase());
+  const typedOk = !batch?.test_target || norm(typed) === norm(batch.test_target);
 
   const go = async () => {
-    const a = ask; setAsk(null);
+    const a = ask; setAsk(null); setTyped("");
     if (!a || !batch) return;
     setBusy(true);
     try {
@@ -144,7 +149,7 @@ export function SendHistory({ projectId, openId, onOpen }: { projectId: string; 
         </div>
       )}
 
-      <AlertDialog open={!!ask} onOpenChange={(o) => !o && setAsk(null)}>
+      <AlertDialog open={!!ask} onOpenChange={(o) => { if (!o) { setAsk(null); setTyped(""); } }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{ask?.retryIds ? "Try this message again?" : "Send now?"}</AlertDialogTitle>
@@ -154,9 +159,15 @@ export function SendHistory({ projectId, openId, onOpen }: { projectId: string; 
                 : `This sends ${ask?.count} real ${batch?.channel === "email" ? "email" : "WhatsApp"} ${ask?.count === 1 ? "message" : "messages"} to schools. It cannot be undone.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {batch?.test_target && (
+            <div>
+              <label htmlFor="retype-target" className="mb-1 block text-sm font-medium">Type the test {batch.channel === "email" ? "address" : "number"} again to confirm</label>
+              <Input id="retype-target" className="min-h-11 text-base" value={typed} autoComplete="off" onChange={(e) => setTyped(e.target.value)} />
+            </div>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel className="min-h-11">Cancel</AlertDialogCancel>
-            <AlertDialogAction className="min-h-11" onClick={go}>{ask?.retryIds ? "Yes, try again" : "Yes, send now"}</AlertDialogAction>
+            <AlertDialogAction className="min-h-11" disabled={!typedOk} onClick={go}>{ask?.retryIds ? "Yes, try again" : "Yes, send now"}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
