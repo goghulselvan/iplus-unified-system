@@ -140,7 +140,7 @@ export function useCreatePaper() {
 export type EditableQuestion = Pick<
   QuestionRow,
   "question_number" | "correct_answer" | "is_grace" | "skill_category" | "cognitive_level"
-> & Partial<Pick<QuestionRow, "check_status">>;
+> & { check_status: string };
 
 /**
  * A Ready paper that no longer passes the readiness check goes back to Draft.
@@ -161,22 +161,30 @@ export async function revertIfNoLongerReady(paperId: string): Promise<string | n
   return text;
 }
 
+/**
+ * Rows for the batch upsert. Every row carries the same keys: postgrest sends NULL for a
+ * key that only some rows have, and check_status is NOT NULL.
+ */
+export function questionPayload(paperId: string, rows: EditableQuestion[]) {
+  return rows.map((r) => ({
+    paper_id: paperId,
+    question_number: r.question_number,
+    correct_answer: r.is_grace ? null : r.correct_answer,
+    is_grace: r.is_grace,
+    skill_category: r.skill_category,
+    cognitive_level: r.cognitive_level,
+    human_edited: true,
+    check_status: r.check_status,
+  }));
+}
+
 /** Batch upsert of edited rows. Marks them as human-edited so re-analysis keeps them. */
 export function useSaveQuestions(paperId: string, projectId?: string) {
   const invalidate = useInvalidate();
   return useMutation({
     mutationFn: async (rows: EditableQuestion[]) => {
       if (!rows.length) return;
-      const payload = rows.map((r) => ({
-        paper_id: paperId,
-        question_number: r.question_number,
-        correct_answer: r.is_grace ? null : r.correct_answer,
-        is_grace: r.is_grace,
-        skill_category: r.skill_category,
-        cognitive_level: r.cognitive_level,
-        human_edited: true,
-        ...(r.check_status ? { check_status: r.check_status } : {}),
-      }));
+      const payload = questionPayload(paperId, rows);
       const { error } = await supabase.from("questions").upsert(payload, { onConflict: "paper_id,question_number" });
       if (error) fail(error, "Your changes could not be saved. Please try again.");
       await revertIfNoLongerReady(paperId);
@@ -269,6 +277,7 @@ export interface KeyRowSave {
   question_number: number;
   key_answer: string | null;
   correct_answer: string | null;
+  is_grace: boolean;
   check_status: string;
 }
 

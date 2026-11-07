@@ -3,7 +3,7 @@ import type { Letter } from "./questionRow";
 
 export interface KeyPlan {
   /** Only questions whose key actually changes. */
-  rows: { question_number: number; key_answer: Letter | null; correct_answer: Letter | null; check_status: string }[];
+  rows: { question_number: number; key_answer: Letter | null; correct_answer: Letter | null; is_grace: boolean; check_status: string }[];
   /** Questions whose key differs from the AI's answer; these need an automatic recheck. */
   toRecheck: number[];
   /** Answers in the key for questions that do not exist on this paper yet. */
@@ -12,7 +12,7 @@ export interface KeyPlan {
   unchanged: number;
 }
 
-type PlanQuestion = KeyCheckFields & { question_number: number; correct_answer: string | null };
+type PlanQuestion = KeyCheckFields & { question_number: number; correct_answer: string | null; is_grace: boolean };
 
 /**
  * What saving an answer key changes, decided by Part A's keyUploadPatch. Earlier

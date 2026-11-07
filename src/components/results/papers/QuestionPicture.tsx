@@ -20,7 +20,7 @@ interface Props {
   pdf: PdfSource | null;
 }
 
-function paint(target: HTMLCanvasElement | null, src: HTMLCanvasElement) {
+function paint(target: HTMLCanvasElement | null, src: HTMLCanvasElement | ImageBitmap) {
   if (!target) return;
   target.width = src.width;
   target.height = src.height;
@@ -33,19 +33,32 @@ export function QuestionPicture({ questionNumber, page, box, pdf }: Props) {
   const full = useRef<HTMLCanvasElement>(null);
   const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
   const [showFull, setShowFull] = useState(false);
+  const figure = useRef<HTMLElement>(null);
+  // Pages are rendered only once the picture is near the screen.
+  const [seen, setSeen] = useState(typeof IntersectionObserver === "undefined");
   const hasBox = validBox(box);
   const url = pdf?.url ?? null;
   const cacheId = pdf?.cacheId ?? "";
 
   useEffect(() => {
-    if (!url || !hasBox) return;
+    const el = figure.current;
+    if (seen || !el) return;
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) { setSeen(true); io.disconnect(); }
+    }, { rootMargin: "300px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [seen]);
+
+  useEffect(() => {
+    if (!url || !hasBox || !seen) return;
     let live = true;
     setState("loading");
     cropFigure(cacheId, url, page, box as FigureBox)
       .then((c) => { if (!live) return; paint(canvas.current, c); setState("ready"); })
       .catch(() => live && setState("failed"));
     return () => { live = false; };
-  }, [url, cacheId, page, box, hasBox]);
+  }, [url, cacheId, page, box, hasBox, seen]);
 
   useEffect(() => {
     if (!showFull || !url) return;
@@ -59,7 +72,7 @@ export function QuestionPicture({ questionNumber, page, box, pdf }: Props) {
   }, [showFull, url, cacheId, page]);
 
   return (
-    <figure className="space-y-2">
+    <figure ref={figure} className="space-y-2">
       {hasBox && (
         <div className="overflow-hidden rounded-md border bg-white">
           {state === "loading" && <div className="h-32 animate-pulse bg-muted" role="status" aria-label="Loading the picture" />}

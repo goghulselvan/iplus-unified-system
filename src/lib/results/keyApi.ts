@@ -45,7 +45,7 @@ export const readKey = (paperId: string, fileKey: string) =>
   call<ReadKeyResponse>({ action: "read_key", paperId, fileKey });
 
 /** Questions per recheck call: the AI works at high effort, so small batches stay inside the time limit. */
-export const RECHECK_CHUNK = 5;
+export const RECHECK_CHUNK = 2;
 
 /** Rechecks in small chunks, reporting progress after each. Stops quietly when `shouldStop()` is true. */
 export async function recheckInChunks(

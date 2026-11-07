@@ -11,7 +11,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { ProgressPanel } from "@/components/results/ProgressPanel";
 import { uploadWithProgress } from "@/lib/results/uploadWithProgress";
 import { readinessProblems, type QuestionRow } from "@/lib/results/paperRules";
-import { checkStatus } from "@/lib/results/keyCheck";
+import { checkStatus, needsRecheck } from "@/lib/results/keyCheck";
 import { planKeySave } from "@/lib/results/keyPlan";
 import { recheckInChunks } from "@/lib/results/keyApi";
 import { clearPageCache } from "@/lib/results/pdfPages";
@@ -41,6 +41,7 @@ export interface PaperEditorProps {
   onChanged: () => void;
 }
 
+const pdfCacheId = (p: PaperRow) => `${p.id}|${p.pdf_r2_key ?? ""}|${p.pdf_file_name ?? ""}`;
 const FAILED = "Something went wrong. Please try again.";
 
 type FilterId = "all" | "decision" | "unsure" | "picture" | "nokey";
@@ -67,7 +68,7 @@ function PdfSection({ paper, onChanged }: { paper: PaperRow; onChanged: () => vo
     const key = `${paper.project_id}/papers/${paper.id}.pdf`;
     try {
       await uploadWithProgress(file, key, setPct, abort.current.signal, ["pdf"]);
-      clearPageCache(`${paper.id}|${paper.pdf_file_name ?? ""}`);
+      clearPageCache(pdfCacheId(paper));
       const { error: uErr } = await supabase
         .from("question_papers").update({ pdf_r2_key: key, pdf_file_name: file.name }).eq("id", paper.id);
       if (uErr) throw new Error("The PDF was uploaded but could not be attached to this paper. Please try again.");
@@ -169,7 +170,14 @@ export default function PaperEditor(props: PaperEditorProps) {
       .catch(() => {});
     return () => { live = false; };
   }, [needsPictures, paper.pdf_r2_key, paper.pdf_file_name]);
-  const pdf: PdfSource | null = needsPictures ? { cacheId: `${paper.id}|${paper.pdf_file_name ?? ""}`, url: pdfUrl } : null;
+  const pdf: PdfSource | null = needsPictures ? { cacheId: pdfCacheId(paper), url: pdfUrl } : null;
+
+  // Free the pdf.js document and cached page images when leaving the editor or switching PDF.
+  useEffect(() => {
+    if (!needsPictures) return;
+    const id = pdfCacheId(paper);
+    return () => clearPageCache(id);
+  }, [needsPictures, paper.id, paper.pdf_r2_key, paper.pdf_file_name]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const goTo = (from: number, dir: 1 | -1) => {
     const i = visible.findIndex(({ q }) => q.question_number === from);
@@ -180,14 +188,23 @@ export default function PaperEditor(props: PaperEditorProps) {
     el?.scrollIntoView?.({ block: "nearest" });
   };
 
+  // Questions where the key and the AI differ and the AI has not looked again yet.
+  const toRecheck = useMemo(() => questions.filter((q) => needsRecheck(q)).map((q) => q.question_number), [questions]);
+  const autoRecheck = useRef(false);
+
   const runRecheck = async (numbers: number[]) => {
     stopRecheck.current = false;
+    let finished = 0;
     setRecheck({ done: 0, total: numbers.length });
     try {
-      await recheckInChunks(paper.id, numbers, (done, total) => setRecheck({ done, total }), () => stopRecheck.current);
-      setNotice({ kind: "ok", text: stopRecheck.current ? "Stopped. The questions checked so far are saved." : "The AI has double-checked the questions. Please look at the ones marked Please check." });
+      await recheckInChunks(paper.id, numbers, (done, total) => { finished = done; setRecheck({ done, total }); }, () => stopRecheck.current);
+      const left = numbers.length - finished;
+      setNotice(stopRecheck.current && left > 0
+        ? { kind: "ok", text: `Stopped. The questions checked so far are saved. ${left} ${left === 1 ? "question is" : "questions are"} still waiting: use Recheck to continue.` }
+        : { kind: "ok", text: "The AI has double-checked the questions. Please look at the ones marked Please check." });
     } catch (e) {
-      setNotice({ kind: "error", text: e instanceof Error ? e.message : FAILED });
+      const left = numbers.length - finished;
+      setNotice({ kind: "error", text: `${e instanceof Error ? e.message : FAILED} ${left} ${left === 1 ? "question was" : "questions were"} not rechecked. Use the Recheck button to try again.` });
     } finally {
       setRecheck(null);
       onChanged();
@@ -200,9 +217,16 @@ export default function PaperEditor(props: PaperEditorProps) {
     if (!plan.rows.length) { setNotice({ kind: "ok", text: "This answer key is the same as the one already saved." }); return; }
     await onSaveKey(plan.rows);
     onChanged();
-    setNotice({ kind: "ok", text: `The answer key is saved for ${plan.rows.length} ${plan.rows.length === 1 ? "question" : "questions"}.${plan.toRecheck.length ? ` The AI will now recheck ${plan.toRecheck.length} where it disagrees.` : ""}` });
+    setNotice({ kind: "ok", text: `The answer key is saved for ${plan.rows.length} ${plan.rows.length === 1 ? "question" : "questions"}.${plan.unmatched.length ? ` ${plan.unmatched.length} ${plan.unmatched.length === 1 ? "answer was" : "answers were"} for questions not read yet and ${plan.unmatched.length === 1 ? "was" : "were"} skipped.` : ""}${plan.toRecheck.length ? ` The AI will now recheck ${plan.toRecheck.length} where it disagrees.` : ""}` });
     if (plan.toRecheck.length) void runRecheck(plan.toRecheck);
   };
+
+  // After a fresh analysis, recheck new disagreements once the new rows have loaded.
+  useEffect(() => {
+    if (!autoRecheck.current) return;
+    autoRecheck.current = false;
+    if (hasKey && toRecheck.length && !recheck) void runRecheck(toRecheck);
+  }, [questions]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!dirtyCount) return;
@@ -224,7 +248,7 @@ export default function PaperEditor(props: PaperEditorProps) {
         return {
           question_number: n, correct_answer: m.correct_answer, is_grace: m.is_grace,
           skill_category: m.skill_category, cognitive_level: m.cognitive_level,
-          ...(edits[n].check_status ? { check_status: edits[n].check_status } : {}),
+          check_status: edits[n].check_status ?? checkStatus(m),
         };
       });
       await onSave(rows);
@@ -291,13 +315,21 @@ export default function PaperEditor(props: PaperEditorProps) {
           <PdfSection paper={paper} onChanged={onChanged} />
           <AnalyzeRunner paperId={paper.id} totalQuestions={paper.total_questions} hasPdf={!!paper.pdf_r2_key}
             editedCount={editedCount} disabledReason={dirtyCount ? "Save or discard your changes first" : undefined}
-            onDone={() => { setEdits({}); onChanged(); }} />
+            onDone={() => { setEdits({}); autoRecheck.current = true; onChanged(); }} />
           <div className="space-y-2">
             <Button type="button" variant="outline" className="min-h-11" onClick={() => setKeyOpen(true)}
               disabled={!!recheck || dirtyCount > 0 || questions.length === 0}>
               <KeyRound className="mr-2 h-4 w-4" aria-hidden="true" />{hasKey ? "Replace answer key" : "Upload answer key"}
             </Button>
             {questions.length === 0 && <p className="text-sm text-muted-foreground">Read the questions with the AI first, then add the answer key.</p>}
+            {!recheck && toRecheck.length > 0 && (
+              <div>
+                <Button type="button" className="min-h-11" disabled={dirtyCount > 0} onClick={() => void runRecheck(toRecheck)}>
+                  Recheck {toRecheck.length} {toRecheck.length === 1 ? "question" : "questions"}
+                </Button>
+                <p className="mt-1 text-sm text-muted-foreground">The AI disagrees with the key on these and has not looked again yet.</p>
+              </div>
+            )}
           </div>
           {recheck && (
             <ProgressPanel

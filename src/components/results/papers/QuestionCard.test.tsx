@@ -71,6 +71,27 @@ describe("QuestionCard", () => {
   });
 });
 
+describe("QuestionCard keyboard guards", () => {
+  it("ignores letters typed in a select and events from outside the card", async () => {
+    const onChange = vi.fn();
+    card(q(3), onChange);
+    const select = screen.getByRole("combobox", { name: "Skill for question 3" });
+    select.focus();
+    await userEvent.keyboard("d");
+    expect(onChange).not.toHaveBeenCalled();
+    const article = screen.getByRole("article", { name: /Question 3/ });
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+    outside.focus();
+    // A portal child bubbles through React but is not inside the card's DOM.
+    const { fireEvent } = await import("@testing-library/react");
+    fireEvent.keyDown(outside, { key: "d" });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(article).toBeTruthy();
+    outside.remove();
+  });
+});
+
 describe("PaperEditor answer key", () => {
   const props = (questions: ReturnType<typeof q>[]) => ({
     paper: { id: "p1", project_id: "proj", class_code: "01", olympiad_code: "MPO", slot_template_id: "s1", total_questions: 3,
@@ -94,5 +115,36 @@ describe("PaperEditor answer key", () => {
     await userEvent.click(screen.getByRole("button", { name: /Need decision/ }));
     expect(screen.queryByRole("article", { name: /Question 1,/ })).toBeNull();
     expect(screen.getByRole("article", { name: /Question 2,/ })).toBeTruthy();
+  });
+});
+
+describe("PaperEditor save and recheck", () => {
+  const props = (questions: ReturnType<typeof q>[]) => ({
+    paper: { id: "p1", project_id: "proj", class_code: "01", olympiad_code: "MPO", slot_template_id: "s1", total_questions: 3,
+      pdf_r2_key: null, pdf_file_name: null, status: "draft", analysis_status: "none", analysis_progress: 0, analysis_error: null } as never,
+    paperName: "Class 1 · Maths", questions: questions as never, skills: ["Reasoning"],
+    onBack: vi.fn(), onSave: vi.fn(async () => {}), onSaveKey: vi.fn(async () => {}), onSetStatus: vi.fn(async () => {}),
+    onCopy: vi.fn(async () => {}), onChanged: vi.fn(),
+  });
+
+  it("saves a decision and a plain edit together, every row carrying check_status", async () => {
+    const p = props([q(1), q(2, { ai_answer: "D", check_status: "mismatch" }), q(3)]);
+    render(<PaperEditor {...p} />);
+    await userEvent.click(screen.getByRole("button", { name: "Keep key (B)" }));
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Skill for question 3" }), "");
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    const rows = (p.onSave.mock.calls[0] as unknown as [Record<string, unknown>[]])[0];
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.check_status)).toEqual(["resolved", "confirmed"]);
+  });
+
+  it("offers a Recheck button whenever a question still needs one", () => {
+    render(<PaperEditor {...props([q(1), q(2, { ai_answer: "D", check_status: "mismatch" }), q(3, { ai_answer: "C", check_status: "mismatch" })])} />);
+    expect(screen.getByRole("button", { name: "Recheck 2 questions" })).toBeTruthy();
+  });
+
+  it("shows no Recheck button when nothing needs one", () => {
+    render(<PaperEditor {...props([q(1), q(2)])} />);
+    expect(screen.queryByRole("button", { name: /^Recheck/ })).toBeNull();
   });
 });

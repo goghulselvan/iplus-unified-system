@@ -55,10 +55,15 @@ export function QuestionCard({ question, edit, skills, pdf, onChange, onNav }: P
 
   const resolvedHow = grace ? "Marked as grace: every student gets this mark"
     : m.correct_answer && m.correct_answer === m.key_answer ? "You kept the answer key's answer"
-    : "You used the AI's answer";
+    : m.correct_answer && m.correct_answer === aiPick ? "You used the AI's answer"
+    : `You chose ${m.correct_answer ?? "no answer"}, which is neither the key's answer nor the AI's`;
+  const differsFromKey = !grace && !!m.key_answer && !!m.correct_answer && m.correct_answer !== m.key_answer
+    && (status === "confirmed" || status === "key_only");
 
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
     if (e.altKey || e.ctrlKey || e.metaKey) return;
+    // Events from the "Show full page" dialog bubble through its portal; ignore them.
+    if (!e.currentTarget.contains(e.target as Node)) return;
     const t = e.target as HTMLElement;
     if (["SELECT", "INPUT", "TEXTAREA"].includes(t.tagName)) return;
     const k = e.key.length === 1 ? e.key.toUpperCase() : e.key;
@@ -161,10 +166,13 @@ export function QuestionCard({ question, edit, skills, pdf, onChange, onNav }: P
         </section>
       )}
       {note && <p className={`mt-3 text-sm font-medium ${status === "confirmed" ? "text-green-900" : "text-muted-foreground"}`}>{note}</p>}
+      {differsFromKey && (
+        <p className="mt-3 text-sm font-semibold text-amber-900">Your answer differs from the key ({m.key_answer}).</p>
+      )}
       {status === "resolved" && <p className="mt-3 text-sm font-medium text-indigo-900">{resolvedHow}</p>}
       {checkHint && (
         <p className="mt-3 flex items-center gap-1 text-sm font-semibold text-amber-900">
-          <TriangleAlert className="h-4 w-4" aria-hidden="true" />Please check this answer
+          <TriangleAlert className="h-4 w-4" aria-hidden="true" />AI not sure: please check
         </p>
       )}
 

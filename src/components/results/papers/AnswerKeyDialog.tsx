@@ -7,6 +7,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ProgressPanel } from "@/components/results/ProgressPanel";
 import { uploadWithProgress, type UploadKind } from "@/lib/results/uploadWithProgress";
+import { downscalePhoto } from "@/lib/results/downscaleImage";
 import { readKey } from "@/lib/results/keyApi";
 import { keyTemplateCsv, parseKeyCsv, type ParsedKey } from "@/lib/results/answerKeyCsv";
 import { isLetter, type Letter } from "@/lib/results/questionRow";
@@ -85,12 +86,14 @@ export function AnswerKeyDialog({ open, onOpenChange, paperId, projectId, totalQ
     setParsed(parseKeyCsv(await file.text(), totalQuestions));
   };
 
-  const onPhoto = async (file?: File) => {
-    if (!file) return;
+  const onPhoto = async (picked?: File) => {
+    if (!picked) return;
     setError(null); setRead(null); setUnsure([]);
-    const ext = (file.name.split(".").pop() ?? "").toLowerCase();
     abort.current = new AbortController();
     try {
+      setJob({ stage: "Preparing the photo", percent: 0 });
+      const file = await downscalePhoto(picked);
+      const ext = (file.name.split(".").pop() ?? "").toLowerCase();
       const key = `${projectId}/papers/${paperId}-key.${ext}`;
       await uploadWithProgress(file, key, (p) => setJob({ stage: "Uploading the answer key", percent: p * 0.6 }),
         abort.current.signal, ["pdf", "jpg", "jpeg", "png"] as UploadKind[]);

@@ -69,17 +69,28 @@ describe("planKeySave", () => {
   });
 });
 
+describe("planKeySave grace", () => {
+  it("carries is_grace on every row and drops a grace when a different key undoes the decision", () => {
+    const qs = [
+      { question_number: 1, correct_answer: null, is_grace: true, key_answer: "B", ai_answer: "B", check_status: "resolved" },
+      { question_number: 2, correct_answer: "A", is_grace: false, key_answer: "A", ai_answer: "A", check_status: "confirmed" },
+    ] as unknown as Parameters<typeof planKeySave>[0];
+    const p = planKeySave(qs, { 1: "C", 2: "D" });
+    expect(p.rows.map((r) => r.is_grace)).toEqual([false, false]);
+  });
+});
+
 describe("recheckInChunks", () => {
-  it("sends chunks of 5 and reports progress", async () => {
+  it("sends chunks of 2 and reports progress", async () => {
     const calls: number[][] = [];
     const seen: string[] = [];
     const nums = Array.from({ length: 45 }, (_, i) => i + 1);
     const nums12 = nums.slice(0, 12);
     const done = await recheckInChunks("p", nums12, (d, t) => seen.push(`${d}/${t}`), () => false, undefined,
       async (_p, part) => { calls.push(part); return { rechecked_at: "", results: [] }; });
-    expect(calls.map((c) => c.length)).toEqual([5, 5, 2]);
+    expect(calls.map((c) => c.length)).toEqual([2, 2, 2, 2, 2, 2]);
     expect(done).toBe(12);
-    expect(seen).toEqual(["0/12", "5/12", "10/12", "12/12"]);
+    expect(seen).toEqual(["0/12", "2/12", "4/12", "6/12", "8/12", "10/12", "12/12"]);
   });
 });
 
