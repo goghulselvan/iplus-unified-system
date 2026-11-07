@@ -124,7 +124,7 @@ CREATE TABLE public.result_send_items (
   school_id  uuid REFERENCES public.schools(id) ON DELETE SET NULL,
   target     text,
   payload    jsonb NOT NULL DEFAULT '{}'::jsonb,
-  status     text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','sent','failed')),
+  status     text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','sending','sent','failed','unknown')),
   error      text,
   sent_at    timestamptz,
   attempts   int NOT NULL DEFAULT 0,
