@@ -7,7 +7,7 @@ import {
 
 const q = (o: Record<string, unknown> = {}) => ({
   key_answer: null, ai_answer: null, recheck_answer: null, recheck_confidence: null, rechecked_at: null,
-  check_status: "unchecked", correct_answer: null, ...o,
+  check_status: "unchecked", correct_answer: null, is_grace: false, ...o,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 }) as any;
 const T = "2026-11-07T10:00:00Z";
@@ -78,26 +78,50 @@ it("firstPassWrite: key and decisions win, otherwise the AI answer", () => {
 });
 
 it("keyUploadPatch: key becomes the answer unless resolved against the same key", () => {
-  expect_eq(keyUploadPatch(q({ ai_answer: "B", correct_answer: "B" }), "B"), { key_answer: "B", correct_answer: "B", check_status: "confirmed" });
-  expect_eq(keyUploadPatch(q({ ai_answer: "D", correct_answer: "D" }), "B"), { key_answer: "B", correct_answer: "B", check_status: "mismatch" });
-  expect_eq(keyUploadPatch(q({ correct_answer: null }), "C"), { key_answer: "C", correct_answer: "C", check_status: "key_only" });
+  expect_eq(keyUploadPatch(q({ ai_answer: "B", correct_answer: "B" }), "B"), { key_answer: "B", correct_answer: "B", is_grace: false, check_status: "confirmed" });
+  expect_eq(keyUploadPatch(q({ ai_answer: "D", correct_answer: "D" }), "B"), { key_answer: "B", correct_answer: "B", is_grace: false, check_status: "mismatch" });
+  expect_eq(keyUploadPatch(q({ correct_answer: null }), "C"), { key_answer: "C", correct_answer: "C", is_grace: false, check_status: "key_only" });
   // resolved against the same key: decision kept
   expect_eq(
     keyUploadPatch(q({ key_answer: "B", ai_answer: "D", correct_answer: "D", check_status: "resolved" }), "B"),
-    { key_answer: "B", correct_answer: "D", check_status: "resolved" },
+    { key_answer: "B", correct_answer: "D", is_grace: false, check_status: "resolved" },
   );
   // a different key value undoes the decision
   expect_eq(
     keyUploadPatch(q({ key_answer: "B", ai_answer: "D", correct_answer: "D", check_status: "resolved" }), "D"),
-    { key_answer: "D", correct_answer: "D", check_status: "confirmed" },
+    { key_answer: "D", correct_answer: "D", is_grace: false, check_status: "confirmed" },
   );
   // an earlier recheck still counts against a new key
   expect_eq(
     keyUploadPatch(q({ ai_answer: "D", recheck_answer: "B", recheck_confidence: 0.8, rechecked_at: T, correct_answer: "D" }), "B"),
-    { key_answer: "B", correct_answer: "B", check_status: "confirmed" },
+    { key_answer: "B", correct_answer: "B", is_grace: false, check_status: "confirmed" },
+  );
+  // a grace decision against the same key is kept, grace and all
+  expect_eq(
+    keyUploadPatch(q({ key_answer: "B", ai_answer: "D", correct_answer: "B", is_grace: true, check_status: "resolved" }), "B"),
+    { key_answer: "B", correct_answer: "B", is_grace: true, check_status: "resolved" },
+  );
+  // a new key value undoes a grace decision: grace goes too
+  expect_eq(
+    keyUploadPatch(q({ key_answer: "B", ai_answer: "D", correct_answer: "B", is_grace: true, check_status: "resolved" }), "D"),
+    { key_answer: "D", correct_answer: "D", is_grace: false, check_status: "confirmed" },
+  );
+  expect_eq(
+    keyUploadPatch(q({ key_answer: "B", ai_answer: "D", correct_answer: "B", is_grace: true, check_status: "resolved" }), "C"),
+    { key_answer: "C", correct_answer: "C", is_grace: false, check_status: "mismatch" },
+  );
+  // clearing the key also undoes a grace decision
+  expect_eq(
+    keyUploadPatch(q({ key_answer: "B", ai_answer: "D", correct_answer: "B", is_grace: true, check_status: "resolved" }), null),
+    { key_answer: null, correct_answer: "B", is_grace: false, check_status: "unchecked" },
+  );
+  // grace set by hand (no decision) is left alone
+  expect_eq(
+    keyUploadPatch(q({ ai_answer: "D", correct_answer: "D", is_grace: true }), "B"),
+    { key_answer: "B", correct_answer: "B", is_grace: true, check_status: "mismatch" },
   );
   // clearing the key leaves the answer alone
-  expect_eq(keyUploadPatch(q({ key_answer: "B", ai_answer: "D", correct_answer: "B" }), null), { key_answer: null, correct_answer: "B", check_status: "unchecked" });
+  expect_eq(keyUploadPatch(q({ key_answer: "B", ai_answer: "D", correct_answer: "B" }), null), { key_answer: null, correct_answer: "B", is_grace: false, check_status: "unchecked" });
 });
 
 it("resolvePatch", () => {

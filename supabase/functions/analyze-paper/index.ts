@@ -7,7 +7,8 @@ import { presign, R2Config } from "../results-files/sign.ts";
 import { checkStatus, firstPassWrite } from "./keyCheck.ts";
 import { validateChunk, validateKey, validateRecheck } from "./parse.ts";
 import {
-  buildReadKeyBody, buildRecheckBody, buildRequestBody, classDisplayName, classGroupOf, nextAnalysisState,
+  buildReadKeyBody, buildRecheckBody, buildRequestBody, classDisplayName, classGroupOf, MAX_RECHECK,
+  nextAnalysisState, RECHECK_TOO_MANY,
 } from "./prompt.ts";
 
 const corsHeaders = {
@@ -19,9 +20,10 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
 const MAX_PDF_BYTES = 20 * 1024 * 1024;
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // Claude API limit per image
+// The Claude API's 5 MB image limit applies to the base64 text, which is 4/3 the raw size.
+const MAX_IMAGE_BYTES = 3.75 * 1024 * 1024;
+const IMAGE_TOO_LARGE = "This photo is too large. Please use a smaller photo (under 3.5 MB).";
 const MAX_CHUNK = 20;
-const MAX_RECHECK = 20;
 
 class Fail extends Error {
   constructor(public status: number, message: string) {
@@ -72,6 +74,7 @@ const PDF_TOO_LARGE =
 /** Call the Claude API and return the parsed structured output. All errors are plain English. */
 async function callClaude(apiKey: string, body: Record<string, unknown>, log: Record<string, unknown>): Promise<unknown> {
   let aiJson: unknown;
+  const started = Date.now();
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -92,7 +95,7 @@ async function callClaude(apiKey: string, body: Record<string, unknown>, log: Re
   // deno-lint-ignore no-explicit-any
   const msg = aiJson as any;
   // Token usage per call, so cache hits and cost show in the function logs.
-  console.log(JSON.stringify({ ...log, model: msg?.model, usage: msg?.usage }));
+  console.log(JSON.stringify({ ...log, model: msg?.model, usage: msg?.usage, elapsed_ms: Date.now() - started }));
   if (msg?.stop_reason === "refusal") {
     throw new Fail(502, "The AI declined to read this part of the paper — please enter these questions by hand");
   }
@@ -144,7 +147,7 @@ async function handleRecheck(supabase: any, paperId: string, rawNumbers: unknown
       throw new Fail(422, "Please choose the questions to recheck.");
     }
     const nums = [...new Set(rawNumbers as number[])].sort((a, b) => a - b);
-    if (nums.length > MAX_RECHECK) throw new Fail(422, `Please recheck at most ${MAX_RECHECK} questions at a time.`);
+    if (nums.length > MAX_RECHECK) throw new Fail(422, RECHECK_TOO_MANY);
     const paper = await loadPaper(supabase, paperId);
     if (nums[0] < 1 || nums[nums.length - 1] > paper.total_questions) {
       throw new Fail(422, `The questions must be within 1–${paper.total_questions}.`);
@@ -178,6 +181,15 @@ async function handleRecheck(supabase: any, paperId: string, rawNumbers: unknown
     const v = validateRecheck(parsed, nums);
     if (!v.ok) throw new Fail(422, v.message);
 
+    // Re-read: the key or a decision may have changed while Claude was working.
+    const { data: fresh, error: frErr } = await supabase
+      .from("questions")
+      .select("question_number, key_answer, ai_answer, check_status")
+      .eq("paper_id", paperId).in("question_number", nums);
+    if (frErr) throw new Fail(502, "We could not save the recheck. Please try again.");
+    // deno-lint-ignore no-explicit-any
+    for (const r of (fresh ?? []) as any[]) byNum.set(r.question_number, r);
+
     const rechecked_at = new Date().toISOString();
     const rows = v.rows.map((r) => {
       const q = byNum.get(r.question_number)!;
@@ -191,17 +203,23 @@ async function handleRecheck(supabase: any, paperId: string, rawNumbers: unknown
       });
       return { ...r, key_answer: q.key_answer, check_status: status };
     });
-    const payload = rows.map((r) => ({
-      paper_id: paperId,
-      question_number: r.question_number,
-      recheck_answer: r.answer,
-      recheck_confidence: r.confidence,
-      recheck_reason: r.reason,
-      rechecked_at,
-      check_status: r.check_status,
-    }));
-    const { error } = await supabase.from("questions").upsert(payload, { onConflict: "paper_id,question_number" });
-    if (error) throw new Fail(502, "We could not save the recheck. Please try again.");
+    // Saved per row (at most MAX_RECHECK). The Claude call can take minutes, and staff may
+    // decide a question meanwhile: a 'resolved' row keeps its status and only gets the
+    // recheck details. correct_answer is never written here.
+    for (const r of rows) {
+      const fields = { recheck_answer: r.answer, recheck_confidence: r.confidence, recheck_reason: r.reason, rechecked_at };
+      const { data: hit, error } = await supabase.from("questions")
+        .update({ ...fields, check_status: r.check_status })
+        .eq("paper_id", paperId).eq("question_number", r.question_number).neq("check_status", "resolved")
+        .select("question_number");
+      if (error) throw new Fail(502, "We could not save the recheck. Please try again.");
+      if ((hit ?? []).length === 0) {
+        const { error: e2 } = await supabase.from("questions")
+          .update(fields).eq("paper_id", paperId).eq("question_number", r.question_number);
+        if (e2) throw new Fail(502, "We could not save the recheck. Please try again.");
+        r.check_status = "resolved";
+      }
+    }
     return json({
       results: rows.map((r) => ({
         question_number: r.question_number,
@@ -236,9 +254,7 @@ async function handleReadKey(supabase: any, paperId: string, fileKey: unknown): 
       r2Config(),
       fileKey,
       isPdf ? MAX_PDF_BYTES : MAX_IMAGE_BYTES,
-      isPdf
-        ? PDF_TOO_LARGE
-        : "This photo is too large for the AI to read (over 5 MB). Please take a smaller photo or save it as a smaller JPG.",
+      isPdf ? PDF_TOO_LARGE : IMAGE_TOO_LARGE,
     );
     const parsed = await callClaude(
       anthropicKey(),

@@ -184,10 +184,16 @@ export function validateKey(raw: unknown, total: number): KeyResult {
     const n = a.question_number;
     if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > total) continue;
     const ans = (ANSWERS as readonly unknown[]).includes(a.answer) ? (a.answer as KeyRow["answer"]) : null;
-    if (read.has(n) && read.get(n) !== ans) {
+    // null means "not read": only two different letters for one question are a conflict.
+    if (conflicts.has(n) || ans === null) {
+      if (!read.has(n)) read.set(n, null);
+      continue;
+    }
+    const prev = read.get(n) ?? null;
+    if (prev !== null && prev !== ans) {
       conflicts.add(n);
       read.set(n, null);
-    } else if (!conflicts.has(n)) {
+    } else {
       read.set(n, ans);
     }
   }

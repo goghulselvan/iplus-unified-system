@@ -99,22 +99,33 @@ export function firstPassWrite(
 
 export interface KeyUploadPatch extends WriteFields {
   key_answer: Answer | null;
+  is_grace: boolean;
 }
 
 /**
  * Saving an answer key for one question. The key becomes the answer used for scoring,
  * unless staff already resolved this question against the SAME key value (a different
- * key value undoes that decision). Clearing the key (null) leaves correct_answer alone.
+ * key value undoes that decision, including a grace it set). Clearing the key (null)
+ * leaves correct_answer alone. is_grace is always returned so every saved row carries
+ * the same columns.
  */
 export function keyUploadPatch(
-  q: KeyCheckFields & { correct_answer: string | null },
+  q: KeyCheckFields & { correct_answer: string | null; is_grace: boolean },
   key: Answer | null,
 ): KeyUploadPatch {
-  const keepDecision = q.check_status === "resolved" && key !== null && key === q.key_answer;
+  const resolved = q.check_status === "resolved";
+  const keepDecision = resolved && key !== null && key === q.key_answer;
   const current = isAnswer(q.correct_answer) ? q.correct_answer : null;
-  if (keepDecision) return { key_answer: key, correct_answer: current, check_status: "resolved" };
+  const grace = q.is_grace === true;
+  if (keepDecision) return { key_answer: key, correct_answer: current, is_grace: grace, check_status: "resolved" };
   const next = { ...q, key_answer: key, check_status: null };
-  return { key_answer: key, correct_answer: key ?? current, check_status: checkStatus(next) };
+  return {
+    key_answer: key,
+    correct_answer: key ?? current,
+    // An undone decision takes its grace with it; a grace set without a decision stays.
+    is_grace: resolved ? false : grace,
+    check_status: checkStatus(next),
+  };
 }
 
 export type Decision = "keep_key" | "use_ai" | "grace";

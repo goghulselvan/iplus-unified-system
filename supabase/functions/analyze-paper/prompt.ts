@@ -32,6 +32,13 @@ export const READ_MODEL = "claude-sonnet-5-5";
 export const KEY_MODEL = "claude-sonnet-5-5";
 export const RECHECK_MODEL = "claude-opus-5-5";
 
+// Recheck budget. The call is not streamed, so nothing reaches the edge function until
+// Claude finishes, and Supabase cuts an idle request at 150 s. A few questions per call
+// with a capped answer length keeps Opus (effort high) well inside that.
+export const MAX_RECHECK = 3;
+export const RECHECK_MAX_TOKENS = 12000;
+export const RECHECK_TOO_MANY = `Please recheck at most ${MAX_RECHECK} questions at a time.`;
+
 const ANSWER_OR_NULL = { anyOf: [{ type: "string", enum: ["A", "B", "C", "D"] }, { type: "null" }] };
 const FIGURE_BOX = {
   anyOf: [
@@ -181,7 +188,7 @@ export function buildRecheckBody(i: RecheckInput): Record<string, unknown> {
   const nums = [...i.questionNumbers].sort((a, b) => a - b);
   return {
     model: RECHECK_MODEL,
-    max_tokens: 32000,
+    max_tokens: RECHECK_MAX_TOKENS,
     system,
     fallbacks: "default",
     output_config: { effort: "high", format: { type: "json_schema", schema } },
