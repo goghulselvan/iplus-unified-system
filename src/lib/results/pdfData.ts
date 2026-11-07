@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
-import { fetchRankPage, plainError, RANK_PAGE, type RankRow } from "@/hooks/results/useResultsReads";
+import { friendlyError } from "@/lib/results/friendlyError";
+import { fetchRankPage, RANK_PAGE, type RankRow } from "@/hooks/results/useResultsReads";
 import { formatReg } from "./regNumber";
 import { OLYMPIAD_NAMES, type OlympiadCode } from "./paperRules";
 import type { ScoreSheetInput, StudentBlock, RankOf } from "./pdf";
@@ -45,7 +46,7 @@ async function countScores(projectId: string, classCode: string, olympiad: strin
     .eq("project_id", projectId).eq("class_code", classCode).eq("olympiad_code", olympiad);
   if (col) { if (!val) return 0; q = q.eq(col, val); }
   const { count, error } = await q;
-  if (error) throw plainError(error, "We could not count the students for the ranks.");
+  if (error) throw friendlyError(error, "We could not count the students for the ranks.");
   return count ?? 0;
 }
 
@@ -80,7 +81,7 @@ export async function fetchEvaluationAnswers(enrollmentIds: string[]): Promise<M
   for (let i = 0; i < enrollmentIds.length; i += 100) {
     const { data, error } = await supabase.from("result_evaluations").select("enrollment_id, answers, marks, paper_id")
       .in("enrollment_id", enrollmentIds.slice(i, i + 100)).is("deleted_at", null).eq("status", "evaluated");
-    if (error) throw plainError(error, "We could not load the students' answers.");
+    if (error) throw friendlyError(error, "We could not load the students' answers.");
     for (const r of (data ?? []) as unknown as (EvalAnswers & { enrollment_id: string })[]) out.set(r.enrollment_id, r);
   }
   return out;
@@ -91,7 +92,7 @@ export async function fetchPaperQuestions(paperId: string, cache: Map<string, Qu
   if (hit) return hit;
   const { data, error } = await supabase.from("questions").select("question_number, correct_answer, is_grace, skill_category")
     .eq("paper_id", paperId).order("question_number");
-  if (error) throw plainError(error, "We could not load the question paper.");
+  if (error) throw friendlyError(error, "We could not load the question paper.");
   const rows = (data ?? []) as QuestionKey[];
   cache.set(paperId, rows);
   return rows;

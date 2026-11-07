@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
+import { friendlyError } from "@/lib/results/friendlyError";
 import { CLASS_ORDER, olympiadsForClass, type OlympiadCode } from "@/lib/results/paperRules";
 
 type Fns = Database["public"]["Functions"];
@@ -8,12 +9,6 @@ export type RankRow = Fns["results_rank_list"]["Returns"][number];
 export type SchoolSummaryRow = Fns["results_school_summary"]["Returns"][number];
 export type ClassOlympiadRow = Fns["results_class_olympiad_summary"]["Returns"][number];
 export type StudentListRow = Fns["results_student_list"]["Returns"][number];
-
-/** Our result functions raise plain-English text; show it as written. */
-export function plainError(error: { message?: string } | null, fallback: string): Error {
-  const m = error?.message?.trim();
-  return new Error(m && m.length < 300 && !/^(permission denied|JWT|Failed to fetch|TypeError)/i.test(m) ? m : fallback);
-}
 
 export const RANK_PAGE = 500;
 
@@ -36,7 +31,7 @@ export async function fetchRankPage(
     p_district_key: filters.districtKey || undefined,
     p_school_id: filters.schoolId || undefined,
   });
-  if (error) throw plainError(error, "We could not load the rankings. Please try again.");
+  if (error) throw friendlyError(error, "We could not load the rankings. Please try again.");
   return data ?? [];
 }
 
@@ -55,7 +50,7 @@ export function useRankCombos(projectId?: string) {
             .eq("project_id", projectId!)
             .eq("class_code", c)
             .eq("olympiad_code", o);
-          if (error) throw plainError(error, "We could not check which results exist. Please refresh.");
+          if (error) throw friendlyError(error, "We could not check which results exist. Please refresh.");
           return (count ?? 0) > 0 ? [c, o] as [string, OlympiadCode] : null;
         }),
       );
@@ -82,7 +77,7 @@ export function useStates() {
     staleTime: 30 * 60 * 1000,
     queryFn: async () => {
       const { data, error } = await supabase.from("state_codes").select("state_code, state_name").eq("is_active", true).order("state_name");
-      if (error) throw plainError(error, "We could not load the states.");
+      if (error) throw friendlyError(error, "We could not load the states.");
       return data ?? [];
     },
   });
@@ -96,7 +91,7 @@ export function useDistricts(stateCode?: string | null) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("district_codes").select("district_code, district_name").eq("state_code", stateCode!).order("district_name");
-      if (error) throw plainError(error, "We could not load the districts.");
+      if (error) throw friendlyError(error, "We could not load the districts.");
       // The rank list's district key is the state code plus the last two digits of the district code.
       return (data ?? []).map((d) => ({ key: `${stateCode}${d.district_code.slice(-2)}`, name: d.district_name }));
     },
@@ -109,7 +104,7 @@ export function useSchoolSummary(projectId?: string) {
     enabled: !!projectId,
     queryFn: async () => {
       const { data, error } = await supabase.rpc("results_school_summary", { p_project_id: projectId! });
-      if (error) throw plainError(error, "We could not load the school results. Please refresh.");
+      if (error) throw friendlyError(error, "We could not load the school results. Please refresh.");
       return data ?? [];
     },
   });
@@ -117,7 +112,7 @@ export function useSchoolSummary(projectId?: string) {
 
 export async function fetchClassOlympiad(projectId: string, schoolId: string): Promise<ClassOlympiadRow[]> {
   const { data, error } = await supabase.rpc("results_class_olympiad_summary", { p_project_id: projectId, p_school_id: schoolId });
-  if (error) throw plainError(error, "We could not load this school's results. Please refresh.");
+  if (error) throw friendlyError(error, "We could not load this school's results. Please refresh.");
   return data ?? [];
 }
 
@@ -140,7 +135,7 @@ export function useSchoolStudents(projectId: string | undefined, schoolId: strin
         p_olympiad_code: null as unknown as string, p_status: null as unknown as string, p_search: null as unknown as string,
         p_limit: pageSize, p_offset: page * pageSize,
       });
-      if (error) throw plainError(error, "We could not load the students. Please refresh.");
+      if (error) throw friendlyError(error, "We could not load the students. Please refresh.");
       return data ?? [];
     },
   });
@@ -163,7 +158,7 @@ export function useEvaluatedPerSlot(projectId: string | undefined, slots: { id: 
             .in("paper_id", ids)
             .eq("status", "evaluated")
             .is("deleted_at", null);
-          if (error) throw plainError(error, "We could not count evaluated students.");
+          if (error) throw friendlyError(error, "We could not count evaluated students.");
           return count ?? 0;
         }),
       );

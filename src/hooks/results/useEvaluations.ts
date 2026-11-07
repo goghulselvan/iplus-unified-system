@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
 import { fail } from "@/hooks/results/usePapers";
 import type { CsvRow } from "@/lib/results/evaluationCsv";
 
@@ -32,7 +33,7 @@ export function useUploadRpc() {
   const call = async (a: UploadArgs, dry: boolean) => {
     const { data, error } = await supabase.rpc("results_upload", {
       p_paper_id: a.paperId, p_kind: a.kind, p_file_name: a.fileName,
-      p_rows: payload(a.rows) as never, p_dry_run: dry,
+      p_rows: payload(a.rows) as Json, p_dry_run: dry,
     });
     if (error) fail(error, dry ? "We could not check this file. Please try again." : "We could not save this file. Nothing was saved. Please try again.");
     return data as unknown;

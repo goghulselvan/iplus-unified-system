@@ -3,7 +3,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const rpc = vi.fn();
 vi.mock("@/integrations/supabase/client", () => ({ supabase: { rpc: (...a: unknown[]) => rpc(...a), from: vi.fn() } }));
 
-import { findEnrollmentByReg, friendlyError } from "../usePhase47";
+import { friendlyError } from "@/lib/results/friendlyError";
+import { findEnrollmentByReg } from "../usePhase47";
 
 beforeEach(() => rpc.mockReset());
 

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables, TablesInsert } from "@/integrations/supabase/types";
 import { toast } from "sonner";
+import { friendlyError } from "@/lib/results/friendlyError";
 import { copyPlan, draftReason, readinessProblems, type ClassGroup, type QuestionRow } from "@/lib/results/paperRules";
 
 export type PaperRow = Tables<"question_papers">;
@@ -15,9 +16,7 @@ const paperKey = (paperId?: string) => ["results", "paper", paperId] as const;
 const FRIENDLY = "That did not work. Please try again.";
 export const fail = (error: { message?: string; code?: string } | null, fallback = FRIENDLY): never => {
   if (error?.code === "23505") throw new Error("A paper for this class, subject and slot already exists");
-  // Our own database functions raise plain-English messages (code P0001); show them as written.
-  if (error?.code === "P0001" && error.message) throw new Error(error.message);
-  throw new Error(fallback);
+  throw friendlyError(error, fallback);
 };
 
 export function useClasses() {

@@ -14,6 +14,7 @@ import { SendHistory, TEST_DONE_KEY } from "./SendHistory";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useActiveProject } from "@/hooks/useOlympiadProjects";
 
+export const MAX_SCHOOLS_PER_BATCH = 50;
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const testDone = () => { try { return localStorage.getItem(TEST_DONE_KEY) === "1"; } catch { return false; } };
 
@@ -143,9 +144,10 @@ export function SendTab({ projectId }: { projectId: string }) {
       {channel === "whatsapp" && <p className="text-base">WhatsApp uses the approved results template, with the download link filled in for each school.</p>}
 
       <div className="space-y-3">
-        <Button type="button" className="min-h-11" disabled={busy || picked.size === 0 || !targetOk} onClick={stage}>
+        <Button type="button" className="min-h-11" disabled={busy || picked.size === 0 || picked.size > MAX_SCHOOLS_PER_BATCH || !targetOk} onClick={stage}>
           Stage ({picked.size} {picked.size === 1 ? "school" : "schools"})
         </Button>
+        {picked.size > MAX_SCHOOLS_PER_BATCH && <p className="text-sm">Choose up to {MAX_SCHOOLS_PER_BATCH} schools per batch</p>}
         {!targetOk && <p className="text-sm">Type a valid test {channel === "email" ? "email address" : "mobile number"} first.</p>}
         {progress && <ProgressPanel stage="Making and uploading the files" percent={progress.percent} detail={progress.detail} onCancel={() => { cancel.current.cancelled = true; }} />}
         {problems.length > 0 && (

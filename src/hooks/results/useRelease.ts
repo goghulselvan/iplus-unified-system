@@ -2,7 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { plainError } from "./useResultsReads";
+import { friendlyError } from "@/lib/results/friendlyError";
 import type { ResultsFile } from "../../../supabase/functions/results-send/message";
 
 export const NOT_SUPERADMIN = "Only a superadmin can release or send results.";
@@ -26,7 +26,7 @@ export function useIsSuperadmin() {
   return { loading, isSuperadmin: profile?.role === "superadmin" };
 }
 
-const dbError = (e: { message?: string } | null, fallback: string) => plainError(e, fallback);
+const dbError = (e: { message?: string } | null, fallback: string) => friendlyError(e, fallback);
 
 export function useResendFlags(projectId?: string, enabled = true) {
   return useQuery({
@@ -132,12 +132,15 @@ export async function stageSend(projectId: string, channel: "email" | "whatsapp"
   return String(data);
 }
 
+export const SEND_MAY_RUN = "The send may still be running. Check the history in a minute before doing anything else.";
+
 async function callSend<T>(body: Record<string, unknown>): Promise<T> {
   const { data, error } = await supabase.functions.invoke("results-send", { body });
   if (error) {
     let msg: string | undefined;
     try { msg = (await (error as { context?: Response }).context?.json?.())?.error; } catch { /* ignore */ }
-    throw new Error(msg || "We could not reach the sending service. Please try again.");
+    // No readable reply on a send: it may have started, so never say "try again".
+    throw new Error(msg || (body.action === "send" ? SEND_MAY_RUN : "We could not reach the sending service. Please try again."));
   }
   if (data?.error) throw new Error(String(data.error));
   return data as T;

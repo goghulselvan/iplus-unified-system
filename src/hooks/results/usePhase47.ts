@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { plainError } from "./useResultsReads";
+import type { Database } from "@/integrations/supabase/types";
+import { friendlyError } from "@/lib/results/friendlyError";
 
 /**
  * Typed wrapper for the Phase 4-7 tables and functions (integrity flags, awards).
@@ -10,23 +11,13 @@ import { plainError } from "./useResultsReads";
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Loose = any;
-/** Turn database errors into sentences for office staff. Our own RPC messages are already plain and pass through. */
-export function friendlyError(error: { message?: string; code?: string } | null, fallback: string): Error {
-  const m = error?.message ?? "";
-  if (error?.code === "57014" || /statement timeout/i.test(m))
-    return new Error("This took too long. Please try again in a minute, or ask the administrator.");
-  if (error?.code === "23505") return new Error("This was already saved by someone else. Please refresh.");
-  if (error?.code === "23514") return new Error("One of the values is not allowed. Check the name, the number and the percentage, then try again.");
-  if (error?.code === "42501" || /row-level security/i.test(m)) return new Error("You do not have permission to do this.");
-  return plainError(error, fallback);
-}
-async function rpc<T>(name: string, args: Record<string, unknown>): Promise<T> {
-  const { data, error } = await supabase.rpc(name as never, args as never);
+async function rpc<T>(name: keyof Database["public"]["Functions"], args: Record<string, unknown>): Promise<T> {
+  const { data, error } = await supabase.rpc(name, args as never);
   if (error) throw friendlyError(error, "That did not work. Please try again.");
   return data as T;
 }
-function table(name: string): Loose {
-  return supabase.from(name as never) as Loose;
+function table(name: keyof Database["public"]["Tables"]): Loose {
+  return supabase.from(name) as Loose;
 }
 const fail = (error: { message?: string; code?: string } | null, fallback: string): never => {
   throw friendlyError(error, fallback);

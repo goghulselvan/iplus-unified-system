@@ -1,11 +1,7 @@
-// All access to the Phase 4-7 database objects lives here. Their generated types do not exist
-// yet, so calls go through ONE loose client; delete `loose` and use `supabase` once types are regenerated.
+// All access to the skill, feedback and AI-batch database objects lives here.
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { plainError } from "./useResultsReads";
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const loose = supabase as any;
+import { friendlyError } from "@/lib/results/friendlyError";
 
 export interface SkillSummaryRow { skill: string; school_pct: number | null; state_pct: number | null; students: number }
 export interface StudentSkillRow { skill: string; correct: number; total: number; percentage: number }
@@ -60,18 +56,18 @@ export function useSkillSummary(projectId?: string, schoolId?: string | null, cl
     queryKey: ["results", "skill-summary", projectId, schoolId ?? null, classCode ?? null, olympiad ?? null],
     enabled: !!projectId,
     queryFn: async (): Promise<SkillSummaryRow[]> => {
-      const { data, error } = await loose.rpc("results_skill_summary", {
+      const { data, error } = await supabase.rpc("results_skill_summary", {
         p_project_id: projectId, p_school_id: schoolId ?? null, p_class_code: classCode ?? null, p_olympiad_code: olympiad ?? null,
       });
-      if (error) throw plainError(error, "We could not load the skill results. Please refresh.");
+      if (error) throw friendlyError(error, "We could not load the skill results. Please refresh.");
       return (data ?? []) as SkillSummaryRow[];
     },
   });
 }
 
 export async function fetchStudentSkills(enrollmentId: string): Promise<StudentSkillRow[]> {
-  const { data, error } = await loose.rpc("results_student_skills", { p_enrollment_id: enrollmentId });
-  if (error) throw plainError(error, "We could not load this student's skills.");
+  const { data, error } = await supabase.rpc("results_student_skills", { p_enrollment_id: enrollmentId });
+  if (error) throw friendlyError(error, "We could not load this student's skills.");
   return ((data ?? []) as StudentSkillRow[]).map((r) => ({ ...r, correct: Number(r.correct), total: Number(r.total), percentage: Number(r.percentage) }));
 }
 
@@ -79,10 +75,10 @@ export async function fetchStudentSkills(enrollmentId: string): Promise<StudentS
 export async function fetchSchoolSkills(projectId: string, schoolId: string): Promise<Map<string, StudentSkillRow[]>> {
   const out = new Map<string, StudentSkillRow[]>();
   for (let from = 0;; from += PAGE) {
-    const { data, error } = await loose
+    const { data, error } = await supabase
       .rpc("results_bulk_student_skills", { p_project_id: projectId, p_school_id: schoolId, p_only_needing_feedback: false })
       .range(from, from + PAGE - 1);
-    if (error) throw plainError(error, "We could not load the skills for this school.");
+    if (error) throw friendlyError(error, "We could not load the skills for this school.");
     const rows = (data ?? []) as BulkSkillRow[];
     for (const r of rows) {
       const total = Number(r.total);
@@ -100,10 +96,10 @@ export async function fetchSchoolSkills(projectId: string, schoolId: string): Pr
 export async function fetchFeedbackStatus(projectId: string, schoolId?: string | null): Promise<Map<string, { has: boolean; outdated: boolean }>> {
   const out = new Map<string, { has: boolean; outdated: boolean }>();
   for (let from = 0;; from += PAGE) {
-    const { data, error } = await loose
+    const { data, error } = await supabase
       .rpc("results_feedback_status", { p_project_id: projectId, p_school_id: schoolId ?? null })
       .range(from, from + PAGE - 1);
-    if (error) throw plainError(error, "We could not check which feedback is out of date.");
+    if (error) throw friendlyError(error, "We could not check which feedback is out of date.");
     const rows = (data ?? []) as { enrollment_id: string; has_feedback: boolean; is_outdated: boolean }[];
     for (const r of rows) out.set(r.enrollment_id, { has: r.has_feedback, outdated: r.is_outdated });
     if (rows.length < PAGE) break;
@@ -115,9 +111,9 @@ export async function fetchFeedbackStatus(projectId: string, schoolId?: string |
 export async function fetchFeedback(enrollmentIds: string[], scope?: { projectId: string; schoolId?: string | null }): Promise<Map<string, FeedbackRow>> {
   const out = new Map<string, FeedbackRow>();
   for (let i = 0; i < enrollmentIds.length; i += 200) {
-    const { data, error } = await loose.from("result_feedback").select("enrollment_id, feedback, outdated").in("enrollment_id", enrollmentIds.slice(i, i + 200));
-    if (error) throw plainError(error, "We could not load the AI feedback.");
-    for (const r of (data ?? []) as FeedbackRow[]) out.set(r.enrollment_id, r);
+    const { data, error } = await supabase.from("result_feedback").select("enrollment_id, feedback, outdated").in("enrollment_id", enrollmentIds.slice(i, i + 200));
+    if (error) throw friendlyError(error, "We could not load the AI feedback.");
+    for (const r of (data ?? []) as unknown as FeedbackRow[]) out.set(r.enrollment_id, r);
   }
   if (scope && out.size > 0) {
     const st = await fetchFeedbackStatus(scope.projectId, scope.schoolId);
@@ -135,10 +131,10 @@ export function useStudentFeedback(enrollmentId?: string, projectId?: string, sc
 }
 
 export async function fetchSchoolAnalysis(projectId: string, schoolId: string): Promise<SchoolAnalysisRow | null> {
-  const { data, error } = await loose.from("result_school_analysis").select("analysis, outdated, created_at")
+  const { data, error } = await supabase.from("result_school_analysis").select("analysis, outdated, created_at")
     .eq("project_id", projectId).eq("school_id", schoolId).maybeSingle();
-  if (error) throw plainError(error, "We could not load the school analysis.");
-  return (data as SchoolAnalysisRow) ?? null;
+  if (error) throw friendlyError(error, "We could not load the school analysis.");
+  return (data as unknown as SchoolAnalysisRow) ?? null;
 }
 
 export function useSchoolAnalysis(projectId?: string, schoolId?: string) {
@@ -161,10 +157,10 @@ export function useAiBatches(projectId?: string) {
     refetchInterval: (q) => ((q.state.data as AiBatchRow[] | undefined)?.some((b) => b.status === "submitted") ? BATCH_POLL_MS : false),
     queryFn: async (): Promise<AiBatchRow[]> => {
       const read = async () => {
-        const { data, error } = await loose.from("result_ai_batches")
+        const { data, error } = await supabase.from("result_ai_batches")
           .select("id, project_id, school_id, status, total, succeeded, errored, errored_enrollment_ids, error, created_at, collected_at")
           .eq("project_id", projectId).order("created_at", { ascending: false }).limit(30);
-        if (error) throw plainError(error, "We could not load the AI jobs. Please refresh.");
+        if (error) throw friendlyError(error, "We could not load the AI jobs. Please refresh.");
         return (data ?? []) as AiBatchRow[];
       };
       let rows = await read();

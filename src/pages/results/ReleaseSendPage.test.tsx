@@ -4,13 +4,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import ReleaseSendPage from "./ReleaseSendPage";
 import { SendHistory } from "@/components/results/release/SendHistory";
 
-const state: { role: string; test: string | null; status: string } = { role: "manager", test: null, status: "done" };
+const state: { role: string; test: string | null; status: string; n: number } = { role: "manager", test: null, status: "done", n: 1 };
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), message: vi.fn() } }));
 vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ profile: { role: state.role }, loading: false }) }));
 vi.mock("@/hooks/useOlympiadProjects", () => ({ useActiveProject: () => ({ data: { id: "p1" }, isLoading: false }) }));
 vi.mock("@/hooks/results/useResultsReads", () => ({
-  plainError: (e: Error) => e,
-  useSchoolSummary: () => ({ data: [{ school_id: "s1", school_name: "Asha School", released: true, evaluated: 5, pending: 0, resend_flag: false }], isLoading: false }),
+  useSchoolSummary: () => ({ data: Array.from({ length: state.n }, (_, i) => ({ school_id: `s${i + 1}`, school_name: `Asha School ${i + 1}`, released: true, evaluated: 5, pending: 0, resend_flag: false })), isLoading: false }),
 }));
 vi.mock("@/hooks/results/useRelease", async (orig) => ({
   ...(await orig<object>()),
@@ -30,7 +29,7 @@ const wrap = (ui: React.ReactNode) => render(<QueryClientProvider client={new Qu
 
 describe("Release & Send", () => {
   afterEach(cleanup);
-  beforeEach(() => { state.role = "manager"; state.test = null; state.status = "done"; });
+  beforeEach(() => { state.role = "manager"; state.test = null; state.status = "done"; state.n = 1; });
 
   it("shows a manager only the plain message, with no Stage, Release or Send controls", () => {
     wrap(<ReleaseSendPage />);
@@ -73,6 +72,16 @@ describe("Release & Send", () => {
     expect(go.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText(/Type the test address again/), { target: { value: " me@example.com " } });
     expect(go.disabled).toBe(false);
+  });
+
+  it("disables Stage above 50 schools and says why", async () => {
+    state.role = "superadmin"; state.n = 51;
+    wrap(<ReleaseSendPage />);
+    fireEvent.mouseDown(await screen.findByRole("tab", { name: "Send" }));
+    fireEvent.change(await screen.findByLabelText("Test email address"), { target: { value: "me@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Choose all shown" }));
+    expect((screen.getByRole("button", { name: /^Stage/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("Choose up to 50 schools per batch")).toBeTruthy();
   });
 
   it("asks for no retyping on a real batch", () => {
