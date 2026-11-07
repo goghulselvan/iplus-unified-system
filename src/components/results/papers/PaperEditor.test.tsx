@@ -28,7 +28,7 @@ const base = (questions: ReturnType<typeof q>[], extra: Partial<PaperEditorProps
   paperName: "Class 1 · Maths · Slot 1",
   questions: questions as unknown as PaperEditorProps["questions"],
   skills: ["Reasoning"],
-  onBack: vi.fn(), onSave: vi.fn(async () => {}), onSetStatus: vi.fn(async () => {}),
+  onBack: vi.fn(), onSave: vi.fn(async () => {}), onSaveKey: vi.fn(async () => {}), onSetStatus: vi.fn(async () => {}),
   onCopy: vi.fn(async () => {}), onChanged: vi.fn(),
   ...extra,
 });

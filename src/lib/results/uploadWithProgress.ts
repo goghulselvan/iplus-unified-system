@@ -1,12 +1,15 @@
 import { supabase } from "@/integrations/supabase/client";
 
-export type UploadKind = "pdf" | "zip" | "csv";
+export type UploadKind = "pdf" | "zip" | "csv" | "jpg" | "jpeg" | "png";
 
 const MAX_BYTES = 50 * 1024 * 1024;
 const CONTENT_TYPES: Record<UploadKind, string> = {
   pdf: "application/pdf",
   zip: "application/zip",
   csv: "text/csv",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
 };
 const FAILED = "Upload failed — check the internet connection and try again";
 const CANCELLED = "Upload cancelled";

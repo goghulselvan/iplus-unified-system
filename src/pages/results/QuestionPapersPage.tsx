@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useActiveProject } from "@/hooks/useOlympiadProjects";
 import {
-  skillsFor, useClasses, useCopyPaperFromSlot, usePaper, usePapers, useSaveQuestions,
+  skillsFor, useClasses, useCopyPaperFromSlot, usePaper, usePapers, useSaveAnswerKey, useSaveQuestions,
   useSetPaperStatus, useSkillLists, revertIfNoLongerReady, useSlotTemplates,
 } from "@/hooks/results/usePapers";
 import { OLYMPIAD_NAMES, classGroup, type OlympiadCode } from "@/lib/results/paperRules";
@@ -29,6 +29,7 @@ export function PaperEditorRoute() {
   const { data: skillLists } = useSkillLists();
   const projectId = data?.paper.project_id ?? project?.id;
   const save = useSaveQuestions(paperId!, projectId);
+  const saveKeyMut = useSaveAnswerKey(paperId!, projectId);
   const setStatus = useSetPaperStatus(projectId);
 
   const paper = data?.paper;
@@ -55,6 +56,7 @@ export function PaperEditorRoute() {
       copySource={slotIndex > 0 ? { label: "Slot 1", unavailable: !source ? "Slot 1 has no paper for this class and subject yet." : source.entered === 0 ? "Slot 1 has no questions yet. Set up the Slot 1 paper first, then copy it here." : undefined } : undefined}
       onBack={() => navigate("/results/papers")}
       onSave={async (rows) => { await save.mutateAsync(rows); }}
+      onSaveKey={async (rows) => { await saveKeyMut.mutateAsync(rows); }}
       onSetStatus={async (status) => { await setStatus.mutateAsync({ paperId: paper.id, status }); }}
       onCopy={async (replace) => { await copy.mutateAsync({ replace }); }}
       onChanged={async () => {

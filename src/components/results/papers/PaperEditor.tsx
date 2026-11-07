@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Copy, ExternalLink, Upload } from "lucide-react";
+import { ArrowLeft, Copy, ExternalLink, KeyRound, Upload } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,10 +11,17 @@ import { supabase } from "@/integrations/supabase/client";
 import { ProgressPanel } from "@/components/results/ProgressPanel";
 import { uploadWithProgress } from "@/lib/results/uploadWithProgress";
 import { readinessProblems, type QuestionRow } from "@/lib/results/paperRules";
-import type { EditableQuestion, PaperRow } from "@/hooks/results/usePapers";
+import { checkStatus } from "@/lib/results/keyCheck";
+import { planKeySave } from "@/lib/results/keyPlan";
+import { recheckInChunks } from "@/lib/results/keyApi";
+import { clearPageCache } from "@/lib/results/pdfPages";
+import { isLetter, type Letter } from "@/lib/results/questionRow";
+import type { EditableQuestion, KeyRowSave, PaperRow } from "@/hooks/results/usePapers";
 import { AnalyzeRunner } from "./AnalyzeRunner";
 import { AnswerKeyExport } from "./AnswerKeyExport";
-import { QuestionRowEditor, type QuestionEdit } from "./QuestionRowEditor";
+import { QuestionCard, type QuestionEdit } from "./QuestionCard";
+import { AnswerKeyDialog } from "./AnswerKeyDialog";
+import type { PdfSource } from "./QuestionPicture";
 
 export interface PaperEditorProps {
   paper: PaperRow;
@@ -26,6 +33,8 @@ export interface PaperEditorProps {
   copySource?: { label: string; unavailable?: string };
   onBack: () => void;
   onSave: (rows: EditableQuestion[]) => Promise<void>;
+  /** Writes an uploaded answer key onto the questions. */
+  onSaveKey: (rows: KeyRowSave[]) => Promise<void>;
   onSetStatus: (status: "draft" | "ready") => Promise<void>;
   onCopy: (replace: boolean) => Promise<void>;
   /** Called after anything changes on the server so the page can refetch. */
@@ -33,6 +42,15 @@ export interface PaperEditorProps {
 }
 
 const FAILED = "Something went wrong. Please try again.";
+
+type FilterId = "all" | "decision" | "unsure" | "picture" | "nokey";
+const FILTERS: { id: FilterId; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "decision", label: "Need decision" },
+  { id: "unsure", label: "Not sure (under 70%)" },
+  { id: "picture", label: "Has picture" },
+  { id: "nokey", label: "No key" },
+];
 
 function PdfSection({ paper, onChanged }: { paper: PaperRow; onChanged: () => void }) {
   const [pct, setPct] = useState<number | null>(null);
@@ -49,6 +67,7 @@ function PdfSection({ paper, onChanged }: { paper: PaperRow; onChanged: () => vo
     const key = `${paper.project_id}/papers/${paper.id}.pdf`;
     try {
       await uploadWithProgress(file, key, setPct, abort.current.signal, ["pdf"]);
+      clearPageCache(`${paper.id}|${paper.pdf_file_name ?? ""}`);
       const { error: uErr } = await supabase
         .from("question_papers").update({ pdf_r2_key: key, pdf_file_name: file.name }).eq("id", paper.id);
       if (uErr) throw new Error("The PDF was uploaded but could not be attached to this paper. Please try again.");
@@ -97,13 +116,18 @@ function PdfSection({ paper, onChanged }: { paper: PaperRow; onChanged: () => vo
 }
 
 export default function PaperEditor(props: PaperEditorProps) {
-  const { paper, paperName, questions, skills, copySource, onBack, onSave, onSetStatus, onCopy, onChanged } = props;
+  const { paper, paperName, questions, skills, copySource, onBack, onSave, onSaveKey, onSetStatus, onCopy, onChanged } = props;
   const [edits, setEdits] = useState<Record<number, QuestionEdit>>({});
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<{ kind: "error" | "ok"; text: string } | null>(null);
   const [problems, setProblems] = useState<string[]>([]);
   const [confirmCopy, setConfirmCopy] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
+  const [filter, setFilter] = useState<FilterId>("all");
+  const [keyOpen, setKeyOpen] = useState(false);
+  const [recheck, setRecheck] = useState<{ done: number; total: number } | null>(null);
+  const stopRecheck = useRef(false);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
 
   const dirtyCount = Object.keys(edits).length;
   const merged = useMemo(
@@ -111,6 +135,73 @@ export default function PaperEditor(props: PaperEditorProps) {
     [questions, edits],
   );
   const editedCount = questions.filter((q) => q.human_edited).length;
+  const withStatus = useMemo(() => merged.map((q) => ({ q, status: checkStatus(q) })), [merged]);
+  const counts = useMemo(() => {
+    const c = { confirmed: 0, decision: 0, keyOnly: 0, noKey: 0, resolved: 0, unsure: 0, picture: 0 };
+    for (const { q, status } of withStatus) {
+      if (status === "confirmed") c.confirmed++;
+      else if (status === "mismatch" || status === "mismatch_strong") c.decision++;
+      else if (status === "key_only") c.keyOnly++;
+      else if (status === "unchecked") c.noKey++;
+      else if (status === "resolved") c.resolved++;
+      if (q.ai_confidence !== null && Number(q.ai_confidence) < 0.7) c.unsure++;
+      if (q.has_figure || q.figure_page != null) c.picture++;
+    }
+    return c;
+  }, [withStatus]);
+  const visible = useMemo(() => withStatus.filter(({ q, status }) => {
+    switch (filter) {
+      case "decision": return status === "mismatch" || status === "mismatch_strong";
+      case "unsure": return q.ai_confidence !== null && Number(q.ai_confidence) < 0.7;
+      case "picture": return !!q.has_figure || q.figure_page != null;
+      case "nokey": return status === "unchecked";
+      default: return true;
+    }
+  }), [withStatus, filter]);
+  const hasKey = questions.some((q) => q.key_answer);
+  const needsPictures = !!paper.pdf_r2_key && questions.some((q) => q.figure_page != null);
+
+  useEffect(() => {
+    if (!needsPictures) return;
+    let live = true;
+    supabase.functions.invoke("results-files", { body: { action: "download", key: paper.pdf_r2_key } })
+      .then(({ data }) => { if (live && data?.url) setPdfUrl(data.url); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [needsPictures, paper.pdf_r2_key, paper.pdf_file_name]);
+  const pdf: PdfSource | null = needsPictures ? { cacheId: `${paper.id}|${paper.pdf_file_name ?? ""}`, url: pdfUrl } : null;
+
+  const goTo = (from: number, dir: 1 | -1) => {
+    const i = visible.findIndex(({ q }) => q.question_number === from);
+    const next = visible[i + dir];
+    if (!next) return;
+    const el = document.getElementById(`q-card-${next.q.question_number}`);
+    el?.focus();
+    el?.scrollIntoView?.({ block: "nearest" });
+  };
+
+  const runRecheck = async (numbers: number[]) => {
+    stopRecheck.current = false;
+    setRecheck({ done: 0, total: numbers.length });
+    try {
+      await recheckInChunks(paper.id, numbers, (done, total) => setRecheck({ done, total }), () => stopRecheck.current);
+      setNotice({ kind: "ok", text: stopRecheck.current ? "Stopped. The questions checked so far are saved." : "The AI has double-checked the questions. Please look at the ones marked Please check." });
+    } catch (e) {
+      setNotice({ kind: "error", text: e instanceof Error ? e.message : FAILED });
+    } finally {
+      setRecheck(null);
+      onChanged();
+    }
+  };
+
+  const saveKey = async (answers: Record<number, Letter>) => {
+    const plan = planKeySave(questions, answers);
+    if (!plan.rows.length) throw new Error("None of these answers match a question on this paper yet.");
+    await onSaveKey(plan.rows);
+    onChanged();
+    setNotice({ kind: "ok", text: `The answer key is saved for ${plan.rows.length} ${plan.rows.length === 1 ? "question" : "questions"}.${plan.toRecheck.length ? ` The AI will now recheck ${plan.toRecheck.length} where it disagrees.` : ""}` });
+    if (plan.toRecheck.length) void runRecheck(plan.toRecheck);
+  };
 
   useEffect(() => {
     if (!dirtyCount) return;
@@ -129,7 +220,11 @@ export default function PaperEditor(props: PaperEditorProps) {
       const rows: EditableQuestion[] = Object.keys(edits).map((k) => {
         const n = Number(k);
         const m = merged.find((q) => q.question_number === n)!;
-        return { question_number: n, correct_answer: m.correct_answer, is_grace: m.is_grace, skill_category: m.skill_category, cognitive_level: m.cognitive_level };
+        return {
+          question_number: n, correct_answer: m.correct_answer, is_grace: m.is_grace,
+          skill_category: m.skill_category, cognitive_level: m.cognitive_level,
+          ...(edits[n].check_status ? { check_status: edits[n].check_status } : {}),
+        };
       });
       await onSave(rows);
       setEdits({});
@@ -196,6 +291,21 @@ export default function PaperEditor(props: PaperEditorProps) {
           <AnalyzeRunner paperId={paper.id} totalQuestions={paper.total_questions} hasPdf={!!paper.pdf_r2_key}
             editedCount={editedCount} disabledReason={dirtyCount ? "Save or discard your changes first" : undefined}
             onDone={() => { setEdits({}); onChanged(); }} />
+          <div className="space-y-2">
+            <Button type="button" variant="outline" className="min-h-11" onClick={() => setKeyOpen(true)}
+              disabled={!!recheck || dirtyCount > 0 || questions.length === 0}>
+              <KeyRound className="mr-2 h-4 w-4" aria-hidden="true" />{hasKey ? "Replace answer key" : "Upload answer key"}
+            </Button>
+            {questions.length === 0 && <p className="text-sm text-muted-foreground">Read the questions with the AI first, then add the answer key.</p>}
+          </div>
+          {recheck && (
+            <ProgressPanel
+              stage={`Rechecking ${recheck.total} ${recheck.total === 1 ? "question" : "questions"}…`}
+              percent={recheck.total ? (recheck.done / recheck.total) * 100 : 0}
+              detail="The AI is solving each one again without seeing the key"
+              onCancel={() => { stopRecheck.current = true; }}
+            />
+          )}
           {paper.analysis_status === "failed" && paper.analysis_error && (
             <p role="alert" className="text-sm font-medium text-destructive">{paper.analysis_error}</p>
           )}
@@ -235,36 +345,50 @@ export default function PaperEditor(props: PaperEditorProps) {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent className="overflow-x-auto p-0">
-          {questions.length === 0 ? (
-            <p className="p-6 text-base text-muted-foreground">
-              No questions yet. Upload the PDF and choose Analyse with AI, or copy them from another slot.
+      {questions.length === 0 ? (
+        <Card>
+          <CardContent className="p-6 text-base text-muted-foreground">
+            No questions yet. Upload the PDF and choose Analyse with AI, or copy them from another slot.
+          </CardContent>
+        </Card>
+      ) : (
+        <section aria-label={`Questions for ${paperName}`} className="space-y-4">
+          <div className="space-y-3">
+            <p className="text-lg font-semibold" role="status" data-testid="key-summary">
+              {counts.confirmed} confirmed · {counts.decision} {counts.decision === 1 ? "needs" : "need"} your decision · {counts.keyOnly} key only · {counts.noKey} no key
+              {counts.resolved > 0 && ` · ${counts.resolved} resolved`}
             </p>
-          ) : (
-            <table className="w-full min-w-[960px] text-left">
-              <caption className="sr-only">Questions for {paperName}</caption>
-              <thead className="border-b bg-muted/50 text-sm">
-                <tr>
-                  <th scope="col" className="px-3 py-2 font-semibold">No.</th>
-                  <th scope="col" className="px-3 py-2 font-semibold">Question</th>
-                  <th scope="col" className="px-2 py-2 font-semibold"><span className="sr-only">Picture</span></th>
-                  <th scope="col" className="px-3 py-2 font-semibold">Answer</th>
-                  <th scope="col" className="px-3 py-2 font-semibold">Grace</th>
-                  <th scope="col" className="px-3 py-2 font-semibold">Skill</th>
-                  <th scope="col" className="px-3 py-2 font-semibold">Thinking level</th>
-                  <th scope="col" className="px-3 py-2 font-semibold">AI confidence</th>
-                </tr>
-              </thead>
-              <tbody>
-                {questions.map((q) => (
-                  <QuestionRowEditor key={q.id} question={q} edit={edits[q.question_number]} skills={skills} onChange={change} />
-                ))}
-              </tbody>
-            </table>
-          )}
-        </CardContent>
-      </Card>
+            <div role="group" aria-label="Show questions" className="flex flex-wrap gap-2">
+              {FILTERS.map((f) => {
+                const n = f.id === "all" ? questions.length : f.id === "decision" ? counts.decision
+                  : f.id === "unsure" ? counts.unsure : f.id === "picture" ? counts.picture : counts.noKey;
+                return (
+                  <button key={f.id} type="button" aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}
+                    className={`min-h-11 rounded-md border px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                      filter === f.id ? "border-primary bg-primary text-primary-foreground" : "bg-background hover:bg-muted"}`}>
+                    {f.label} ({n})
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Keyboard: A, B, C or D sets the answer, G switches grace on or off, Enter or the down arrow goes to the next question, the up arrow goes back.
+            </p>
+          </div>
+          {visible.length === 0 ? (
+            <div className="rounded-lg border p-6">
+              <p className="text-base">No questions match this filter.</p>
+              <Button type="button" variant="outline" className="mt-3 min-h-11" onClick={() => setFilter("all")}>Show all questions</Button>
+            </div>
+          ) : visible.map(({ q }) => {
+            const original = questions.find((x) => x.question_number === q.question_number)!;
+            return (
+              <QuestionCard key={original.id} question={original} edit={edits[q.question_number]} skills={skills}
+                pdf={pdf} onChange={change} onNav={goTo} />
+            );
+          })}
+        </section>
+      )}
 
       {dirtyCount > 0 && (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 shadow-lg backdrop-blur">
@@ -283,6 +407,10 @@ export default function PaperEditor(props: PaperEditorProps) {
           </div>
         </div>
       )}
+
+      <AnswerKeyDialog open={keyOpen} onOpenChange={setKeyOpen} paperId={paper.id} projectId={paper.project_id}
+        totalQuestions={paper.total_questions} onSave={saveKey}
+        existing={Object.fromEntries(questions.filter((q) => isLetter(q.key_answer)).map((q) => [q.question_number, q.key_answer as Letter]))} />
 
       <AlertDialog open={confirmCopy} onOpenChange={setConfirmCopy}>
         <AlertDialogContent>
