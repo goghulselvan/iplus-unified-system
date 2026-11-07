@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { readAiError } from "../analyze-paper/aiError.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.55.0";
 import { OLYMPIAD_NAMES } from "../analyze-paper/prompt.ts";
 import {
@@ -103,13 +104,14 @@ async function submit(db: Db, projectId: string, schoolId: string | null, only: 
       headers,
       body: JSON.stringify({ requests: inputs.map(buildBatchRequest) }),
     });
-    if (!res.ok) throw new Error(`AI ${res.status}`);
+    if (!res.ok) throw new Fail(502, await readAiError(res));
     const anthropicId = (await res.json()).id;
     const { error } = await admin.from("result_ai_batches").update({ anthropic_batch_id: anthropicId }).eq("id", row.id);
     if (error) throw new Error("save");
-  } catch {
-    await markFailed("The AI job could not be started.");
-    throw new Fail(502, "The AI could not be reached. Please try again in a minute.");
+  } catch (e) {
+    const why = e instanceof Fail ? e.message : "The AI could not be reached. Please try again in a minute.";
+    await markFailed(why);
+    throw e instanceof Fail ? e : new Fail(502, why);
   }
   return { batches: [row.id], batchId: row.id, total: inputs.length, ...(remaining > 0 ? { remaining } : {}),
     ...(remaining > 0 ? { warning: `${remaining} more students are waiting. Click again once this job has finished.` } : {}) };
@@ -287,9 +289,10 @@ async function school(db: Db, projectId: string, schoolId: string) {
   let msg: Db;
   try {
     const r = await fetch(`${API}/messages`, { method: "POST", headers, body: JSON.stringify(buildSchoolRequest(combos)) });
-    if (!r.ok) throw new Error(`AI ${r.status}`);
+    if (!r.ok) throw new Fail(502, await readAiError(r));
     msg = await r.json();
-  } catch {
+  } catch (e) {
+    if (e instanceof Fail) throw e;
     throw new Fail(502, "The AI could not be reached. Please try again in a minute.");
   }
   console.log(JSON.stringify({ schoolId, model: msg?.model, usage: msg?.usage }));

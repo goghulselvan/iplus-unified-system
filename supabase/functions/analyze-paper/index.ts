@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { readAiError } from "./aiError.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.55.0";
 import { encodeBase64 } from "jsr:@std/encoding@1/base64";
 import { isAllowedKey } from "../results-files/keys.ts";
@@ -148,9 +149,10 @@ serve(async (req: Request): Promise<Response> => {
           },
           body: JSON.stringify(reqBody),
         });
-        if (!res.ok) throw new Error(`AI ${res.status}`);
+        if (!res.ok) throw new Fail(502, await readAiError(res));
         aiJson = await res.json();
-      } catch {
+      } catch (e) {
+        if (e instanceof Fail) throw e;
         throw new Fail(502, "The AI could not be reached. Please try again in a minute.");
       }
       // deno-lint-ignore no-explicit-any
