@@ -65,6 +65,40 @@ describe("Students pages", () => {
     expect(screen.getByText(/This student was marked absent/)).toBeTruthy();
   });
 
+  it("warns when a linked student belongs to another olympiad project", () => {
+    studentResult.mockReturnValue({
+      isLoading: false, isError: false,
+      data: {
+        enrollmentId: "e9", registrationNumber: "233030106011", name: "Old Year", schoolName: "Test School", schoolId: "sc1",
+        classCode: "01", olympiadCode: "MPO", evaluation: null, score: null, paper: null, questions: [], totals: null,
+        projectId: "old-proj", projectName: "iPlus Olympiad 2025",
+      },
+    });
+    render(
+      <MemoryRouter initialEntries={["/results/students/e9"]}>
+        <Routes><Route path="/results/students/:enrollmentId" element={<StudentResultPage />} /></Routes>
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("status").textContent).toContain('belongs to "iPlus Olympiad 2025"');
+  });
+
+  it("shows no project warning for a student of the active project", () => {
+    studentResult.mockReturnValue({
+      isLoading: false, isError: false,
+      data: {
+        enrollmentId: "e1", registrationNumber: "233030106011", name: "Asha", schoolName: "Test School", schoolId: "sc1",
+        classCode: "01", olympiadCode: "MPO", evaluation: null, score: null, paper: null, questions: [], totals: null,
+        projectId: "proj", projectName: "iPlus Olympiads",
+      },
+    });
+    render(
+      <MemoryRouter initialEntries={["/results/students/e1"]}>
+        <Routes><Route path="/results/students/:enrollmentId" element={<StudentResultPage />} /></Routes>
+      </MemoryRouter>,
+    );
+    expect(screen.queryByText(/belongs to/)).toBeNull();
+  });
+
   it("blocks saving a correction until a reason is typed", async () => {
     const user = userEvent.setup();
     render(<CorrectDialog open onOpenChange={() => {}} evaluationId="ev1" question={3} current="A" kind="omr" />);

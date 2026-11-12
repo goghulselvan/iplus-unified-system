@@ -4,6 +4,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Lock } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { RESULTS_NAV, isNavLive } from "@/lib/results/nav";
+import { useActiveProject } from "@/hooks/useOlympiadProjects";
+import { projectLabel } from "@/lib/results/projectScope";
 import SkillAnalysisPage from "./SkillAnalysisPage";
 import ComingSoon from "./ComingSoon";
 import ResultsDashboard from "./ResultsDashboard";
@@ -26,6 +28,8 @@ const linkClass = (active: boolean) =>
 export default function ResultsLayout() {
   const { profile, loading } = useAuth();
   const location = useLocation();
+  const { data: project } = useActiveProject();
+  const label = projectLabel(project);
   const allowed = profile?.role === "manager" || profile?.role === "superadmin";
   const current = RESULTS_NAV.find(
     (n) => n.path === location.pathname || (n.path !== "/results" && location.pathname.startsWith(n.path + "/")),
@@ -36,9 +40,18 @@ export default function ResultsLayout() {
       <Navbar />
       <main className="container mx-auto max-w-7xl px-4 py-8">
         <div className="mb-6">
-          <h1 className="text-2xl font-bold">Results</h1>
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h1 className="text-2xl font-bold">Results</h1>
+            {label && (
+              <span data-testid="results-project" className="rounded-full border bg-muted px-3 py-0.5 text-sm font-medium">
+                {label}
+              </span>
+            )}
+          </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Question papers, student marks, rankings and reports for the olympiad.
+            {label
+              ? `Question papers, student marks, rankings and reports for ${label} only. Other olympiad years keep their own results; to see one, a superadmin switches the active project on the Dashboard.`
+              : "Question papers, student marks, rankings and reports for the olympiad."}
           </p>
         </div>
         {loading ? null : !allowed ? (

@@ -12,6 +12,7 @@ import { OLYMPIAD_NAMES, classGroup, type OlympiadCode } from "@/lib/results/pap
 import { PaperGrid, type CreateDefaults } from "@/components/results/papers/PaperGrid";
 import { CreatePaperDialog } from "@/components/results/papers/CreatePaperDialog";
 import PaperEditor from "@/components/results/papers/PaperEditor";
+import { otherProjectNotice } from "@/lib/results/projectScope";
 
 const Message = ({ children }: { children: React.ReactNode }) => (
   <Card><CardContent className="py-10 text-base">{children}</CardContent></Card>
@@ -47,7 +48,11 @@ export function PaperEditorRoute() {
   const cls = classes?.find((c) => c.code === paper.class_code);
   const name = `${cls?.display_name ?? paper.class_code} · ${OLYMPIAD_NAMES[paper.olympiad_code as OlympiadCode]} · Slot ${Math.max(slotIndex, 0) + 1}`;
 
+  const notice = otherProjectNotice(project?.id, paper.project_id, null, "paper");
+
   return (
+    <>
+    {notice && <p role="status" className="mb-4 rounded-md border border-amber-600 bg-amber-50 p-3 text-base text-amber-950">{notice}</p>}
     <PaperEditor
       paper={paper}
       paperName={name}
@@ -65,6 +70,7 @@ export function PaperEditorRoute() {
         qc.invalidateQueries({ queryKey: ["results", "papers"] });
       }}
     />
+    </>
   );
 }
 

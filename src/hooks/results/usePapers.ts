@@ -4,6 +4,7 @@ import type { Tables, TablesInsert } from "@/integrations/supabase/types";
 import { toast } from "sonner";
 import { friendlyError } from "@/lib/results/friendlyError";
 import { copyPlan, draftReason, readinessProblems, type ClassGroup, type QuestionRow } from "@/lib/results/paperRules";
+import { copyScopeProblem } from "@/lib/results/projectScope";
 
 export type PaperRow = Tables<"question_papers">;
 export type SlotTemplate = Pick<Tables<"exam_slot_templates">, "id" | "slot_name" | "project_id" | "created_at">;
@@ -220,6 +221,15 @@ export function useCopyPaperFromSlot(sourceId: string, targetId: string, opts: {
   return useMutation({
     mutationFn: async (override?: { replace?: boolean }) => {
       const replace = override?.replace ?? opts.replace;
+      // Never copy across olympiad projects (or classes / subjects): each project's papers stay its own.
+      const { data: sides, error: sideErr } = await supabase
+        .from("question_papers").select("id, project_id, class_code, olympiad_code").in("id", [sourceId, targetId]);
+      if (sideErr) fail(sideErr);
+      const problem = copyScopeProblem(
+        sides?.find((p) => p.id === sourceId) ?? null,
+        sides?.find((p) => p.id === targetId) ?? null,
+      );
+      if (problem) throw new Error(problem);
       const count = async (id: string) => {
         const { count: c, error } = await supabase
           .from("questions").select("id", { count: "exact", head: true }).eq("paper_id", id);

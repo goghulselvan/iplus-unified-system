@@ -183,6 +183,9 @@ export interface StudentResult {
   paper: { id: string; total_questions: number; project_id: string } | null;
   questions: { question_number: number; correct_answer: string | null; is_grace: boolean; skill_category: string | null }[];
   totals: { school: number; district: number; state: number; national: number } | null;
+  /** The olympiad project this enrolment belongs to (ranks and totals are within it only). */
+  projectId?: string;
+  projectName?: string | null;
 }
 
 export function useStudentResult(enrollmentId?: string) {
@@ -207,6 +210,8 @@ export function useStudentResult(enrollmentId?: string) {
         const { data: sch } = await supabase.from("schools").select("school_name").eq("id", e.school_id).maybeSingle();
         e.schools = sch ? { school_name: sch.school_name } : null;
       }
+      const { data: proj } = await supabase.from("olympiad_projects").select("project_name").eq("id", e.project_id).maybeSingle();
+      const projectName = (proj as { project_name?: string } | null)?.project_name ?? null;
       const { data: ev, error: evErr } = await supabase
         .from("result_evaluations").select("id, status, answers, marks, paper_id")
         .eq("enrollment_id", enrollmentId!).is("deleted_at", null).maybeSingle();
@@ -242,6 +247,7 @@ export function useStudentResult(enrollmentId?: string) {
         name: e.portal_registered_students?.student_name ?? "Student", schoolName: e.schools?.school_name ?? null,
         schoolId: e.school_id, classCode: e.portal_registered_students?.class_code ?? "", olympiadCode: e.olympiad_code,
         evaluation: ev as StudentResult["evaluation"], score, paper, questions, totals,
+        projectId: e.project_id, projectName,
       };
     },
   });

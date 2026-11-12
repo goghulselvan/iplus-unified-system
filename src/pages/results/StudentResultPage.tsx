@@ -10,6 +10,8 @@ import { formatReg } from "@/lib/results/regNumber";
 import { AnswerReview } from "@/components/results/students/AnswerReview";
 import { StudentExports } from "@/components/results/exports/StudentExports";
 import { ChangeHistory } from "@/components/results/students/ChangeHistory";
+import { useActiveProject } from "@/hooks/useOlympiadProjects";
+import { otherProjectNotice } from "@/lib/results/projectScope";
 
 const Tile = ({ label, value, hint }: { label: string; value: string; hint?: string }) => (
   <div className="rounded-lg border bg-card p-4">
@@ -27,6 +29,7 @@ export default function StudentResultPage() {
   const { enrollmentId } = useParams();
   const { data, isLoading, isError } = useStudentResult(enrollmentId);
   const { data: classes } = useClasses();
+  const { data: active } = useActiveProject();
 
   if (isLoading) return <Skeleton className="h-64 w-full" />;
   if (isError) return <Message>We could not open this student. Please refresh and try again.</Message>;
@@ -35,6 +38,7 @@ export default function StudentResultPage() {
   const className = classes?.find((c) => c.code === data.classCode)?.display_name ?? data.classCode;
   const { score, totals, evaluation } = data;
   const rank = (r: number | null, n?: number) => (r && n ? `${r} of ${n}` : "–");
+  const notice = otherProjectNotice(active?.id, data.projectId, data.projectName, "student");
   const grade = score ? { grade: score.grade, label: studentGrade(score.percentage).label } : null;
 
   return (
@@ -48,6 +52,8 @@ export default function StudentResultPage() {
           {data.registrationNumber ? formatReg(data.registrationNumber) : "No registration number"} · {data.schoolName ?? "No school"} · {className} · {OLYMPIAD_NAMES[data.olympiadCode as OlympiadCode] ?? data.olympiadCode}
         </p>
       </header>
+
+      {notice && <p role="status" className="rounded-md border border-amber-600 bg-amber-50 p-3 text-base text-amber-950">{notice}</p>}
 
       {!evaluation && <Message>This student has no result yet. Their answers have not been uploaded.</Message>}
       {evaluation?.status === "absent" && <Message>This student was marked absent. There is no score or rank.</Message>}
