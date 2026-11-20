@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { downloadCSV as downloadCSVFile } from '@/utils/csvExport';
+import { downloadXLSX } from '@/utils/xlsxExport';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -281,14 +281,14 @@ const OlympiadManagement = () => {
         }
       }
 
-      // ="..." keeps Excel from turning the 12-digit number into 3.33E+11.
+      // Registration numbers go in as text cells so all 12 digits show.
       const rows = [
         ['S.No', 'Registration No', 'Student Name', 'Class', 'Olympiad', 'School Name', 'SS No'],
         ...data.map((r, i) => {
           const reg = regByEnrollment.get(r.enrollment_id);
           return [
             i + 1,
-            reg ? `="${reg}"` : '',
+            reg ?? '',
             r.student_name,
             CLASS_LABELS[r.class_code] ?? r.class_code,
             subjectLabelMap.get(r.olympiad_code) ?? r.olympiad_code,
@@ -297,7 +297,7 @@ const OlympiadManagement = () => {
           ];
         }),
       ];
-      downloadCSVFile(rows, `olympiad-participants-${new Date().toISOString().split('T')[0]}.csv`);
+      await downloadXLSX(rows, `olympiad-participants-${new Date().toISOString().split('T')[0]}.xlsx`, 'Students');
     } catch (e: any) {
       alert(`Export failed: ${e?.message ?? 'please try again'}`);
     } finally {
