@@ -290,7 +290,7 @@ const OlympiadManagement = () => {
             i + 1,
             reg ?? '',
             r.student_name,
-            CLASS_LABELS[r.class_code] ?? r.class_code,
+            Number(r.class_code) || r.class_code, // 1–8, LKG = 14, UKG = 15
             subjectLabelMap.get(r.olympiad_code) ?? r.olympiad_code,
             r.school_name,
             r.ss_no,
