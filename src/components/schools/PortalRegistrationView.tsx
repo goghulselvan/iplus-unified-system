@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Trash2, Plus, Check, X, Pencil, Save, Upload, Download, FileText, ChevronDown, ChevronUp, ClipboardList, ClipboardCheck, ArrowUp, ArrowDown, ArrowUpDown, Search, Lock } from 'lucide-react';
 import { generateStudentNamelistPdf } from '@/utils/studentNamelistPdfGenerator';
 import { generateAttendanceSheetPdf } from '@/utils/attendanceSheetPdfGenerator';
+import { downloadMarkingSheet, isManualMarkingClass } from '@/utils/markingSheetXlsx';
 import { toast, useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { useActiveProject, useOlympiadSubjects, OlympiadSubject } from '@/hooks/useOlympiadProjects';
@@ -735,6 +736,7 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [downloadingNamelist, setDownloadingNamelist] = useState(false);
   const [downloadingAttendance, setDownloadingAttendance] = useState(false);
+  const [downloadingMarking, setDownloadingMarking] = useState(false);
 
   const { data: schoolInfo } = useQuery({
     queryKey: ['crm-school-namelist-info', schoolId],
@@ -1082,6 +1084,35 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
     }
   }
 
+  // Hand-marking sheet for LKG–Class 2: one Excel sheet per olympiad × class,
+  // Q1..Q30 (LKG/UKG) or Q1..Q40 (Class 1–2) + Total.
+  // Every registered student, paid or not (unlike the namelist) — anyone who
+  // sat the exam must be markable. The "Reg No" + Q columns are what the
+  // Results upload reads.
+  async function downloadMarkingSheetXlsx() {
+    if (!students.length || !schoolInfo) return;
+    setDownloadingMarking(true);
+    try {
+      const manual = students.flatMap((s) =>
+        isManualMarkingClass(s.class_code)
+          ? s.enrollments.map((code) => ({
+              name: s.student_name,
+              classCode: s.class_code,
+              subject: code,
+              registrationNumber: s.regNumbers[code] ?? null,
+            }))
+          : []
+      );
+      if (manual.length === 0) {
+        toast({ title: 'No marking sheet needed', description: 'This school has no LKG, UKG, Class 1 or Class 2 students.', variant: 'destructive' });
+        return;
+      }
+      await downloadMarkingSheet(manual, `Marking_Sheet_${fileStem()}.xlsx`);
+    } finally {
+      setDownloadingMarking(false);
+    }
+  }
+
   function toggleSort(field: 'name' | 'class' | 'subjects') {
     if (sortField === field) setSortOrder(o => o === 'asc' ? 'desc' : 'asc');
     else { setSortField(field); setSortOrder('asc'); }
@@ -1281,6 +1312,10 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
               <Button variant="outline" size="sm" onClick={downloadAttendanceSheetPDF} disabled={!students.length || downloadingAttendance}>
                 <ClipboardCheck className="h-3.5 w-3.5 mr-1" />
                 {downloadingAttendance ? 'Generating…' : 'Attendance Sheet'}
+              </Button>
+              <Button variant="outline" size="sm" onClick={downloadMarkingSheetXlsx} disabled={!students.length || downloadingMarking}>
+                <ClipboardList className="h-4 w-4 mr-1" />
+                {downloadingMarking ? 'Generating…' : 'Marking Sheet (till Class 2)'}
               </Button>
             </div>
           </div>
