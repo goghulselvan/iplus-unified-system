@@ -58,7 +58,7 @@ export const RegistrationSummaryTable = ({ schoolId, schoolName }: Props) => {
     enabled: !!activeProject?.id,
   });
 
-  const { grid, totals, sortedClasses, grandTotal } = useMemo(() => {
+  const { grid, totals, sortedClasses, grandTotal, omrSheets } = useMemo(() => {
     const emptyRow = () => Object.fromEntries(OLYMPIADS.map(c => [c, 0])) as Record<OlympiadCode, number>;
     const grid: Record<string, Record<OlympiadCode, number>> = {};
     const totals = emptyRow();
