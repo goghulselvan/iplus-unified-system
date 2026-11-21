@@ -1107,7 +1107,7 @@ export function PortalRegistrationView({ schoolId, paymentStatus, portalRegister
         toast({ title: 'No marking sheet needed', description: 'This school has no LKG, UKG, Class 1 or Class 2 students.', variant: 'destructive' });
         return;
       }
-      await downloadMarkingSheet(manual, `Marking_Sheet_${fileStem()}.xlsx`);
+      await downloadMarkingSheet(manual, `SS${schoolInfo.ss_no ?? ''}_${fileStem()}_Marking_Sheet.xlsx`);
     } finally {
       setDownloadingMarking(false);
     }
