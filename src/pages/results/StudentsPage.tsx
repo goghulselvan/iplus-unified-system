@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useActiveProject } from "@/hooks/useOlympiadProjects";
+import { useResultsProject } from "@/hooks/results/useResultsProject";
 import { useClasses, usePapers, useSlotTemplates } from "@/hooks/results/usePapers";
 import { PAGE_SIZE, useRestoreResult, useSchoolSearch, useStudentList, type SchoolOption, type StudentListRow } from "@/hooks/results/useEvaluations";
 import { OLYMPIAD_NAMES, CLASS_ORDER, type OlympiadCode } from "@/lib/results/paperRules";
@@ -18,7 +18,7 @@ const selectClass =
 const STATUSES = [["", "All"], ["evaluated", "Evaluated"], ["absent", "Absent"], ["pending", "Pending"], ["deleted", "Deleted"]];
 
 export default function StudentsPage() {
-  const { data: project, isLoading: loadingProject } = useActiveProject();
+  const { data: project, isLoading: loadingProject } = useResultsProject();
   const { data: classes } = useClasses();
   const { data: slots } = useSlotTemplates(project?.id);
   const { data: papers } = usePapers(project?.id);

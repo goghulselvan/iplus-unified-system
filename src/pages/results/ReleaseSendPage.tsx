@@ -2,14 +2,14 @@ import { Lock } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useActiveProject } from "@/hooks/useOlympiadProjects";
+import { useResultsProject } from "@/hooks/results/useResultsProject";
 import { NOT_SUPERADMIN, useIsSuperadmin } from "@/hooks/results/useRelease";
 import { ReleaseTab } from "@/components/results/release/ReleaseTab";
 import { SendTab } from "@/components/results/release/SendTab";
 
 export default function ReleaseSendPage() {
   const { isSuperadmin, loading } = useIsSuperadmin();
-  const { data: project, isLoading } = useActiveProject();
+  const { data: project, isLoading } = useResultsProject();
   if (loading) return <Skeleton className="h-64 w-full" />;
   // Managers get a plain message and no controls. Every database call and the send function re-check the role.
   if (!isSuperadmin) {

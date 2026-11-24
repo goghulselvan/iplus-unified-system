@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useActiveProject } from "@/hooks/useOlympiadProjects";
+import { useResultsProject } from "@/hooks/results/useResultsProject";
 import {
   skillsFor, useClasses, useCopyPaperFromSlot, usePaper, usePapers, useSaveAnswerKey, useSaveQuestions,
   useSetPaperStatus, useSkillLists, revertIfNoLongerReady, useSlotTemplates,
@@ -22,7 +22,7 @@ export function PaperEditorRoute() {
   const { paperId } = useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { data: project } = useActiveProject();
+  const { data: project } = useResultsProject();
   const { data, isLoading, isError } = usePaper(paperId);
   const { data: classes } = useClasses();
   const { data: slots } = useSlotTemplates(data?.paper.project_id);
@@ -76,7 +76,7 @@ export function PaperEditorRoute() {
 
 export default function QuestionPapersPage() {
   const navigate = useNavigate();
-  const { data: project, isLoading: loadingProject } = useActiveProject();
+  const { data: project, isLoading: loadingProject } = useResultsProject();
   const { data: papers, isLoading, isError } = usePapers(project?.id);
   const { data: classes } = useClasses();
   const { data: slots } = useSlotTemplates(project?.id);

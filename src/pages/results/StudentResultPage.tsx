@@ -10,7 +10,7 @@ import { formatReg } from "@/lib/results/regNumber";
 import { AnswerReview } from "@/components/results/students/AnswerReview";
 import { StudentExports } from "@/components/results/exports/StudentExports";
 import { ChangeHistory } from "@/components/results/students/ChangeHistory";
-import { useActiveProject } from "@/hooks/useOlympiadProjects";
+import { useResultsProject } from "@/hooks/results/useResultsProject";
 import { otherProjectNotice } from "@/lib/results/projectScope";
 
 const Tile = ({ label, value, hint }: { label: string; value: string; hint?: string }) => (
@@ -29,7 +29,7 @@ export default function StudentResultPage() {
   const { enrollmentId } = useParams();
   const { data, isLoading, isError } = useStudentResult(enrollmentId);
   const { data: classes } = useClasses();
-  const { data: active } = useActiveProject();
+  const { data: active } = useResultsProject();
 
   if (isLoading) return <Skeleton className="h-64 w-full" />;
   if (isError) return <Message>We could not open this student. Please refresh and try again.</Message>;

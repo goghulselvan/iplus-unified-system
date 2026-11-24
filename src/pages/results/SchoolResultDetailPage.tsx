@@ -8,7 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SchoolExports } from "@/components/results/exports/SchoolExports";
 import { SchoolAnalysisCard } from "@/components/results/skills/SchoolAnalysisCard";
-import { useActiveProject } from "@/hooks/useOlympiadProjects";
+import { useResultsProject } from "@/hooks/results/useResultsProject";
 import { useClassOlympiadSummary, useSchoolStudents, useSchoolSummary } from "@/hooks/results/useResultsReads";
 import { OLYMPIAD_NAMES, type OlympiadCode } from "@/lib/results/paperRules";
 import { formatReg } from "@/lib/results/regNumber";
@@ -30,7 +30,7 @@ const Tile = ({ label, value, sub }: { label: string; value: React.ReactNode; su
 
 export default function SchoolResultDetailPage() {
   const { schoolId } = useParams();
-  const { data: project, isLoading: loadingProject } = useActiveProject();
+  const { data: project, isLoading: loadingProject } = useResultsProject();
   const { data: schools, isLoading: loadingSchools } = useSchoolSummary(project?.id);
   const { data: groups, isLoading: loadingGroups, isError } = useClassOlympiadSummary(project?.id, schoolId);
   const [page, setPage] = useState(0);

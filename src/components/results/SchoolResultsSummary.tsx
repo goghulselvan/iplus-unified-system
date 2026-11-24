@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Trophy } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
-import { useActiveProject } from "@/hooks/useOlympiadProjects";
+import { useResultsProject } from "@/hooks/results/useResultsProject";
 import { useClassOlympiadSummary } from "@/hooks/results/useResultsReads";
 import { schoolGrade } from "@/lib/results/grading";
 
@@ -15,7 +15,7 @@ interface Props {
 export const SchoolResultsSummary = ({ schoolId }: Props) => {
   const { profile } = useAuth();
   const allowed = profile?.role === "manager" || profile?.role === "superadmin";
-  const { data: project } = useActiveProject();
+  const { data: project } = useResultsProject();
   const { data: groups, isLoading } = useClassOlympiadSummary(allowed ? project?.id : undefined, schoolId);
 
   const enrolled = (groups ?? []).reduce((a, g) => a + Number(g.enrolled), 0);

@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useActiveProject } from "@/hooks/useOlympiadProjects";
+import { useResultsProject } from "@/hooks/results/useResultsProject";
 import { usePapers, useSlotTemplates } from "@/hooks/results/usePapers";
 import { useEvaluatedPerSlot, useSchoolSummary } from "@/hooks/results/useResultsReads";
 import { CLASS_ORDER, olympiadsForClass } from "@/lib/results/paperRules";
@@ -24,7 +24,7 @@ function Tile({ label, value, sub, to }: { label: string; value: React.ReactNode
 }
 
 export default function ResultsDashboard() {
-  const { data: project, isLoading: loadingProject } = useActiveProject();
+  const { data: project, isLoading: loadingProject } = useResultsProject();
   const projectId = project?.id;
   const { data: papers, isLoading: lp, isError: papersError } = usePapers(projectId);
   const { data: slots } = useSlotTemplates(projectId);

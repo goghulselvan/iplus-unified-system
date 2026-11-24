@@ -2,17 +2,18 @@ import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useActiveProject } from "@/hooks/useOlympiadProjects";
+import { useResultsProject } from "@/hooks/results/useResultsProject";
 import { useClasses, usePapers, useSlotTemplates } from "@/hooks/results/usePapers";
 import { PaperPicker, paperLabel } from "@/components/results/upload/PaperPicker";
 import { UploadChecker } from "@/components/results/upload/UploadChecker";
+import { OmrUploadChecker } from "@/components/results/upload/OmrUploadChecker";
 
 const Message = ({ children }: { children: React.ReactNode }) => (
   <Card><CardContent className="py-10 text-base">{children}</CardContent></Card>
 );
 
 export default function UploadAnswersPage() {
-  const { data: project, isLoading: loadingProject } = useActiveProject();
+  const { data: project, isLoading: loadingProject } = useResultsProject();
   const { data: papers, isLoading, isError } = usePapers(project?.id);
   const { data: classes } = useClasses();
   const { data: slots } = useSlotTemplates(project?.id);
@@ -48,10 +49,18 @@ export default function UploadAnswersPage() {
     <Tabs value={tab} onValueChange={(v) => setTab(v as "manual" | "omr")}>
       <TabsList className="h-auto flex-wrap">
         <TabsTrigger value="manual" disabled={busy} className="min-h-11 text-sm">Manual marks (LKG – Class 2)</TabsTrigger>
-        <TabsTrigger value="omr" disabled={busy} className="min-h-11 text-sm">OMR answers (Class 3 – 8)</TabsTrigger>
+        <TabsTrigger value="omr" disabled={busy} className="min-h-11 text-sm">OMR answers (Class 3 and above)</TabsTrigger>
       </TabsList>
       <TabsContent value="manual" className="mt-4">{panel("manual")}</TabsContent>
-      <TabsContent value="omr" className="mt-4">{panel("omr")}</TabsContent>
+      <TabsContent value="omr" className="mt-4">
+        <div className="space-y-5">
+          <p className="text-base text-muted-foreground">
+            For Class 3 and above. Upload the OMR machine's file as it is: any mix of subjects, classes and schools.
+            Each student's paper is found from their roll number and their school's exam slot. MULTIPLE counts as wrong, a blank as unanswered.
+          </p>
+          <OmrUploadChecker projectId={project.id} onBusyChange={setBusy} />
+        </div>
+      </TabsContent>
     </Tabs>
   );
 }

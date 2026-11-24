@@ -12,7 +12,7 @@ import { FilesCancelled, prepareSchoolFiles } from "@/lib/results/uploadSchoolFi
 import { buildEmail } from "../../../../supabase/functions/results-send/message";
 import { SendHistory, TEST_DONE_KEY } from "./SendHistory";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useActiveProject } from "@/hooks/useOlympiadProjects";
+import { useResultsProject } from "@/hooks/results/useResultsProject";
 
 export const MAX_SCHOOLS_PER_BATCH = 50;
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -33,7 +33,7 @@ export function SendTab({ projectId }: { projectId: string }) {
   const [problems, setProblems] = useState<{ school: string; message: string }[]>([]);
   const cancel = useRef({ cancelled: false });
 
-  const { data: project } = useActiveProject();
+  const { data: project } = useResultsProject();
   const firstId = (schools ?? []).find((s) => picked.has(s.school_id))?.school_id;
   const { data: contact } = useQuery({ queryKey: ["results", "contact", firstId], enabled: !!firstId, queryFn: () => fetchContactName(firstId!) });
   const released = useMemo(

@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { ProgressPanel } from "@/components/results/ProgressPanel";
-import { useActiveProject } from "@/hooks/useOlympiadProjects";
+import { useResultsProject } from "@/hooks/results/useResultsProject";
 import { useClasses } from "@/hooks/results/usePapers";
 import {
   useFlagDetail, useIntegrityFlags, useReviewFlag, useRunScan,
@@ -29,7 +29,7 @@ const SEV_CLASS: Record<string, string> = {
 const STATUS_ORDER: FlagStatus[] = ["pending", "investigating", "verified", "dismissed"];
 
 export default function IntegrityPage() {
-  const { data: project, isLoading: loadingProject } = useActiveProject();
+  const { data: project, isLoading: loadingProject } = useResultsProject();
   const { data: classes } = useClasses();
   const { data, isLoading, isError } = useIntegrityFlags(project?.id);
   const scan = useRunScan(project?.id);

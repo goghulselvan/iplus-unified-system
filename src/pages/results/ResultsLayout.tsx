@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Lock } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { RESULTS_NAV, isNavLive } from "@/lib/results/nav";
-import { useActiveProject } from "@/hooks/useOlympiadProjects";
+import { useResultsProject } from "@/hooks/results/useResultsProject";
 import { projectLabel } from "@/lib/results/projectScope";
 import SkillAnalysisPage from "./SkillAnalysisPage";
 import ComingSoon from "./ComingSoon";
@@ -28,7 +28,7 @@ const linkClass = (active: boolean) =>
 export default function ResultsLayout() {
   const { profile, loading } = useAuth();
   const location = useLocation();
-  const { data: project } = useActiveProject();
+  const { data: project } = useResultsProject();
   const label = projectLabel(project);
   const allowed = profile?.role === "manager" || profile?.role === "superadmin";
   const current = RESULTS_NAV.find(

@@ -3,7 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useActiveProject } from "@/hooks/useOlympiadProjects";
+import { useResultsProject } from "@/hooks/results/useResultsProject";
 import { useRankCombos, useSchoolSummary } from "@/hooks/results/useResultsReads";
 import { useClasses } from "@/hooks/results/usePapers";
 import { useSkillSummary } from "@/hooks/results/useSkills";
@@ -15,7 +15,7 @@ import { SkillTable } from "@/components/results/skills/SkillTable";
 const ALL = "all";
 
 export default function SkillAnalysisPage() {
-  const { data: project, isLoading } = useActiveProject();
+  const { data: project, isLoading } = useResultsProject();
   const { data: combos } = useRankCombos(project?.id);
   const { data: classes } = useClasses();
   const { data: schools } = useSchoolSummary(project?.id);

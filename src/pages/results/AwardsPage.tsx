@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { ProgressPanel } from "@/components/results/ProgressPanel";
-import { useActiveProject } from "@/hooks/useOlympiadProjects";
+import { useResultsProject } from "@/hooks/results/useResultsProject";
 import { useClasses } from "@/hooks/results/usePapers";
 import {
   fetchAwards, fetchParticipants, findEnrollmentByReg, useAddManualAward, useAllotAwards, useAwardRules, useAwards,
@@ -35,7 +35,7 @@ const OLYMPIADS = Object.keys(OLYMPIAD_NAMES) as OlympiadCode[];
 const PAGE = 100;
 
 export default function AwardsPage() {
-  const { data: project, isLoading } = useActiveProject();
+  const { data: project, isLoading } = useResultsProject();
   if (isLoading) return <Skeleton className="h-64 w-full" />;
   if (!project) return <Card><CardContent className="py-10 text-base">There is no active olympiad year right now.</CardContent></Card>;
   return (

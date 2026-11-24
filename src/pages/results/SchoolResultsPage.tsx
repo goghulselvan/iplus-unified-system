@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useActiveProject } from "@/hooks/useOlympiadProjects";
+import { useResultsProject } from "@/hooks/results/useResultsProject";
 import { useSchoolSummary, type SchoolSummaryRow } from "@/hooks/results/useResultsReads";
 import { schoolGrade } from "@/lib/results/grading";
 import { vsStateDiff, vsStateText } from "@/lib/results/schoolResults";
@@ -38,7 +38,7 @@ export function VsState({ avg, stateAvg }: { avg: number | null; stateAvg: numbe
 }
 
 export default function SchoolResultsPage() {
-  const { data: project, isLoading: loadingProject } = useActiveProject();
+  const { data: project, isLoading: loadingProject } = useResultsProject();
   const { data, isLoading, isError } = useSchoolSummary(project?.id);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "name", dir: 1 });
