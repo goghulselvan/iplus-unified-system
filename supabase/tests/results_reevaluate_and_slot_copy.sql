@@ -167,7 +167,28 @@ BEGIN
   -- Status follows too.
   UPDATE question_papers SET status = 'ready' WHERE id = v_p1;
   IF (SELECT status FROM question_papers WHERE id = v_p2) <> 'ready' THEN RAISE EXCEPTION 'status not copied'; END IF;
-  -- Unlinked papers stop following.
+  -- (20261128) A linked paper is read-only: direct changes are refused with a pointer to Slot 1.
+  BEGIN
+    UPDATE questions SET correct_answer = 'D' WHERE paper_id = v_p2 AND question_number = 3;
+    RAISE EXCEPTION 'linked paper question was editable';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'This paper follows the Slot 1 paper, so changes can''t be saved here. Please change question 3 on the Slot 1 paper.' THEN RAISE; END IF;
+  END;
+  BEGIN
+    UPDATE question_papers SET status = 'draft' WHERE id = v_p2;
+    RAISE EXCEPTION 'linked paper status was editable';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM NOT LIKE 'This paper follows the Slot 1 paper%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    INSERT INTO questions (paper_id, question_number, correct_answer) VALUES (v_p2, 1, 'A')
+    ON CONFLICT (paper_id, question_number) DO UPDATE SET correct_answer = EXCLUDED.correct_answer;
+    RAISE EXCEPTION 'linked paper upsert was allowed';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM NOT LIKE 'This paper follows the Slot 1 paper%' THEN RAISE; END IF;
+  END;
+
+  -- Unlinked papers stop following (unlinking is always allowed).
   UPDATE question_papers SET linked_from_paper_id = NULL WHERE id = v_p2;
   UPDATE questions SET correct_answer = 'C', key_answer = 'C' WHERE paper_id = v_p1 AND question_number = 1;
   IF (SELECT correct_answer FROM questions WHERE paper_id = v_p2 AND question_number = 1) <> 'B' THEN RAISE EXCEPTION 'unlinked paper still followed'; END IF;

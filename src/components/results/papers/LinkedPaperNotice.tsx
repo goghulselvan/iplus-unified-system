@@ -26,9 +26,9 @@ export function LinkedPaperNotice({ paperId, sourceName, onChanged }: { paperId:
       <div className="min-w-0 flex-1 space-y-2">
         <p className="text-base font-medium">This paper follows the {sourceName} paper.</p>
         <p className="text-sm">
-          Make changes on the {sourceName} paper: its questions, answer key and flag decisions are copied here
-          automatically, and students on this paper are marked again. Anything changed here directly is replaced
-          by the next change on {sourceName}. Unlink only if this slot gets a different question paper.
+          This paper can't be changed here. To change a question or its answer, change the same question on the
+          {sourceName} paper: it is copied here automatically and students on this paper are marked again.
+          Unlink only if this slot gets a different question paper.
         </p>
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       </div>

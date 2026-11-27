@@ -39,6 +39,8 @@ export interface PaperEditorProps {
   onCopy: (replace: boolean) => Promise<void>;
   /** Called after anything changes on the server so the page can refetch. */
   onChanged: () => void;
+  /** Set on a paper that follows another slot's paper: everything is shown but nothing can be changed. */
+  readOnly?: boolean;
 }
 
 const pdfCacheId = (p: PaperRow) => `${p.id}|${p.pdf_r2_key ?? ""}|${p.pdf_file_name ?? ""}`;
@@ -117,7 +119,7 @@ function PdfSection({ paper, onChanged }: { paper: PaperRow; onChanged: () => vo
 }
 
 export default function PaperEditor(props: PaperEditorProps) {
-  const { paper, paperName, questions, skills, copySource, onBack, onSave, onSaveKey, onSetStatus, onCopy, onChanged } = props;
+  const { paper, paperName, questions, skills, copySource, onBack, onSave, onSaveKey, onSetStatus, onCopy, onChanged, readOnly } = props;
   const [edits, setEdits] = useState<Record<number, QuestionEdit>>({});
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<{ kind: "error" | "ok"; text: string } | null>(null);
@@ -305,6 +307,8 @@ export default function PaperEditor(props: PaperEditorProps) {
         <ArrowLeft className="mr-2 h-4 w-4" aria-hidden="true" />All question papers
       </Button>
 
+      {/* A linked paper is view-only: a disabled fieldset turns off every control inside it. */}
+      <fieldset disabled={!!readOnly} className="min-w-0 space-y-4">
       <Card>
         <CardContent className="space-y-5 pt-6">
           <div className="flex flex-wrap items-center gap-3">
@@ -474,6 +478,7 @@ export default function PaperEditor(props: PaperEditorProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      </fieldset>
     </div>
   );
 }

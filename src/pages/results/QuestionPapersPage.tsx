@@ -66,6 +66,7 @@ export function PaperEditorRoute() {
       </div>
     )}
     <PaperEditor
+      readOnly={!!linkedFrom}
       paper={paper}
       paperName={name}
       questions={data.questions}
