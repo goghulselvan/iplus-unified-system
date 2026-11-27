@@ -11,6 +11,8 @@ export interface OmrFileError { row: number; message: string }
 
 const norm = (s: string) => s.toLowerCase().replace(/[\s_.]+/g, ' ').trim();
 const ROLL_HEADERS = new Set(['roll number', 'roll no', 'rollno', 'registration number', 'reg no']);
+/** True for a heading that names the roll-number column ("Roll Number", "Reg No", …). */
+export const isRollHeader = (h: string | undefined) => ROLL_HEADERS.has(norm(h ?? ''));
 
 export function parseOmrTable(table: string[][]): { rows: OmrRow[]; errors: OmrFileError[] } {
   const headerAt = table.findIndex((r) => r.some((c) => ROLL_HEADERS.has(norm(c ?? ''))));
@@ -58,21 +60,33 @@ const colIndex = (ref: string) => {
   return n - 1;
 };
 
-/** First worksheet of an .xlsx as a grid of display strings. */
-export async function readXlsxTable(data: ArrayBuffer | Uint8Array): Promise<string[][]> {
+/** Every worksheet of an .xlsx, in workbook order, as grids of display strings. */
+export async function readXlsxSheets(data: ArrayBuffer | Uint8Array): Promise<{ name: string; table: string[][] }[]> {
   const zip = await JSZip.loadAsync(data);
   const wb = await zip.file('xl/workbook.xml')?.async('string');
   const rels = await zip.file('xl/_rels/workbook.xml.rels')?.async('string');
   if (!wb || !rels) throw new Error('This is not a readable Excel file. Save it again as .xlsx and choose it again.');
-  const firstRid = /<sheet\b[^>]*\br:id="([^"]+)"/.exec(wb)?.[1];
-  const target = firstRid ? new RegExp(`<Relationship\\b[^>]*Id="${firstRid}"[^>]*Target="([^"]+)"`).exec(rels)?.[1]
-    ?? new RegExp(`<Relationship\\b[^>]*Target="([^"]+)"[^>]*Id="${firstRid}"`).exec(rels)?.[1] : undefined;
-  const path = target ? (target.startsWith('/') ? target.slice(1) : `xl/${target}`) : 'xl/worksheets/sheet1.xml';
-  const sheet = await zip.file(path)?.async('string');
-  if (!sheet) throw new Error('This Excel file has no sheet we can read.');
   const ssXml = await zip.file('xl/sharedStrings.xml')?.async('string');
   const shared = ssXml ? [...ssXml.matchAll(/<si>([\s\S]*?)<\/si>/g)].map((m) => textOf(m[1])) : [];
+  const targets = new Map<string, string>();
+  for (const m of rels.matchAll(/<Relationship\b[^>]*>/g)) {
+    const id = /\bId="([^"]+)"/.exec(m[0])?.[1];
+    const target = /\bTarget="([^"]+)"/.exec(m[0])?.[1];
+    if (id && target) targets.set(id, target.startsWith('/') ? target.slice(1) : `xl/${target}`);
+  }
+  const out: { name: string; table: string[][] }[] = [];
+  for (const sm of wb.matchAll(/<sheet\b[^>]*>/g)) {
+    const name = unescapeXml(/\bname="([^"]*)"/.exec(sm[0])?.[1] ?? `Sheet${out.length + 1}`);
+    const rid = /\br:id="([^"]+)"/.exec(sm[0])?.[1];
+    const path = (rid && targets.get(rid)) ?? `xl/worksheets/sheet${out.length + 1}.xml`;
+    const sheet = await zip.file(path)?.async('string');
+    if (sheet) out.push({ name, table: sheetTable(sheet, shared) });
+  }
+  if (!out.length) throw new Error('This Excel file has no sheet we can read.');
+  return out;
+}
 
+function sheetTable(sheet: string, shared: string[]): string[][] {
   const table: string[][] = [];
   for (const rm of sheet.matchAll(/<row\b([^>]*)>([\s\S]*?)<\/row>/g)) {
     const rNum = +(/\br="(\d+)"/.exec(rm[1])?.[1] ?? table.length + 1);
@@ -92,6 +106,11 @@ export async function readXlsxTable(data: ArrayBuffer | Uint8Array): Promise<str
     table[rNum - 1] = Array.from(cells, (c) => c ?? '');
   }
   return Array.from(table, (r) => r ?? []);
+}
+
+/** First worksheet of an .xlsx as a grid of display strings. */
+export async function readXlsxTable(data: ArrayBuffer | Uint8Array): Promise<string[][]> {
+  return (await readXlsxSheets(data))[0].table;
 }
 
 /** Minimal CSV grid (quoted fields, escaped quotes, CRLF/LF). */

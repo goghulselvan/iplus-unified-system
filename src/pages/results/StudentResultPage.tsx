@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,6 +14,8 @@ import { ChangeHistory } from "@/components/results/students/ChangeHistory";
 import { useResultsProject } from "@/hooks/results/useResultsProject";
 import { otherProjectNotice } from "@/lib/results/projectScope";
 import { omrCounts } from "@/lib/results/omrCounts";
+import { Button } from "@/components/ui/button";
+import { ManualMarksDialog } from "@/components/results/students/ManualMarksDialog";
 
 const Tile = ({ label, value, hint }: { label: string; value: string; hint?: string }) => (
   <div className="rounded-lg border bg-card p-4">
@@ -31,6 +34,7 @@ export default function StudentResultPage() {
   const { data, isLoading, isError } = useStudentResult(enrollmentId);
   const { data: classes } = useClasses();
   const { data: active } = useResultsProject();
+  const [marksOpen, setMarksOpen] = useState(false);
 
   if (isLoading) return <Skeleton className="h-64 w-full" />;
   if (isError) return <Message>We could not open this student. Please refresh and try again.</Message>;
@@ -41,6 +45,8 @@ export default function StudentResultPage() {
   const rank = (r: number | null, n?: number) => (r && n ? `${r} of ${n}` : "–");
   const notice = otherProjectNotice(active?.id, data.projectId, data.projectName, "student");
   const grade = score ? { grade: score.grade, label: studentGrade(score.percentage).label } : null;
+  const handMarked = ["14", "15", "01", "02"].includes(data.classCode);
+  const questionCount = data.paper?.total_questions ?? classes?.find((c) => c.code === data.classCode)?.question_count ?? 0;
   const counts = evaluation?.answers && data.paper
     ? omrCounts(evaluation.answers, data.questions, data.paper.total_questions) : null;
 
@@ -58,7 +64,21 @@ export default function StudentResultPage() {
 
       {notice && <p role="status" className="rounded-md border border-amber-600 bg-amber-50 p-3 text-base text-amber-950">{notice}</p>}
 
-      {!evaluation && <Message>This student has no result yet. Their answers have not been uploaded.</Message>}
+      {handMarked && (
+        <div className="flex flex-wrap items-center gap-3">
+          <Button type="button" variant="outline" className="min-h-11" onClick={() => setMarksOpen(true)}>
+            {evaluation ? "Edit marks or mark absent" : "Enter marks or mark absent"}
+          </Button>
+          <p className="text-sm text-muted-foreground">LKG to Class 2 are marked by hand: type the total or the mark for each question.</p>
+        </div>
+      )}
+      {marksOpen && (
+        <ManualMarksDialog open onOpenChange={setMarksOpen} enrollmentId={data.enrollmentId} studentName={data.name}
+          questionCount={questionCount}
+          current={{ status: evaluation?.status ?? null, total: evaluation?.total_marks ?? null, marks: evaluation?.marks ?? null }} />
+      )}
+
+      {!evaluation && <Message>This student has no result yet. {handMarked ? "Their marks have not been uploaded or typed in." : "Their answers have not been uploaded."}</Message>}
       {evaluation?.status === "evaluated" && !score && (
         <Message>Answers saved, waiting for the answer key. This student is marked as soon as every question on their paper has an answer key.</Message>
       )}
@@ -83,10 +103,14 @@ export default function StudentResultPage() {
             )}
           </div>
           <StudentExports data={data} className={className} />
-          <section aria-labelledby="review-h" className="space-y-3">
-            <h3 id="review-h" className="text-lg font-semibold">Answer review</h3>
-            <AnswerReview result={data} />
-          </section>
+          {evaluation.total_marks != null ? (
+            <p className="text-base text-muted-foreground">Only the total was entered for this student, so there is no question-by-question review.</p>
+          ) : (
+            <section aria-labelledby="review-h" className="space-y-3">
+              <h3 id="review-h" className="text-lg font-semibold">Answer review</h3>
+              <AnswerReview result={data} />
+            </section>
+          )}
         </>
       )}
 

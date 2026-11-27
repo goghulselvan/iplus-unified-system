@@ -3,9 +3,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useResultsProject } from "@/hooks/results/useResultsProject";
-import { useClasses, usePapers, useSlotTemplates } from "@/hooks/results/usePapers";
-import { PaperPicker, paperLabel } from "@/components/results/upload/PaperPicker";
-import { UploadChecker } from "@/components/results/upload/UploadChecker";
 import { OmrUploadChecker } from "@/components/results/upload/OmrUploadChecker";
 
 const Message = ({ children }: { children: React.ReactNode }) => (
@@ -14,36 +11,11 @@ const Message = ({ children }: { children: React.ReactNode }) => (
 
 export default function UploadAnswersPage() {
   const { data: project, isLoading: loadingProject } = useResultsProject();
-  const { data: papers, isLoading, isError } = usePapers(project?.id);
-  const { data: classes } = useClasses();
-  const { data: slots } = useSlotTemplates(project?.id);
   const [tab, setTab] = useState<"manual" | "omr">("manual");
   const [busy, setBusy] = useState(false);
-  const [picked, setPicked] = useState<Record<string, string>>({ manual: "", omr: "" });
 
-  if (loadingProject || isLoading) return <Skeleton className="h-64 w-full" />;
+  if (loadingProject) return <Skeleton className="h-64 w-full" />;
   if (!project) return <Message>There is no active olympiad year right now.</Message>;
-  if (isError) return <Message>We could not load the question papers. Please refresh and try again.</Message>;
-
-  const all = papers ?? [];
-  const cls = classes ?? [];
-  const sl = slots ?? [];
-
-  const panel = (kind: "manual" | "omr") => {
-    const paper = all.find((p) => p.id === picked[kind]);
-    return (
-      <div className="space-y-5">
-        <p className="text-base text-muted-foreground">
-          {kind === "manual"
-            ? "For LKG to Class 2. Teachers mark each question 0, 0.5 or 1 and the marks are typed into a CSV file."
-            : "For Class 3 to Class 8. The OMR operator's file gives each answer as A, B, C or D. A blank means not answered."}
-        </p>
-        <PaperPicker kind={kind} papers={all} classes={cls} slots={sl} value={picked[kind]} disabled={busy}
-          onChange={(id) => setPicked((s) => ({ ...s, [kind]: id }))} />
-        {paper && <UploadChecker key={paper.id} paper={paper} kind={kind} label={paperLabel(paper, cls, sl)} onBusyChange={setBusy} />}
-      </div>
-    );
-  };
 
   return (
     <Tabs value={tab} onValueChange={(v) => setTab(v as "manual" | "omr")}>
@@ -51,7 +23,19 @@ export default function UploadAnswersPage() {
         <TabsTrigger value="manual" disabled={busy} className="min-h-11 text-sm">Manual marks (LKG – Class 2)</TabsTrigger>
         <TabsTrigger value="omr" disabled={busy} className="min-h-11 text-sm">OMR answers (Class 3 and above)</TabsTrigger>
       </TabsList>
-      <TabsContent value="manual" className="mt-4">{panel("manual")}</TabsContent>
+      <TabsContent value="manual" className="mt-4">
+        <div className="space-y-5">
+          <div className="space-y-1 text-base text-muted-foreground">
+            <p>For LKG to Class 2, marked by hand. Upload the marking sheet (.xlsx, every sheet is read) or a .csv. Each sheet can be either:</p>
+            <ul className="list-disc pl-6">
+              <li>marks per question: Reg No, Name, Q1, Q2, … with 0, 0.5 or 1 (a blank counts as 0; the system adds up the total), or</li>
+              <li>totals only: Reg No, Name, Total (0 up to the number of questions, in steps of 0.5).</li>
+            </ul>
+            <p>A row with no marks is skipped and the student stays Pending.</p>
+          </div>
+          <OmrUploadChecker projectId={project.id} mode="manual" onBusyChange={setBusy} />
+        </div>
+      </TabsContent>
       <TabsContent value="omr" className="mt-4">
         <div className="space-y-5">
           <p className="text-base text-muted-foreground">

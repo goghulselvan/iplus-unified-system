@@ -2,52 +2,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import { fail } from "@/hooks/results/usePapers";
-import type { CsvRow } from "@/lib/results/evaluationCsv";
 
 export interface UploadError { row: number; message: string }
 export interface UploadFailure { ok: false; errors: UploadError[]; moreErrors: number }
 export interface ReplaceItem { reg: string; name: string; was: "evaluated" | "absent" }
-export interface UploadDryRun {
-  ok: true;
-  dryRun: true;
-  count: number;
-  replace: ReplaceItem[];
-  otherSlot: { count: number; slotName: string | null };
-  missingFromFile: number;
-}
-export interface UploadSaved { ok: true; saved: number; replaced: number; batchId: string }
-export type UploadCheckResult = UploadFailure | UploadDryRun;
-
-export interface UploadArgs {
-  paperId: string;
-  kind: "manual" | "omr";
-  fileName: string;
-  rows: CsvRow[];
-}
-
-const payload = (rows: CsvRow[]) => rows.map((r) => ({ row: r.row, reg: r.reg, values: r.values }));
-
-/** Check a file (dry run) or save it. Paper-level problems throw with a plain-English message. */
-export function useUploadRpc() {
-  const qc = useQueryClient();
-  const call = async (a: UploadArgs, dry: boolean) => {
-    const { data, error } = await supabase.rpc("results_upload", {
-      p_paper_id: a.paperId, p_kind: a.kind, p_file_name: a.fileName,
-      p_rows: payload(a.rows) as Json, p_dry_run: dry,
-    });
-    if (error) fail(error, dry ? "We could not check this file. Please try again." : "We could not save this file. Nothing was saved. Please try again.");
-    return data as unknown;
-  };
-  return {
-    check: async (a: UploadArgs) => (await call(a, true)) as UploadCheckResult,
-    save: async (a: UploadArgs) => {
-      const r = (await call(a, false)) as UploadSaved | UploadFailure;
-      if (r.ok) qc.invalidateQueries({ queryKey: ["results"] });
-      return r;
-    },
-  };
-}
-
 export interface StudentFilters {
   projectId?: string;
   schoolId?: string | null;
@@ -86,17 +44,6 @@ export function useStudentList(f: StudentFilters, page: number) {
       return { rows, total: rows[0] ? Number(rows[0].total_count) : 0 };
     },
   });
-}
-
-/** Every enrolled student of a class x olympiad, for the CSV template. */
-export async function fetchTemplateStudents(projectId: string, classCode: string, olympiad: string) {
-  const out: { reg: string; name: string }[] = [];
-  for (let offset = 0; ; offset += 1000) {
-    const rows = await listStudents({ projectId, classCode, olympiadCode: olympiad }, 1000, offset);
-    for (const r of rows) if (r.registration_number) out.push({ reg: r.registration_number, name: r.student_name });
-    if (rows.length < 1000) break;
-  }
-  return out;
 }
 
 export interface SchoolOption { id: string; school_name: string }
@@ -178,7 +125,12 @@ export interface StudentResult {
   schoolId: string | null;
   classCode: string;
   olympiadCode: string;
-  evaluation: { id: string; status: "evaluated" | "absent"; answers: (string | null)[] | null; marks: (number | null)[] | null; paper_id: string } | null;
+  evaluation: {
+    id: string; status: "evaluated" | "absent"; answers: (string | null)[] | null; marks: (number | null)[] | null;
+    /** LKG-Class 2 totals-only result. */
+    total_marks?: number | null;
+    paper_id: string;
+  } | null;
   score: ScoreRow | null;
   paper: { id: string; total_questions: number; project_id: string } | null;
   questions: { question_number: number; correct_answer: string | null; is_grace: boolean; skill_category: string | null }[];
@@ -213,7 +165,7 @@ export function useStudentResult(enrollmentId?: string) {
       const { data: proj } = await supabase.from("olympiad_projects").select("project_name").eq("id", e.project_id).maybeSingle();
       const projectName = (proj as { project_name?: string } | null)?.project_name ?? null;
       const { data: ev, error: evErr } = await supabase
-        .from("result_evaluations").select("id, status, answers, marks, paper_id")
+        .from("result_evaluations").select("id, status, answers, marks, total_marks, paper_id" as "id, status, answers, marks, paper_id")
         .eq("enrollment_id", enrollmentId!).is("deleted_at", null).maybeSingle();
       if (evErr) fail(evErr);
       let score: ScoreRow | null = null;
@@ -273,5 +225,20 @@ export function useResultHistory(evaluationId?: string) {
       }
       return rows.map((r) => ({ ...r, who: r.changed_by ? names.get(r.changed_by) || "A staff member" : "The system" }));
     },
+  });
+}
+
+/** LKG-Class 2: enter or edit one student's marks (total or per question), or mark absent. */
+export function useManualEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (a: { enrollmentId: string; mode: "total" | "questions" | "absent"; total?: number | null; marks?: (number | null)[] | null }) => {
+      // results_manual_entry is newer than the generated types.
+      const { error } = await supabase.rpc("results_manual_entry" as never, {
+        p_enrollment_id: a.enrollmentId, p_mode: a.mode, p_total: a.total ?? null, p_marks: a.marks ?? null,
+      } as never);
+      if (error) fail(error, "The marks could not be saved. Please try again.");
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["results"] }),
   });
 }
