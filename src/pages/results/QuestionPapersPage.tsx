@@ -11,6 +11,7 @@ import {
 import { OLYMPIAD_NAMES, classGroup, type OlympiadCode } from "@/lib/results/paperRules";
 import { PaperGrid, type CreateDefaults } from "@/components/results/papers/PaperGrid";
 import { CopySlotPapersButton } from "@/components/results/papers/CopySlotPapersButton";
+import { LinkedPaperNotice } from "@/components/results/papers/LinkedPaperNotice";
 import { CreatePaperDialog } from "@/components/results/papers/CreatePaperDialog";
 import PaperEditor from "@/components/results/papers/PaperEditor";
 import { otherProjectNotice } from "@/lib/results/projectScope";
@@ -50,10 +51,20 @@ export function PaperEditorRoute() {
   const name = `${cls?.display_name ?? paper.class_code} · ${OLYMPIAD_NAMES[paper.olympiad_code as OlympiadCode]} · Slot ${Math.max(slotIndex, 0) + 1}`;
 
   const notice = otherProjectNotice(project?.id, paper.project_id, null, "paper");
+  // linked_from_paper_id is newer than the generated types.
+  const linkedFrom = (paper as typeof paper & { linked_from_paper_id?: string | null }).linked_from_paper_id ?? null;
+  const linkedSource = linkedFrom ? allPapers?.find((p) => p.id === linkedFrom) : undefined;
+  const linkedSlot = linkedSource ? slots?.find((s) => s.id === linkedSource.slot_template_id)?.slot_name ?? "other slot" : "other slot";
 
   return (
     <>
     {notice && <p role="status" className="mb-4 rounded-md border border-amber-600 bg-amber-50 p-3 text-base text-amber-950">{notice}</p>}
+    {linkedFrom && (
+      <div className="mb-4">
+        <LinkedPaperNotice paperId={paper.id} sourceName={linkedSlot}
+          onChanged={() => qc.invalidateQueries({ queryKey: ["results"] })} />
+      </div>
+    )}
     <PaperEditor
       paper={paper}
       paperName={name}

@@ -1,5 +1,8 @@
 -- Results: (1) re-evaluate a school after its exam slot is corrected (superadmin only);
--- (2) copy every paper of one slot to all other slots (same questions on every slot).
+-- (2) copy every paper of one slot to all other slots (same questions on every slot) and
+--     keep them LINKED: later changes on the source paper (questions, key, AI check, flag
+--     decisions, PDF, Ready/Draft) are copied to the linked papers automatically.
+--     Adds one nullable column, question_papers.linked_from_paper_id.
 --
 -- A school's students are marked against the paper of the school's exam slot at upload
 -- time. If the slot was wrong in the CRM (e.g. the school sat Slot 2 but the CRM said
@@ -162,10 +165,132 @@ REVOKE ALL ON FUNCTION public.results_reevaluate_school(uuid, uuid, boolean) FRO
 GRANT EXECUTE ON FUNCTION public.results_reevaluate_school(uuid, uuid, boolean) TO authenticated;
 
 -- ---------------------------------------------------------------------------
+-- (2a) Linked papers
+-- ---------------------------------------------------------------------------
+ALTER TABLE public.question_papers
+  ADD COLUMN linked_from_paper_id uuid REFERENCES public.question_papers(id) ON DELETE SET NULL;
+COMMENT ON COLUMN public.question_papers.linked_from_paper_id IS
+  'Set by "Same questions for all slots": this paper copies the given paper (same class and subject, other slot) and follows its changes automatically.';
+CREATE INDEX question_papers_linked_from_idx ON public.question_papers (linked_from_paper_id) WHERE linked_from_paper_id IS NOT NULL;
+
+-- Copy one paper's questions (with key, AI check, decisions), PDF and status onto another.
+-- Questions the source lacks are removed unless students are already on the target
+-- (removing would score them 0; results_questions_guard refuses it).
+CREATE FUNCTION public.results_copy_questions(p_src uuid, p_tgt uuid) RETURNS void
+  LANGUAGE plpgsql
+  SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.questions AS t
+         (paper_id, question_number, question_text, has_figure, correct_answer, is_grace, skill_category,
+          skill_description, nep_skill_mapping, cognitive_level, ai_confidence, human_edited,
+          option_a, option_b, option_c, option_d, key_answer, ai_answer, ai_reason,
+          recheck_answer, recheck_confidence, recheck_reason, rechecked_at, figure_page, figure_box, check_status)
+  SELECT p_tgt, q.question_number, q.question_text, q.has_figure, q.correct_answer, q.is_grace, q.skill_category,
+         q.skill_description, q.nep_skill_mapping, q.cognitive_level, q.ai_confidence, q.human_edited,
+         q.option_a, q.option_b, q.option_c, q.option_d, q.key_answer, q.ai_answer, q.ai_reason,
+         q.recheck_answer, q.recheck_confidence, q.recheck_reason, q.rechecked_at, q.figure_page, q.figure_box, q.check_status
+    FROM public.questions q WHERE q.paper_id = p_src
+  ON CONFLICT (paper_id, question_number) DO UPDATE SET
+    question_text = EXCLUDED.question_text, has_figure = EXCLUDED.has_figure,
+    correct_answer = EXCLUDED.correct_answer, is_grace = EXCLUDED.is_grace,
+    skill_category = EXCLUDED.skill_category, skill_description = EXCLUDED.skill_description,
+    nep_skill_mapping = EXCLUDED.nep_skill_mapping, cognitive_level = EXCLUDED.cognitive_level,
+    ai_confidence = EXCLUDED.ai_confidence, human_edited = EXCLUDED.human_edited,
+    option_a = EXCLUDED.option_a, option_b = EXCLUDED.option_b, option_c = EXCLUDED.option_c, option_d = EXCLUDED.option_d,
+    key_answer = EXCLUDED.key_answer, ai_answer = EXCLUDED.ai_answer, ai_reason = EXCLUDED.ai_reason,
+    recheck_answer = EXCLUDED.recheck_answer, recheck_confidence = EXCLUDED.recheck_confidence,
+    recheck_reason = EXCLUDED.recheck_reason, rechecked_at = EXCLUDED.rechecked_at,
+    figure_page = EXCLUDED.figure_page, figure_box = EXCLUDED.figure_box, check_status = EXCLUDED.check_status
+  WHERE (t.question_text, t.has_figure, t.correct_answer, t.is_grace, t.skill_category, t.skill_description,
+         t.nep_skill_mapping, t.cognitive_level, t.ai_confidence, t.human_edited, t.option_a, t.option_b, t.option_c,
+         t.option_d, t.key_answer, t.ai_answer, t.ai_reason, t.recheck_answer, t.recheck_confidence, t.recheck_reason,
+         t.rechecked_at, t.figure_page, t.figure_box, t.check_status)
+        IS DISTINCT FROM
+        (EXCLUDED.question_text, EXCLUDED.has_figure, EXCLUDED.correct_answer, EXCLUDED.is_grace, EXCLUDED.skill_category,
+         EXCLUDED.skill_description, EXCLUDED.nep_skill_mapping, EXCLUDED.cognitive_level, EXCLUDED.ai_confidence,
+         EXCLUDED.human_edited, EXCLUDED.option_a, EXCLUDED.option_b, EXCLUDED.option_c, EXCLUDED.option_d,
+         EXCLUDED.key_answer, EXCLUDED.ai_answer, EXCLUDED.ai_reason, EXCLUDED.recheck_answer, EXCLUDED.recheck_confidence,
+         EXCLUDED.recheck_reason, EXCLUDED.rechecked_at, EXCLUDED.figure_page, EXCLUDED.figure_box, EXCLUDED.check_status);
+
+  IF NOT EXISTS (SELECT 1 FROM public.result_evaluations e WHERE e.paper_id = p_tgt AND e.deleted_at IS NULL) THEN
+    DELETE FROM public.questions q
+     WHERE q.paper_id = p_tgt
+       AND NOT EXISTS (SELECT 1 FROM public.questions s WHERE s.paper_id = p_src AND s.question_number = q.question_number);
+  END IF;
+
+  UPDATE public.question_papers tp
+     SET pdf_r2_key = sp.pdf_r2_key, pdf_file_name = sp.pdf_file_name, status = sp.status
+    FROM public.question_papers sp
+   WHERE tp.id = p_tgt AND sp.id = p_src
+     AND (tp.pdf_r2_key, tp.pdf_file_name, tp.status) IS DISTINCT FROM (sp.pdf_r2_key, sp.pdf_file_name, sp.status);
+END
+$$;
+
+-- Question changes on a source paper flow to its linked papers (same statement, so the
+-- re-score triggers mark students on every slot together). Only papers that are not
+-- themselves linked act as sources, so changes never loop.
+CREATE FUNCTION public.results_questions_sync_linked() RETURNS trigger
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = public
+AS $$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN
+    SELECT tp.linked_from_paper_id AS src, tp.id AS tgt
+      FROM (SELECT DISTINCT n.paper_id FROM results_sync_new n) c
+      JOIN public.question_papers sp ON sp.id = c.paper_id AND sp.linked_from_paper_id IS NULL AND sp.deleted_at IS NULL
+      JOIN public.question_papers tp ON tp.linked_from_paper_id = sp.id AND tp.deleted_at IS NULL
+     ORDER BY public.results_group_key(tp.project_id, tp.class_code, tp.olympiad_code), tp.id
+  LOOP
+    PERFORM public.results_copy_questions(r.src, r.tgt);
+  END LOOP;
+  RETURN NULL;
+END
+$$;
+
+CREATE TRIGGER questions_sync_linked_insert
+  AFTER INSERT ON public.questions
+  REFERENCING NEW TABLE AS results_sync_new
+  FOR EACH STATEMENT EXECUTE FUNCTION public.results_questions_sync_linked();
+CREATE TRIGGER questions_sync_linked_update
+  AFTER UPDATE ON public.questions
+  REFERENCING NEW TABLE AS results_sync_new
+  FOR EACH STATEMENT EXECUTE FUNCTION public.results_questions_sync_linked();
+
+-- PDF / Ready-Draft changes on a source paper follow too; a source that is deleted
+-- releases its linked papers (they keep their questions and become independent).
+CREATE FUNCTION public.results_paper_sync_linked() RETURNS trigger
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = public
+AS $$
+BEGIN
+  IF NEW.linked_from_paper_id IS NOT NULL THEN
+    RETURN NULL;
+  END IF;
+  IF NEW.deleted_at IS NOT NULL THEN
+    UPDATE public.question_papers SET linked_from_paper_id = NULL WHERE linked_from_paper_id = NEW.id;
+  ELSE
+    UPDATE public.question_papers tp
+       SET pdf_r2_key = NEW.pdf_r2_key, pdf_file_name = NEW.pdf_file_name, status = NEW.status
+     WHERE tp.linked_from_paper_id = NEW.id AND tp.deleted_at IS NULL
+       AND (tp.pdf_r2_key, tp.pdf_file_name, tp.status) IS DISTINCT FROM (NEW.pdf_r2_key, NEW.pdf_file_name, NEW.status);
+  END IF;
+  RETURN NULL;
+END
+$$;
+
+CREATE TRIGGER question_papers_sync_linked
+  AFTER UPDATE OF status, pdf_r2_key, pdf_file_name, deleted_at ON public.question_papers
+  FOR EACH ROW EXECUTE FUNCTION public.results_paper_sync_linked();
+
+-- ---------------------------------------------------------------------------
 -- Copy every paper of one slot to the same class x subject on every other slot of the
--- project ("all slots have the same questions"). Managers and superadmins. Questions,
--- answer key, AI cross-check and flag decisions are copied as they are; missing target
--- papers are created; the PDF link and Ready/Draft status follow the source. Students
+-- project ("all slots have the same questions") and link them, so later changes follow
+-- automatically. Managers and superadmins. Missing target papers are created. Students
 -- already uploaded on a target paper are marked again by the question triggers.
 -- A target with a different question count is skipped and reported.
 -- ---------------------------------------------------------------------------
@@ -241,6 +366,10 @@ BEGIN
     PERFORM pg_advisory_xact_lock(v_key);
   END LOOP;
 
+  -- The copied-from papers are the sources from now on (never linked themselves).
+  UPDATE public.question_papers SET linked_from_paper_id = NULL
+   WHERE id IN (SELECT DISTINCT src FROM pg_temp.results_copy_plan) AND linked_from_paper_id IS NOT NULL;
+
   FOR r IN
     SELECT * FROM pg_temp.results_copy_plan c
      WHERE c.tgt IS NULL OR c.tgt_total = c.total
@@ -259,40 +388,9 @@ BEGIN
       END IF;
     END IF;
 
-    INSERT INTO public.questions AS t
-           (paper_id, question_number, question_text, has_figure, correct_answer, is_grace, skill_category,
-            skill_description, nep_skill_mapping, cognitive_level, ai_confidence, human_edited,
-            option_a, option_b, option_c, option_d, key_answer, ai_answer, ai_reason,
-            recheck_answer, recheck_confidence, recheck_reason, rechecked_at, figure_page, figure_box, check_status)
-    SELECT v_tgt, q.question_number, q.question_text, q.has_figure, q.correct_answer, q.is_grace, q.skill_category,
-           q.skill_description, q.nep_skill_mapping, q.cognitive_level, q.ai_confidence, q.human_edited,
-           q.option_a, q.option_b, q.option_c, q.option_d, q.key_answer, q.ai_answer, q.ai_reason,
-           q.recheck_answer, q.recheck_confidence, q.recheck_reason, q.rechecked_at, q.figure_page, q.figure_box, q.check_status
-      FROM public.questions q WHERE q.paper_id = r.src
-    ON CONFLICT (paper_id, question_number) DO UPDATE SET
-      question_text = EXCLUDED.question_text, has_figure = EXCLUDED.has_figure,
-      correct_answer = EXCLUDED.correct_answer, is_grace = EXCLUDED.is_grace,
-      skill_category = EXCLUDED.skill_category, skill_description = EXCLUDED.skill_description,
-      nep_skill_mapping = EXCLUDED.nep_skill_mapping, cognitive_level = EXCLUDED.cognitive_level,
-      ai_confidence = EXCLUDED.ai_confidence, human_edited = EXCLUDED.human_edited,
-      option_a = EXCLUDED.option_a, option_b = EXCLUDED.option_b, option_c = EXCLUDED.option_c, option_d = EXCLUDED.option_d,
-      key_answer = EXCLUDED.key_answer, ai_answer = EXCLUDED.ai_answer, ai_reason = EXCLUDED.ai_reason,
-      recheck_answer = EXCLUDED.recheck_answer, recheck_confidence = EXCLUDED.recheck_confidence,
-      recheck_reason = EXCLUDED.recheck_reason, rechecked_at = EXCLUDED.rechecked_at,
-      figure_page = EXCLUDED.figure_page, figure_box = EXCLUDED.figure_box, check_status = EXCLUDED.check_status;
-
-    -- Questions the source doesn't have are removed, unless students are already on the
-    -- target (removing would score them 0; the guard refuses it).
-    IF COALESCE(r.tgt_results, 0) = 0 THEN
-      DELETE FROM public.questions q
-       WHERE q.paper_id = v_tgt
-         AND NOT EXISTS (SELECT 1 FROM public.questions s WHERE s.paper_id = r.src AND s.question_number = q.question_number);
-    END IF;
-
-    UPDATE public.question_papers tp
-       SET pdf_r2_key = sp.pdf_r2_key, pdf_file_name = sp.pdf_file_name, status = sp.status
-      FROM public.question_papers sp
-     WHERE tp.id = v_tgt AND sp.id = r.src;
+    PERFORM public.results_copy_questions(r.src, v_tgt);
+    UPDATE public.question_papers SET linked_from_paper_id = r.src
+     WHERE id = v_tgt AND linked_from_paper_id IS DISTINCT FROM r.src;
     v_done := v_done + 1;
   END LOOP;
   TRUNCATE pg_temp.results_copy_plan;
@@ -302,6 +400,8 @@ END
 $$;
 
 REVOKE ALL ON FUNCTION public.results_copy_slot_papers(uuid, uuid, boolean) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.results_copy_questions(uuid, uuid), public.results_questions_sync_linked(),
+  public.results_paper_sync_linked() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.results_copy_slot_papers(uuid, uuid, boolean) TO authenticated;
 
 COMMIT;

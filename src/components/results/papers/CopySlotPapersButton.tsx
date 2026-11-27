@@ -34,7 +34,7 @@ export function CopySlotPapersButton({ projectId, slots }: Props) {
     setBusy(true); setError(null);
     try {
       const r = await api.run(projectId, from);
-      toast.success(`${r.copied} ${r.copied === 1 ? "paper was" : "papers were"} copied from ${fromName}. Uploaded students on those papers are marked again.`);
+      toast.success(`${r.copied} ${r.copied === 1 ? "paper was" : "papers were"} copied from ${fromName} and linked. Later changes on ${fromName} are copied automatically.`);
       setOpen(false);
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   };
@@ -53,7 +53,8 @@ export function CopySlotPapersButton({ projectId, slots }: Props) {
             <DialogTitle>Copy papers to every slot</DialogTitle>
             <DialogDescription>
               Every class and subject paper on the slot you pick is copied to the same class and subject on {others || "the other slots"}:
-              questions, answer key, AI check and your flag decisions.
+              questions, answer key, AI check and your flag decisions. The copies stay linked: any later change on the
+              slot you copy from (for example a corrected answer key) is copied to them automatically.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">

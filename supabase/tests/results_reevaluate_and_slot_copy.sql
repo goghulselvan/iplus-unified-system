@@ -153,6 +153,25 @@ BEGIN
   IF (SELECT count(*) FROM result_scores WHERE paper_id = v_p2) <> 2 THEN RAISE EXCEPTION 'not marked after the copy'; END IF;
   IF (SELECT total FROM result_scores WHERE enrollment_id = v_e1) <> v_nq THEN RAISE EXCEPTION 'wrong mark after the copy'; END IF;
 
+  -- Linked: Slot 2 follows Slot 1.
+  IF (SELECT linked_from_paper_id FROM question_papers WHERE id = v_p2) IS DISTINCT FROM v_p1 THEN RAISE EXCEPTION 'Slot 2 not linked'; END IF;
+  -- A corrected Slot 1 key flows to Slot 2 and re-marks its students (answered A, key now B -> one less).
+  UPDATE questions SET correct_answer = 'B', key_answer = 'B' WHERE paper_id = v_p1 AND question_number = 1;
+  IF (SELECT correct_answer FROM questions WHERE paper_id = v_p2 AND question_number = 1) <> 'B' THEN RAISE EXCEPTION 'key change not copied to Slot 2'; END IF;
+  IF (SELECT total FROM result_scores WHERE enrollment_id = v_e1) <> v_nq - 1 THEN RAISE EXCEPTION 'Slot 2 students not re-marked after the Slot 1 key change'; END IF;
+  -- An open flag on Slot 1 holds Slot 2 marking back too; deciding it marks again.
+  UPDATE questions SET check_status = 'mismatch_strong' WHERE paper_id = v_p1 AND question_number = 2;
+  IF EXISTS (SELECT 1 FROM result_scores WHERE enrollment_id = v_e1) THEN RAISE EXCEPTION 'flag on Slot 1 did not hold Slot 2 back'; END IF;
+  UPDATE questions SET check_status = 'resolved' WHERE paper_id = v_p1 AND question_number = 2;
+  IF (SELECT total FROM result_scores WHERE enrollment_id = v_e1) <> v_nq - 1 THEN RAISE EXCEPTION 'Slot 2 not marked after the Slot 1 decision'; END IF;
+  -- Status follows too.
+  UPDATE question_papers SET status = 'ready' WHERE id = v_p1;
+  IF (SELECT status FROM question_papers WHERE id = v_p2) <> 'ready' THEN RAISE EXCEPTION 'status not copied'; END IF;
+  -- Unlinked papers stop following.
+  UPDATE question_papers SET linked_from_paper_id = NULL WHERE id = v_p2;
+  UPDATE questions SET correct_answer = 'C', key_answer = 'C' WHERE paper_id = v_p1 AND question_number = 1;
+  IF (SELECT correct_answer FROM questions WHERE paper_id = v_p2 AND question_number = 1) <> 'B' THEN RAISE EXCEPTION 'unlinked paper still followed'; END IF;
+
   -- Nothing left to move now.
   v_res := results_reevaluate_school(v_proj, v_school, true);
   IF (v_res ->> 'count')::int <> 0 THEN RAISE EXCEPTION 'second check should find nothing: %', v_res; END IF;
