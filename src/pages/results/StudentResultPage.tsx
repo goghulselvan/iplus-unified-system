@@ -12,6 +12,7 @@ import { StudentExports } from "@/components/results/exports/StudentExports";
 import { ChangeHistory } from "@/components/results/students/ChangeHistory";
 import { useResultsProject } from "@/hooks/results/useResultsProject";
 import { otherProjectNotice } from "@/lib/results/projectScope";
+import { omrCounts } from "@/lib/results/omrCounts";
 
 const Tile = ({ label, value, hint }: { label: string; value: string; hint?: string }) => (
   <div className="rounded-lg border bg-card p-4">
@@ -40,6 +41,8 @@ export default function StudentResultPage() {
   const rank = (r: number | null, n?: number) => (r && n ? `${r} of ${n}` : "–");
   const notice = otherProjectNotice(active?.id, data.projectId, data.projectName, "student");
   const grade = score ? { grade: score.grade, label: studentGrade(score.percentage).label } : null;
+  const counts = evaluation?.answers && data.paper
+    ? omrCounts(evaluation.answers, data.questions, data.paper.total_questions) : null;
 
   return (
     <div className="space-y-6">
@@ -56,6 +59,9 @@ export default function StudentResultPage() {
       {notice && <p role="status" className="rounded-md border border-amber-600 bg-amber-50 p-3 text-base text-amber-950">{notice}</p>}
 
       {!evaluation && <Message>This student has no result yet. Their answers have not been uploaded.</Message>}
+      {evaluation?.status === "evaluated" && !score && (
+        <Message>Answers saved, waiting for the answer key. This student is marked as soon as every question on their paper has an answer key.</Message>
+      )}
       {evaluation?.status === "absent" && <Message>This student was marked absent. There is no score or rank.</Message>}
 
       {evaluation?.status === "evaluated" && score && (
@@ -68,6 +74,13 @@ export default function StudentResultPage() {
             <Tile label="District rank" value={rank(score.rank_district, totals?.district)} />
             <Tile label="State rank" value={rank(score.rank_state, totals?.state)} />
             <Tile label="All-India rank" value={rank(score.rank_national, totals?.national)} />
+            {counts && (
+              <>
+                <Tile label="Correct" value={String(counts.correct)} />
+                <Tile label="Wrong" value={String(counts.wrong)} hint="MULTIPLE counts as wrong" />
+                <Tile label="Unanswered" value={String(counts.unanswered)} />
+              </>
+            )}
           </div>
           <StudentExports data={data} className={className} />
           <section aria-labelledby="review-h" className="space-y-3">

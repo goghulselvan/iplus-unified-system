@@ -4,7 +4,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Lock } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { RESULTS_NAV, isNavLive } from "@/lib/results/nav";
-import { useResultsProject } from "@/hooks/results/useResultsProject";
+import { chooseResultsProject, useResultsProject } from "@/hooks/results/useResultsProject";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { projectLabel } from "@/lib/results/projectScope";
 import SkillAnalysisPage from "./SkillAnalysisPage";
 import ComingSoon from "./ComingSoon";
@@ -28,7 +30,7 @@ const linkClass = (active: boolean) =>
 export default function ResultsLayout() {
   const { profile, loading } = useAuth();
   const location = useLocation();
-  const { data: project } = useResultsProject();
+  const { data: project, needsChoice, projects } = useResultsProject();
   const label = projectLabel(project);
   const allowed = profile?.role === "manager" || profile?.role === "superadmin";
   const current = RESULTS_NAV.find(
@@ -47,14 +49,42 @@ export default function ResultsLayout() {
                 {label}
               </span>
             )}
+            {projects.length > 1 && project && (
+              <Button type="button" variant="link" className="h-auto p-0 text-sm" onClick={() => chooseResultsProject(null)}>
+                Change project
+              </Button>
+            )}
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
             {label
               ? `Question papers, student marks, rankings and reports for ${label} only. Other olympiad years keep their own results; to see one, a superadmin switches the active project on the Dashboard.`
-              : "Question papers, student marks, rankings and reports for the olympiad."}
+              : needsChoice
+                ? "More than one olympiad project is active. Choose the project to work on."
+                : "Question papers, student marks, rankings and reports for the olympiad."}
           </p>
         </div>
-        {loading ? null : !allowed ? (
+        {allowed && (
+          <Dialog open={needsChoice}>
+            <DialogContent className="[&>button]:hidden" onEscapeKeyDown={(e) => e.preventDefault()}
+              onPointerDownOutside={(e) => e.preventDefault()} onInteractOutside={(e) => e.preventDefault()}>
+              <DialogHeader>
+                <DialogTitle>Which olympiad project?</DialogTitle>
+                <DialogDescription>
+                  More than one project is active. Results, marks and ranks are kept separately for each one. Choose the project to work on.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex flex-col gap-2">
+                {projects.map((p) => (
+                  <Button key={p.id} type="button" variant="outline" className="min-h-11 justify-start"
+                    onClick={() => chooseResultsProject(p.id)}>
+                    {projectLabel(p)}
+                  </Button>
+                ))}
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
+        {loading || needsChoice ? null : !allowed ? (
           <Card>
             <CardContent className="flex items-center gap-3 py-10">
               <Lock className="h-5 w-5 text-muted-foreground" aria-hidden="true" />

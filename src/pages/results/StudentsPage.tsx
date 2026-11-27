@@ -15,7 +15,7 @@ import { DeleteDialog } from "@/components/results/students/DeleteDialog";
 
 const selectClass =
   "h-11 w-full rounded-md border border-input bg-background px-3 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
-const STATUSES = [["", "All"], ["evaluated", "Evaluated"], ["absent", "Absent"], ["pending", "Pending"], ["deleted", "Deleted"]];
+const STATUSES = [["", "All"], ["evaluated", "Evaluated"], ["waiting", "Waiting for answer key"], ["absent", "Absent"], ["pending", "Pending"], ["deleted", "Deleted"]];
 
 export default function StudentsPage() {
   const { data: project, isLoading: loadingProject } = useResultsProject();

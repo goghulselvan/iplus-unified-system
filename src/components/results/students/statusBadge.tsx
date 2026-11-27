@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/badge";
 
 const STYLES: Record<string, { label: string; cls: string }> = {
   evaluated: { label: "Evaluated", cls: "border-green-700/40 bg-green-50 text-green-900" },
+  waiting: { label: "Waiting for answer key", cls: "border-sky-700/40 bg-sky-50 text-sky-950" },
   absent: { label: "Absent", cls: "border-amber-600/50 bg-amber-50 text-amber-950" },
   pending: { label: "Pending", cls: "border-input bg-muted text-foreground" },
   deleted: { label: "Deleted", cls: "border-destructive/40 bg-red-50 text-red-900" },

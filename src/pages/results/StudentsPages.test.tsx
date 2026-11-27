@@ -11,7 +11,7 @@ const row = (id: string, name: string) => ({
 
 const studentResult = vi.fn();
 
-vi.mock("@/hooks/useOlympiadProjects", () => ({ useActiveProject: () => ({ data: { id: "proj" }, isLoading: false }) }));
+vi.mock("@/hooks/results/useResultsProject", () => ({ useResultsProject: () => ({ ...{ data: { id: "proj" }, isLoading: false }, needsChoice: false, projects: [] }), chooseResultsProject: vi.fn() }));
 vi.mock("@/hooks/results/usePapers", () => ({
   usePapers: () => ({ data: [{ id: "p1", total_questions: 10 }] }),
   useClasses: () => ({ data: [{ code: "01", display_name: "Class 1" }] }),

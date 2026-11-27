@@ -7,7 +7,7 @@ import { SendHistory } from "@/components/results/release/SendHistory";
 const state: { role: string; test: string | null; status: string; n: number } = { role: "manager", test: null, status: "done", n: 1 };
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), message: vi.fn() } }));
 vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ profile: { role: state.role }, loading: false }) }));
-vi.mock("@/hooks/useOlympiadProjects", () => ({ useActiveProject: () => ({ data: { id: "p1" }, isLoading: false }) }));
+vi.mock("@/hooks/results/useResultsProject", () => ({ useResultsProject: () => ({ ...{ data: { id: "p1" }, isLoading: false }, needsChoice: false, projects: [] }), chooseResultsProject: vi.fn() }));
 vi.mock("@/hooks/results/useResultsReads", () => ({
   useSchoolSummary: () => ({ data: Array.from({ length: state.n }, (_, i) => ({ school_id: `s${i + 1}`, school_name: `Asha School ${i + 1}`, released: true, evaluated: 5, pending: 0, resend_flag: false })), isLoading: false }),
 }));

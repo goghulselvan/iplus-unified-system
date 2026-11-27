@@ -5,7 +5,8 @@ import { MemoryRouter } from "react-router-dom";
 vi.mock("@/components/layout/Navbar", () => ({ default: () => null }));
 vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ profile: { role: "manager" }, loading: false }) }));
 const active = vi.hoisted(() => vi.fn());
-vi.mock("@/hooks/useOlympiadProjects", () => ({ useActiveProject: () => active() }));
+const choose = vi.hoisted(() => vi.fn());
+vi.mock("@/hooks/results/useResultsProject", () => ({ useResultsProject: () => active(), chooseResultsProject: choose }));
 // The sub-pages are not under test here.
 vi.mock("./SkillAnalysisPage", () => ({ default: () => null }));
 vi.mock("./ResultsDashboard", () => ({ default: () => null }));
@@ -26,15 +27,28 @@ afterEach(cleanup);
 
 describe("ResultsLayout project indicator", () => {
   it("shows which olympiad project the Results pages are for", () => {
-    active.mockReturnValue({ data: { id: "p26", project_name: "iPlus Olympiads", project_year: 2026 } });
+    active.mockReturnValue({ data: { id: "p26", project_name: "iPlus Olympiads", project_year: 2026 }, needsChoice: false, projects: [] });
     render(<MemoryRouter initialEntries={["/results"]}><ResultsLayout /></MemoryRouter>);
     expect(screen.getByTestId("results-project").textContent).toBe("iPlus Olympiads (2026)");
     expect(screen.getByText(/for iPlus Olympiads \(2026\) only/)).toBeTruthy();
   });
 
   it("shows no project badge when there is no active project", () => {
-    active.mockReturnValue({ data: null });
+    active.mockReturnValue({ data: null, needsChoice: false, projects: [] });
     render(<MemoryRouter initialEntries={["/results"]}><ResultsLayout /></MemoryRouter>);
     expect(screen.queryByTestId("results-project")).toBeNull();
+  });
+
+  it("asks which project to use when more than one is active, and hides the pages until then", () => {
+    const projects = [
+      { id: "p26", project_name: "iPlus Olympiads", project_year: 2026 },
+      { id: "p27", project_name: "iPlus Olympiads", project_year: 2027 },
+    ];
+    active.mockReturnValue({ data: null, needsChoice: true, projects });
+    render(<MemoryRouter initialEntries={["/results"]}><ResultsLayout /></MemoryRouter>);
+    expect(screen.getByText("Which olympiad project?")).toBeTruthy();
+    expect(screen.queryByRole("navigation", { name: "Results sections" })).toBeNull();
+    screen.getByRole("button", { name: "iPlus Olympiads (2027)" }).click();
+    expect(choose).toHaveBeenCalledWith("p27");
   });
 });

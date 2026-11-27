@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 const check = vi.fn();
 const save = vi.fn();
 
-vi.mock("@/hooks/useOlympiadProjects", () => ({ useActiveProject: () => ({ data: { id: "proj", project_name: "2026" }, isLoading: false }) }));
+vi.mock("@/hooks/results/useResultsProject", () => ({ useResultsProject: () => ({ ...{ data: { id: "proj", project_name: "2026" }, isLoading: false }, needsChoice: false, projects: [] }), chooseResultsProject: vi.fn() }));
 vi.mock("@/hooks/results/useEvaluations", () => ({
   useUploadRpc: () => ({ check, save }),
   fetchTemplateStudents: vi.fn(async () => []),
