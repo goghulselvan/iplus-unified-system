@@ -150,8 +150,8 @@ export function QuestionCard({ question, edit, skills, pdf, onChange, onNav }: P
           className={`mt-4 rounded-md border p-4 ${status === "mismatch_strong" ? "border-red-700 bg-red-50 text-red-950" : "border-amber-600 bg-amber-50 text-amber-950"}`}>
           <p className="text-base font-semibold">
             {status === "mismatch_strong"
-              ? `The AI is ${pct(m.recheck_confidence)} sure the answer is ${m.recheck_answer}, but the answer key says ${m.key_answer}. The key may have a printing error, or the question may be faulty. Please decide before this paper can be Ready.`
-              : `The answer key says ${m.key_answer} but the AI says ${aiPick ?? "something else"}. Please look at the question and decide.`}
+              ? `The AI is ${pct(m.recheck_confidence)} sure the answer is ${m.recheck_answer}, but the answer key says ${m.key_answer}. The key may have a printing error, or the question may be faulty. Please decide: students on this paper are marked only after every flag is decided.`
+              : `The answer key says ${m.key_answer} but the AI says ${aiPick ?? "something else"} and is not sure. Please look at the question and decide.`}
           </p>
           {m.ai_reason && <p className="mt-2 text-sm"><span className="font-semibold">AI's reason:</span> {m.ai_reason}</p>}
           {m.recheck_reason && <p className="mt-1 text-sm"><span className="font-semibold">After a second look:</span> {m.recheck_reason}</p>}
