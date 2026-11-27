@@ -8,6 +8,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SchoolExports } from "@/components/results/exports/SchoolExports";
 import { SchoolAnalysisCard } from "@/components/results/skills/SchoolAnalysisCard";
+import { ReevaluateSchoolCard } from "@/components/results/ReevaluateSchoolCard";
+import { useAuth } from "@/hooks/useAuth";
 import { useResultsProject } from "@/hooks/results/useResultsProject";
 import { useClassOlympiadSummary, useSchoolStudents, useSchoolSummary } from "@/hooks/results/useResultsReads";
 import { OLYMPIAD_NAMES, type OlympiadCode } from "@/lib/results/paperRules";
@@ -29,6 +31,7 @@ const Tile = ({ label, value, sub }: { label: string; value: React.ReactNode; su
 );
 
 export default function SchoolResultDetailPage() {
+  const isSuperadmin = useAuth().profile?.role === "superadmin";
   const { schoolId } = useParams();
   const { data: project, isLoading: loadingProject } = useResultsProject();
   const { data: schools, isLoading: loadingSchools } = useSchoolSummary(project?.id);
@@ -75,6 +78,7 @@ export default function SchoolResultDetailPage() {
 
       <SchoolExports projectId={project!.id} school={school} groups={groups ?? []} />
       <SchoolAnalysisCard projectId={project!.id} schoolId={school.school_id} hasResults={Number(school.evaluated) > 0} />
+      {isSuperadmin && <ReevaluateSchoolCard projectId={project!.id} schoolId={school.school_id} />}
 
       <section aria-labelledby="co-h" className="space-y-2">
         <h4 id="co-h" className="text-lg font-semibold">Class and olympiad</h4>

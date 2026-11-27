@@ -10,6 +10,7 @@ import {
 } from "@/hooks/results/usePapers";
 import { OLYMPIAD_NAMES, classGroup, type OlympiadCode } from "@/lib/results/paperRules";
 import { PaperGrid, type CreateDefaults } from "@/components/results/papers/PaperGrid";
+import { CopySlotPapersButton } from "@/components/results/papers/CopySlotPapersButton";
 import { CreatePaperDialog } from "@/components/results/papers/CreatePaperDialog";
 import PaperEditor from "@/components/results/papers/PaperEditor";
 import { otherProjectNotice } from "@/lib/results/projectScope";
@@ -89,9 +90,12 @@ export default function QuestionPapersPage() {
 
   return (
     <div className="space-y-4">
-      <p className="text-base text-muted-foreground">
-        Pick a paper to open it. Choose a dashed box to create a paper that does not exist yet.
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-base text-muted-foreground">
+          Pick a paper to open it. Choose a dashed box to create a paper that does not exist yet.
+        </p>
+        <CopySlotPapersButton projectId={project.id} slots={slots} />
+      </div>
       <PaperGrid
         papers={papers ?? []}
         classes={classes ?? []}
