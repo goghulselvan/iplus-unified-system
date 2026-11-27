@@ -52,9 +52,9 @@ Deno.test("keyCheckNote", () => {
   assertEquals(keyCheckNote(q({ key_answer: "B", ai_answer: "B" })), null);
 });
 
-Deno.test("firstPassWrite: key and decisions win, otherwise the AI answer", () => {
-  assertEquals(firstPassWrite(null, "C"), { correct_answer: "C", check_status: "unchecked" });
-  assertEquals(firstPassWrite(q({ correct_answer: "A" }), "C"), { correct_answer: "C", check_status: "unchecked" });
+Deno.test("firstPassWrite: key and decisions win; the AI answer never becomes the marking key", () => {
+  assertEquals(firstPassWrite(null, "C"), { correct_answer: null, check_status: "unchecked" });
+  assertEquals(firstPassWrite(q({ correct_answer: "A" }), "C"), { correct_answer: null, check_status: "unchecked" });
   assertEquals(firstPassWrite(q({ key_answer: "A", correct_answer: "A" }), "C"), { correct_answer: "A", check_status: "mismatch" });
   assertEquals(firstPassWrite(q({ key_answer: "A", correct_answer: "A" }), "A"), { correct_answer: "A", check_status: "confirmed" });
   assertEquals(firstPassWrite(q({ key_answer: "A", correct_answer: "A" }), null), { correct_answer: "A", check_status: "key_only" });
@@ -100,15 +100,15 @@ Deno.test("keyUploadPatch: key becomes the answer unless resolved against the sa
   // clearing the key also undoes a grace decision
   assertEquals(
     keyUploadPatch(q({ key_answer: "B", ai_answer: "D", correct_answer: "B", is_grace: true, check_status: "resolved" }), null),
-    { key_answer: null, correct_answer: "B", is_grace: false, check_status: "unchecked" },
+    { key_answer: null, correct_answer: null, is_grace: false, check_status: "unchecked" },
   );
   // grace set by hand (no decision) is left alone
   assertEquals(
     keyUploadPatch(q({ ai_answer: "D", correct_answer: "D", is_grace: true }), "B"),
     { key_answer: "B", correct_answer: "B", is_grace: true, check_status: "mismatch" },
   );
-  // clearing the key leaves the answer alone
-  assertEquals(keyUploadPatch(q({ key_answer: "B", ai_answer: "D", correct_answer: "B" }), null), { key_answer: null, correct_answer: "B", is_grace: false, check_status: "unchecked" });
+  // clearing the key clears the marking answer: marking waits for a key
+  assertEquals(keyUploadPatch(q({ key_answer: "B", ai_answer: "D", correct_answer: "B" }), null), { key_answer: null, correct_answer: null, is_grace: false, check_status: "unchecked" });
 });
 
 Deno.test("resolvePatch", () => {

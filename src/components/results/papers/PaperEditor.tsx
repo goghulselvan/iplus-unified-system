@@ -212,12 +212,12 @@ export default function PaperEditor(props: PaperEditorProps) {
   };
 
   const saveKey = async (answers: Record<number, Letter>) => {
-    const plan = planKeySave(questions, answers);
+    const plan = planKeySave(questions, answers, paper.total_questions);
     if (!plan.rows.length && plan.unchanged === 0) throw new Error("None of these answers match a question on this paper yet.");
     if (!plan.rows.length) { setNotice({ kind: "ok", text: "This answer key is the same as the one already saved." }); return; }
     await onSaveKey(plan.rows);
     onChanged();
-    setNotice({ kind: "ok", text: `The answer key is saved for ${plan.rows.length} ${plan.rows.length === 1 ? "question" : "questions"}.${plan.unmatched.length ? ` ${plan.unmatched.length} ${plan.unmatched.length === 1 ? "answer was" : "answers were"} for questions not read yet and ${plan.unmatched.length === 1 ? "was" : "were"} skipped.` : ""}${plan.toRecheck.length ? ` The AI will now recheck ${plan.toRecheck.length} where it disagrees.` : ""}` });
+    setNotice({ kind: "ok", text: `The answer key is saved for ${plan.rows.length} ${plan.rows.length === 1 ? "question" : "questions"}.${plan.unmatched.length ? ` ${plan.unmatched.length} ${plan.unmatched.length === 1 ? "answer was" : "answers were"} for question numbers this paper does not have and ${plan.unmatched.length === 1 ? "was" : "were"} skipped.` : ""}${plan.toRecheck.length ? ` The AI will now recheck ${plan.toRecheck.length} where it disagrees.` : ""}` });
     if (plan.toRecheck.length) void runRecheck(plan.toRecheck);
   };
 
@@ -318,10 +318,10 @@ export default function PaperEditor(props: PaperEditorProps) {
             onDone={() => { setEdits({}); autoRecheck.current = true; onChanged(); }} />
           <div className="space-y-2">
             <Button type="button" variant="outline" className="min-h-11" onClick={() => setKeyOpen(true)}
-              disabled={!!recheck || dirtyCount > 0 || questions.length === 0}>
+              disabled={!!recheck || dirtyCount > 0}>
               <KeyRound className="mr-2 h-4 w-4" aria-hidden="true" />{hasKey ? "Replace answer key" : "Upload answer key"}
             </Button>
-            {questions.length === 0 && <p className="text-sm text-muted-foreground">Read the questions with the AI first, then add the answer key.</p>}
+            {!hasKey && <p className="text-sm text-muted-foreground">Upload the PDF and the answer key, then choose Analyse with AI. The AI solves every question on its own and flags any answer it disagrees with.</p>}
             {!recheck && toRecheck.length > 0 && (
               <div>
                 <Button type="button" className="min-h-11" disabled={dirtyCount > 0} onClick={() => void runRecheck(toRecheck)}>

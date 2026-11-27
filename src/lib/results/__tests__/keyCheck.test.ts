@@ -65,9 +65,9 @@ it("keyCheckNote", () => {
   expect_eq(keyCheckNote(q({ key_answer: "B", ai_answer: "B" })), null);
 });
 
-it("firstPassWrite: key and decisions win, otherwise the AI answer", () => {
-  expect_eq(firstPassWrite(null, "C"), { correct_answer: "C", check_status: "unchecked" });
-  expect_eq(firstPassWrite(q({ correct_answer: "A" }), "C"), { correct_answer: "C", check_status: "unchecked" });
+it("firstPassWrite: key and decisions win; the AI answer never becomes the marking key", () => {
+  expect_eq(firstPassWrite(null, "C"), { correct_answer: null, check_status: "unchecked" });
+  expect_eq(firstPassWrite(q({ correct_answer: "A" }), "C"), { correct_answer: null, check_status: "unchecked" });
   expect_eq(firstPassWrite(q({ key_answer: "A", correct_answer: "A" }), "C"), { correct_answer: "A", check_status: "mismatch" });
   expect_eq(firstPassWrite(q({ key_answer: "A", correct_answer: "A" }), "A"), { correct_answer: "A", check_status: "confirmed" });
   expect_eq(firstPassWrite(q({ key_answer: "A", correct_answer: "A" }), null), { correct_answer: "A", check_status: "key_only" });
@@ -113,15 +113,15 @@ it("keyUploadPatch: key becomes the answer unless resolved against the same key"
   // clearing the key also undoes a grace decision
   expect_eq(
     keyUploadPatch(q({ key_answer: "B", ai_answer: "D", correct_answer: "B", is_grace: true, check_status: "resolved" }), null),
-    { key_answer: null, correct_answer: "B", is_grace: false, check_status: "unchecked" },
+    { key_answer: null, correct_answer: null, is_grace: false, check_status: "unchecked" },
   );
   // grace set by hand (no decision) is left alone
   expect_eq(
     keyUploadPatch(q({ ai_answer: "D", correct_answer: "D", is_grace: true }), "B"),
     { key_answer: "B", correct_answer: "B", is_grace: true, check_status: "mismatch" },
   );
-  // clearing the key leaves the answer alone
-  expect_eq(keyUploadPatch(q({ key_answer: "B", ai_answer: "D", correct_answer: "B" }), null), { key_answer: null, correct_answer: "B", is_grace: false, check_status: "unchecked" });
+  // clearing the key clears the marking answer: marking waits for a key
+  expect_eq(keyUploadPatch(q({ key_answer: "B", ai_answer: "D", correct_answer: "B" }), null), { key_answer: null, correct_answer: null, is_grace: false, check_status: "unchecked" });
 });
 
 it("resolvePatch", () => {

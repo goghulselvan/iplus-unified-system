@@ -59,13 +59,26 @@ describe("planKeySave", () => {
     { question_number: 5, correct_answer: "B", ai_answer: "B", key_answer: "B", check_status: "resolved" },
   ] as unknown as Parameters<typeof planKeySave>[0];
   it("lets the key win except where a person already decided, and queues mismatches", () => {
-    const p = planKeySave(qs, { 1: "A", 2: "C", 3: "A", 4: "D", 5: "B", 7: "C" });
+    const p = planKeySave(qs, { 1: "A", 2: "C", 3: "A", 4: "D", 5: "B", 7: "C", 9: "A" }, 8);
     expect(p.rows.map((r) => [r.question_number, r.correct_answer, r.check_status])).toEqual([
-      [1, "A", "confirmed"], [4, "D", "mismatch"],
+      [1, "A", "confirmed"], [4, "D", "mismatch"], [7, "C", "key_only"],
     ]);
     expect(p.toRecheck).toEqual([4]);
-    expect(p.unmatched).toEqual([7]);
+    expect(p.unmatched).toEqual([9]);
     expect(p.unchanged).toBe(3); // same key as before: Q2, Q3 (decision stands) and Q5
+  });
+});
+
+describe("planKeySave before the AI has read the paper", () => {
+  it("saves the key on every question so the AI can cross-check it later", () => {
+    const p = planKeySave([], { 1: "B", 2: "D", 3: "A" }, 3);
+    expect(p.rows).toEqual([
+      { question_number: 1, key_answer: "B", correct_answer: "B", is_grace: false, check_status: "key_only" },
+      { question_number: 2, key_answer: "D", correct_answer: "D", is_grace: false, check_status: "key_only" },
+      { question_number: 3, key_answer: "A", correct_answer: "A", is_grace: false, check_status: "key_only" },
+    ]);
+    expect(p.toRecheck).toEqual([]);
+    expect(p.unmatched).toEqual([]);
   });
 });
 
@@ -75,7 +88,7 @@ describe("planKeySave grace", () => {
       { question_number: 1, correct_answer: null, is_grace: true, key_answer: "B", ai_answer: "B", check_status: "resolved" },
       { question_number: 2, correct_answer: "A", is_grace: false, key_answer: "A", ai_answer: "A", check_status: "confirmed" },
     ] as unknown as Parameters<typeof planKeySave>[0];
-    const p = planKeySave(qs, { 1: "C", 2: "D" });
+    const p = planKeySave(qs, { 1: "C", 2: "D" }, 2);
     expect(p.rows.map((r) => r.is_grace)).toEqual([false, false]);
   });
 });

@@ -85,15 +85,16 @@ export interface WriteFields {
 }
 
 /**
- * What the first AI pass writes for one question. The key (or a staff decision) wins:
- * correct_answer only follows the AI when there is no key and nothing was resolved.
+ * What the first AI pass writes for one question. The AI's answer is only a cross-check:
+ * it never becomes the answer used for marking. correct_answer keeps the key (or a staff
+ * decision) and stays empty while there is neither.
  */
 export function firstPassWrite(
   existing: (Omit<KeyCheckFields, "ai_answer"> & { correct_answer: string | null }) | null,
   aiAnswer: Answer | null,
 ): WriteFields {
   const keep = !!existing && (isAnswer(existing.key_answer) || existing.check_status === "resolved");
-  const correct = keep ? (isAnswer(existing!.correct_answer) ? existing!.correct_answer : null) : aiAnswer;
+  const correct = keep && isAnswer(existing!.correct_answer) ? existing!.correct_answer : null;
   return { correct_answer: correct, check_status: checkStatus({ ...(existing ?? { key_answer: null }), ai_answer: aiAnswer }) };
 }
 
@@ -106,8 +107,8 @@ export interface KeyUploadPatch extends WriteFields {
  * Saving an answer key for one question. The key becomes the answer used for scoring,
  * unless staff already resolved this question against the SAME key value (a different
  * key value undoes that decision, including a grace it set). Clearing the key (null)
- * leaves correct_answer alone. is_grace is always returned so every saved row carries
- * the same columns.
+ * clears correct_answer too: marking waits for a key. is_grace is always returned so
+ * every saved row carries the same columns.
  */
 export function keyUploadPatch(
   q: KeyCheckFields & { correct_answer: string | null; is_grace: boolean },
@@ -121,7 +122,7 @@ export function keyUploadPatch(
   const next = { ...q, key_answer: key, check_status: null };
   return {
     key_answer: key,
-    correct_answer: key ?? current,
+    correct_answer: key,
     // An undone decision takes its grace with it; a grace set without a decision stays.
     is_grace: resolved ? false : grace,
     check_status: checkStatus(next),

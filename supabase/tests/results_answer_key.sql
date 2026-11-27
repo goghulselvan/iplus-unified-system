@@ -39,7 +39,7 @@ BEGIN
   -- Fixtures: a free class x olympiad on a slot of the 2026 project.
   SELECT s.id, c.code, o.code INTO v_slot, v_class, v_olym
     FROM exam_slot_templates s
-   CROSS JOIN (VALUES ('01'),('02'),('03'),('04'),('05'),('06'),('07'),('08')) AS c(code)
+   CROSS JOIN (VALUES ('03'),('04'),('05'),('06'),('07'),('08')) AS c(code)   -- OMR classes (answer-key flags apply)
    CROSS JOIN (VALUES ('EPO'),('MPO'),('SPO'),('GKSSPO'),('LRPO')) AS o(code)
    WHERE s.project_id = v_proj
      AND NOT EXISTS (SELECT 1 FROM question_papers qp
@@ -120,19 +120,29 @@ BEGIN
      SET option_a = 'cat', option_b = 'dog', option_c = '', option_d = 'cow',
          key_answer = 'A', ai_answer = 'C', ai_reason = 'r', recheck_answer = 'A',
          recheck_confidence = 0.95, recheck_reason = 'rr', rechecked_at = now(),
-         figure_page = 2, figure_box = '{"x":0.1,"y":0.1,"w":0.5,"h":0.3}', check_status = 'confirmed'
+         figure_page = 2, figure_box = '{"x":0.1,"y":0.1,"w":0.5,"h":0.3}'
    WHERE paper_id = v_paper;
-  INSERT INTO questions (paper_id, question_number, recheck_answer, recheck_confidence, check_status)
-  VALUES (v_paper, 1, 'B', 0.92, 'mismatch_strong'), (v_paper, 2, 'B', 0.5, 'confirmed')
+  INSERT INTO questions (paper_id, question_number, recheck_answer, recheck_confidence)
+  VALUES (v_paper, 1, 'B', 0.92), (v_paper, 2, 'B', 0.5)
   ON CONFLICT (paper_id, question_number) DO UPDATE
-     SET recheck_answer = EXCLUDED.recheck_answer, recheck_confidence = EXCLUDED.recheck_confidence,
-         check_status = EXCLUDED.check_status;
+     SET recheck_answer = EXCLUDED.recheck_answer, recheck_confidence = EXCLUDED.recheck_confidence;
   -- same correct_answer written again is not a change either
-  UPDATE questions SET correct_answer = correct_answer, check_status = 'resolved' WHERE paper_id = v_paper;
+  UPDATE questions SET correct_answer = correct_answer WHERE paper_id = v_paper;
   SELECT total INTO v_total FROM result_scores WHERE enrollment_id = v_enr;
   IF v_total IS DISTINCT FROM 0 THEN
     RAISE EXCEPTION 'FAIL 5: writing only the new columns re-scored the paper (score %)', v_total;
   END IF;
+
+  -- 5b. (20261124) A flag being decided DOES re-score: an open flag holds marking back,
+  -- and deciding it marks again.
+  UPDATE questions SET check_status = 'mismatch_strong' WHERE paper_id = v_paper AND question_number = 1;
+  IF EXISTS (SELECT 1 FROM result_scores WHERE enrollment_id = v_enr) THEN
+    RAISE EXCEPTION 'FAIL 5b: an open flag did not hold marking back';
+  END IF;
+  UPDATE questions SET check_status = 'resolved' WHERE paper_id = v_paper AND question_number = 1;
+  SELECT total INTO v_total FROM result_scores WHERE enrollment_id = v_enr;
+  IF v_total IS DISTINCT FROM 2 THEN RAISE EXCEPTION 'FAIL 5b: deciding the flag did not re-score (got %)', v_total; END IF;
+  UPDATE result_scores SET total = 0 WHERE enrollment_id = v_enr;
 
   -- 6. Changing correct_answer still re-scores (q1 now C, student answered A -> 1).
   UPDATE questions SET correct_answer = 'C' WHERE paper_id = v_paper AND question_number = 1;

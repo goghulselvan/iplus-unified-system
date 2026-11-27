@@ -2,10 +2,13 @@
 --
 -- 1. result_evaluations.answers may hold 'M' (MULTIPLE: more than one bubble shaded).
 --    It never equals a key letter, so it scores 0 and counts as wrong. NULL = unanswered.
--- 2. results_rescore_paper_core: an OMR paper is marked only when every question has a
---    key letter or is grace. Until then its students have no score ("waiting for answer
---    key"); when the key is completed the existing question triggers mark everyone.
---    Only the three marked lines change; the rest is the live Phase 4 body.
+-- 2. results_paper_key_finished + results_rescore_paper_core: an OMR paper is marked only
+--    when every question is finished: a key letter (or grace) AND no open AI-vs-key flag
+--    (check_status mismatch / mismatch_strong). Until then its students have no score
+--    ("waiting for answer key"). The question re-score trigger now also fires when a
+--    flag is decided (check_status changes), so the last decision marks everyone.
+--    In results_rescore_paper_core only the marked lines change; the rest is the live
+--    Phase 4 body.
 -- 3. results_student_list: new status 'waiting' = answers saved, no score yet.
 -- 4. results_omr_parse + results_upload_omr: one file, any mix of subjects / classes /
 --    schools. Each row finds its paper from the roll number (subject + class) and the
@@ -24,8 +27,28 @@ ALTER TABLE public.result_evaluations ADD CONSTRAINT result_evaluations_answers_
 );
 
 -- ---------------------------------------------------------------------------
--- (2) Mark only when the answer key is complete
+-- (2) Mark only when every question is finished
 -- ---------------------------------------------------------------------------
+
+-- True when every question 1..total_questions has a key letter or is grace, and none
+-- has an undecided AI-vs-key flag. Manual papers (LKG-Class 2) carry their own marks.
+CREATE FUNCTION public.results_paper_key_finished(p_paper_id uuid)
+  RETURNS boolean
+  LANGUAGE sql STABLE
+  SET search_path = public
+AS $$
+  SELECT qp.class_code IN ('14','15','01','02')
+         OR NOT EXISTS (
+           SELECT 1
+             FROM generate_series(1, qp.total_questions) AS g(n)
+             LEFT JOIN public.questions q ON q.paper_id = qp.id AND q.question_number = g.n
+            WHERE q.id IS NULL
+               OR (NOT COALESCE(q.is_grace, false) AND q.correct_answer IS NULL)
+               OR q.check_status IN ('mismatch','mismatch_strong'))
+    FROM public.question_papers qp
+   WHERE qp.id = p_paper_id
+$$;
+
 CREATE OR REPLACE FUNCTION public.results_rescore_paper_core(p_paper_id uuid)
   RETURNS void
   LANGUAGE plpgsql
@@ -61,12 +84,9 @@ BEGIN
     LEFT JOIN public.questions q ON q.paper_id = p_paper_id AND q.question_number = g.n;
 
   -- NEW (upload-first): OMR answers can be saved before the answer key exists. A paper
-  -- is marked only once every question has a key letter or is grace; until then its
-  -- students have no score ("waiting for answer key"). Manual papers (LKG-Class 2)
-  -- carry their own marks and never need a key.
-  v_keyed := v_paper.class_code IN ('14','15','01','02')
-             OR NOT EXISTS (SELECT 1 FROM generate_series(1, v_paper.total_questions) AS g(n)
-                             WHERE NOT COALESCE(v_grace[g.n], false) AND v_key[g.n] IS NULL);
+  -- is marked only once every question is finished (key or grace, no open AI flag);
+  -- until then its students have no score ("waiting for answer key").
+  v_keyed := COALESCE(public.results_paper_key_finished(p_paper_id), false);
 
   -- Before-snapshot of the released schools' rows in this group (for resend flags).
   CREATE TEMPORARY TABLE IF NOT EXISTS results_score_before
@@ -211,6 +231,39 @@ $$;
 -- ---------------------------------------------------------------------------
 -- (d) Correction with a reason (new overload; the 3-argument version is unchanged)
 -- ---------------------------------------------------------------------------
+-- ---------------------------------------------------------------------------
+-- (2a) Re-score when a question's flag is decided (check_status changes), as well as
+-- on key / grace / numbering changes. Same body as 20261102 plus one condition.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.results_questions_rescore() RETURNS trigger
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = public
+AS $$
+DECLARE
+  v_paper uuid;
+BEGIN
+  -- Also catches a question renumbered or moved to another paper (both papers re-score).
+  -- Papers are visited in group-lock order.
+  FOR v_paper IN
+    SELECT qp.id
+      FROM (SELECT DISTINCT x.paper_id
+              FROM results_new_questions n
+              JOIN results_old_questions o ON o.id = n.id
+             CROSS JOIN LATERAL unnest(ARRAY[n.paper_id, o.paper_id]) AS x(paper_id)
+             WHERE n.correct_answer IS DISTINCT FROM o.correct_answer
+                OR n.is_grace IS DISTINCT FROM o.is_grace
+                OR n.check_status IS DISTINCT FROM o.check_status
+                OR n.paper_id IS DISTINCT FROM o.paper_id
+                OR n.question_number IS DISTINCT FROM o.question_number) c
+      JOIN public.question_papers qp ON qp.id = c.paper_id
+     ORDER BY public.results_group_key(qp.project_id, qp.class_code, qp.olympiad_code), qp.id
+  LOOP
+    PERFORM public.results_rescore_paper_core(v_paper);
+  END LOOP;
+  RETURN NULL;
+END
+$$;
 
 -- ---------------------------------------------------------------------------
 -- (2b) Student list: 'waiting' = answers saved, waiting for the answer key
@@ -505,12 +558,7 @@ BEGIN
                     'slotName', t.slot_name,
                     'count', g.n,
                     'paperExists', g.paper_id IS NOT NULL,
-                    'keyReady', g.paper_id IS NOT NULL AND NOT EXISTS (
-                        SELECT 1 FROM public.question_papers qp
-                         CROSS JOIN LATERAL generate_series(1, qp.total_questions) AS s(n)
-                          LEFT JOIN public.questions q ON q.paper_id = qp.id AND q.question_number = s.n
-                         WHERE qp.id = g.paper_id
-                           AND NOT COALESCE(q.is_grace, false) AND q.correct_answer IS NULL))
+                    'keyReady', g.paper_id IS NOT NULL AND COALESCE(public.results_paper_key_finished(g.paper_id), false))
                   ORDER BY g.class_code, g.olympiad_code, t.slot_name), '[]'::jsonb)
             FROM grp g
             LEFT JOIN public.classes c ON c.code = g.class_code
@@ -620,6 +668,7 @@ END
 $$;
 
 REVOKE ALL ON FUNCTION
+  public.results_paper_key_finished(uuid),
   public.results_omr_parse(uuid, jsonb),
   public.results_upload_omr(uuid, text, jsonb, boolean)
 FROM PUBLIC, anon, authenticated;
