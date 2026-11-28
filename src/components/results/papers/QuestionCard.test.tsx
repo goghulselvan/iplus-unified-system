@@ -70,6 +70,14 @@ describe("QuestionCard", () => {
     expect(onChange).toHaveBeenLastCalledWith(4, { also_correct: null });
   });
 
+  it("clears the flag when a second letter is accepted on a flagged question", async () => {
+    const onChange = vi.fn();
+    card(q(5, { ai_answer: "A", check_status: "mismatch" }), onChange);
+    const group = screen.getByRole("group", { name: "Other answers also correct for question 5" });
+    await userEvent.click(Array.from(group.querySelectorAll("button")).find((x) => x.textContent === "A")!);
+    expect(onChange).toHaveBeenLastCalledWith(5, { also_correct: "A", check_status: "resolved" });
+  });
+
   it("sets the answer with the A to D keys and moves with the arrows", async () => {
     const onChange = vi.fn();
     const onNav = vi.fn();

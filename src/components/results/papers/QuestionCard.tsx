@@ -58,8 +58,11 @@ export function QuestionCard({ question, edit, skills, pdf, onChange, onNav }: P
   const also = !grace && m.correct_answer ? (m.also_correct ?? "") : "";
   const setAnswer = (a: string | null) =>
     onChange(n, { correct_answer: a, also_correct: a ? alsoWithout(m.also_correct, a) : null });
-  const toggleAlso = (a: string) =>
-    onChange(n, { also_correct: also.includes(a) ? alsoWithout(also, a) : [...also, a].sort().join("") });
+  // On a flagged question, accepting a second letter is a decision: it clears the flag.
+  const toggleAlso = (a: string) => {
+    const next = also.includes(a) ? alsoWithout(also, a) : [...also, a].sort().join("");
+    onChange(n, next && open ? { also_correct: next, check_status: "resolved" } : { also_correct: next });
+  };
 
   const resolvedHow = grace ? "Marked as grace: every student gets this mark"
     : also ? `${[m.correct_answer, ...also.split("")].join(" and ")} are accepted as correct`
