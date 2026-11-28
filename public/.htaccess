@@ -5,6 +5,9 @@
   RewriteRule .* - [E=Cache-Control:no-cache]
 </IfModule>
 
+# ── .mjs files (PDF reader worker) must be served as JavaScript ──
+AddType application/javascript .mjs
+
 # ── SPA client-side routing ──
 <IfModule mod_rewrite.c>
   RewriteEngine On
