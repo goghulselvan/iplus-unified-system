@@ -2,10 +2,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { friendlyError } from "@/lib/results/friendlyError";
 import { fetchRankPage, RANK_PAGE, type RankRow } from "@/hooks/results/useResultsReads";
 import { formatReg } from "./regNumber";
+import { acceptedLabel, answerOk } from "./accepted";
 import { OLYMPIAD_NAMES, type OlympiadCode } from "./paperRules";
 import type { ScoreSheetInput, StudentBlock, RankOf } from "./pdf";
 
-export interface QuestionKey { question_number: number; correct_answer: string | null; is_grace: boolean; skill_category: string | null }
+export interface QuestionKey { question_number: number; correct_answer: string | null; also_correct?: string | null; is_grace: boolean; skill_category: string | null }
 
 /** Per-question rows for a score sheet, built the same way as the on-screen answer review. */
 export function buildQuestionRows(
@@ -19,12 +20,12 @@ export function buildQuestionRows(
     const v = values[i] ?? null;
     let result: "✓" | "✗" | "½" = "✗";
     if (q?.is_grace) result = "✓";
-    else if (omr) result = v !== null && v === q?.correct_answer ? "✓" : "✗";
+    else if (omr) result = answerOk(v as string | null, q) ? "✓" : "✗";
     else result = Number(v) === 1 ? "✓" : Number(v) === 0.5 ? "½" : "✗";
     return {
       number: i + 1,
       studentAnswer: v === null || v === "" ? null : String(v),
-      correctAnswer: q?.is_grace ? "Grace" : omr ? q?.correct_answer ?? "-" : "1",
+      correctAnswer: q?.is_grace ? "Grace" : omr ? acceptedLabel(q) || "-" : "1",
       result,
       skill: q?.skill_category ?? "",
     };
@@ -90,7 +91,7 @@ export async function fetchEvaluationAnswers(enrollmentIds: string[]): Promise<M
 export async function fetchPaperQuestions(paperId: string, cache: Map<string, QuestionKey[]>): Promise<QuestionKey[]> {
   const hit = cache.get(paperId);
   if (hit) return hit;
-  const { data, error } = await supabase.from("questions").select("question_number, correct_answer, is_grace, skill_category")
+  const { data, error } = await supabase.from("questions").select("question_number, correct_answer, also_correct, is_grace, skill_category")
     .eq("paper_id", paperId).order("question_number");
   if (error) throw friendlyError(error, "We could not load the question paper.");
   const rows = (data ?? []) as QuestionKey[];

@@ -141,7 +141,7 @@ export function useCreatePaper() {
 export type EditableQuestion = Pick<
   QuestionRow,
   "question_number" | "correct_answer" | "is_grace" | "skill_category" | "cognitive_level"
-> & { check_status: string };
+> & { check_status: string; also_correct?: string | null };
 
 /**
  * A Ready paper that no longer passes the readiness check goes back to Draft.
@@ -171,6 +171,7 @@ export function questionPayload(paperId: string, rows: EditableQuestion[]) {
     paper_id: paperId,
     question_number: r.question_number,
     correct_answer: r.is_grace ? null : r.correct_answer,
+    also_correct: r.is_grace || !r.correct_answer ? null : r.also_correct ?? null,
     is_grace: r.is_grace,
     skill_category: r.skill_category,
     cognitive_level: r.cognitive_level,

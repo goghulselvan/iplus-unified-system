@@ -248,7 +248,7 @@ export default function PaperEditor(props: PaperEditorProps) {
         const n = Number(k);
         const m = merged.find((q) => q.question_number === n)!;
         return {
-          question_number: n, correct_answer: m.correct_answer, is_grace: m.is_grace,
+          question_number: n, correct_answer: m.correct_answer, also_correct: m.also_correct ?? null, is_grace: m.is_grace,
           skill_category: m.skill_category, cognitive_level: m.cognitive_level,
           check_status: edits[n].check_status ?? checkStatus(m),
         };

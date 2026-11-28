@@ -193,9 +193,9 @@ export function useFlagDetail(enrollmentIds: string[] | undefined, enabled: bool
       const paperId = paperIds.size === 1 ? [...paperIds][0] : undefined;
       const key: Record<number, string> = {};
       if (paperId) {
-        const { data, error } = await table("questions").select("question_number, correct_answer, is_grace").eq("paper_id", paperId).order("question_number");
+        const { data, error } = await table("questions").select("question_number, correct_answer, also_correct, is_grace").eq("paper_id", paperId).order("question_number");
         if (error) fail(error, "We could not load the answer key.");
-        for (const q of (data ?? []) as Loose[]) if (q.correct_answer && !q.is_grace) key[q.question_number] = q.correct_answer;
+        for (const q of (data ?? []) as Loose[]) if (q.correct_answer && !q.is_grace) key[q.question_number] = q.correct_answer + (q.also_correct ?? "");
       }
       return {
         students: ids.map((id) => ({

@@ -3,6 +3,7 @@ import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProgressPanel } from "@/components/results/ProgressPanel";
 import type { QuestionRow } from "@/lib/results/paperRules";
+import { acceptedLabel } from "@/lib/results/accepted";
 
 interface Props {
   paperName: string;
@@ -30,7 +31,7 @@ export function AnswerKeyExport({ paperName, questions }: Props) {
     const out: string[][] = [];
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
-      out.push([String(q.question_number), q.is_grace ? "Grace" : q.correct_answer ?? "", q.skill_category ?? "", q.cognitive_level ?? ""]);
+      out.push([String(q.question_number), q.is_grace ? "Grace" : acceptedLabel(q), q.skill_category ?? "", q.cognitive_level ?? ""]);
       if (i % 10 === 0) { setJob({ stage, percent: from + ((to - from) * i) / questions.length }); await tick(); }
     }
     return out;

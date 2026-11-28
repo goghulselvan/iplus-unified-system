@@ -7,7 +7,7 @@ import { checkStatus, keyCheckNote, resolvePatch, type Decision } from "@/lib/re
 import { LETTERS, type CheckStatus, type Letter } from "@/lib/results/questionRow";
 import { QuestionPicture, type PdfSource } from "./QuestionPicture";
 
-export type QuestionEdit = Partial<Pick<QuestionRow, "correct_answer" | "is_grace" | "skill_category" | "cognitive_level" | "check_status">>;
+export type QuestionEdit = Partial<Pick<QuestionRow, "correct_answer" | "also_correct" | "is_grace" | "skill_category" | "cognitive_level" | "check_status">>;
 
 interface Props {
   question: QuestionRow;
@@ -39,6 +39,9 @@ export const statusLabel = (s: CheckStatus) => STATUS[s].label;
 
 const optionText = (q: QuestionRow, l: Letter) => q[`option_${l.toLowerCase()}` as "option_a"];
 const pct = (n: unknown) => `${Math.round(Number(n) * 100)}%`;
+/** also_correct without one letter, sorted; null when nothing is left. */
+const alsoWithout = (also: string | null | undefined, l: string | null) =>
+  (also ?? "").split("").filter((x) => x !== l).sort().join("") || null;
 
 export function QuestionCard({ question, edit, skills, pdf, onChange, onNav }: Props) {
   const q = question;
@@ -52,8 +55,14 @@ export function QuestionCard({ question, edit, skills, pdf, onChange, onNav }: P
   const skillOptions = m.skill_category && !skills.includes(m.skill_category) ? [m.skill_category, ...skills] : skills;
   const checkHint = status === "unchecked" && needsCheck(q) && !q.human_edited && !edit;
   const hasPicture = m.figure_page != null;
+  const also = !grace && m.correct_answer ? (m.also_correct ?? "") : "";
+  const setAnswer = (a: string | null) =>
+    onChange(n, { correct_answer: a, also_correct: a ? alsoWithout(m.also_correct, a) : null });
+  const toggleAlso = (a: string) =>
+    onChange(n, { also_correct: also.includes(a) ? alsoWithout(also, a) : [...also, a].sort().join("") });
 
   const resolvedHow = grace ? "Marked as grace: every student gets this mark"
+    : also ? `${[m.correct_answer, ...also.split("")].join(" and ")} are accepted as correct`
     : m.correct_answer && m.correct_answer === m.key_answer ? "You kept the answer key's answer"
     : m.correct_answer && m.correct_answer === aiPick ? "You used the AI's answer"
     : `You chose ${m.correct_answer ?? "no answer"}, which is neither the key's answer nor the AI's`;
@@ -69,10 +78,10 @@ export function QuestionCard({ question, edit, skills, pdf, onChange, onNav }: P
     const k = e.key.length === 1 ? e.key.toUpperCase() : e.key;
     if ((ANSWERS as readonly string[]).includes(k)) {
       e.preventDefault();
-      if (!grace) onChange(n, { correct_answer: k });
+      if (!grace) setAnswer(k);
     } else if (k === "G") {
       e.preventDefault();
-      onChange(n, grace ? { is_grace: false } : { is_grace: true, correct_answer: null });
+      onChange(n, grace ? { is_grace: false } : { is_grace: true, correct_answer: null, also_correct: null });
     } else if (k === "ArrowDown" || (k === "Enter" && t === e.currentTarget)) {
       e.preventDefault();
       onNav(n, 1);
@@ -84,8 +93,14 @@ export function QuestionCard({ question, edit, skills, pdf, onChange, onNav }: P
 
   const decide = (d: Decision) => {
     const { human_edited: _h, ...patch } = resolvePatch(m, d);
-    onChange(n, patch);
+    onChange(n, { ...patch, also_correct: null });
   };
+  /** Both the key's answer and the AI's answer earn the mark; every other option is wrong. */
+  const acceptBoth = () => {
+    const { human_edited: _h, ...patch } = resolvePatch(m, "keep_key");
+    onChange(n, { ...patch, also_correct: aiPick });
+  };
+  const canAcceptBoth = !!m.key_answer && !!aiPick && m.key_answer !== aiPick;
   const note = keyCheckNote(m);
 
   return (
@@ -117,7 +132,9 @@ export function QuestionCard({ question, edit, skills, pdf, onChange, onNav }: P
           </p>
           <ul className="space-y-2" aria-label={`Options for question ${n}`}>
             {LETTERS.map((l) => {
-              const correct = !grace && m.correct_answer === l;
+              const main = !grace && m.correct_answer === l;
+              const alsoOk = also.includes(l);
+              const correct = main || alsoOk;
               const text = optionText(m, l);
               const tags = [
                 open && m.key_answer === l ? "Key" : null,
@@ -134,7 +151,7 @@ export function QuestionCard({ question, edit, skills, pdf, onChange, onNav }: P
                   {tags && <span className="shrink-0 pt-1 text-sm font-medium text-muted-foreground">{tags}</span>}
                   {correct && (
                     <span className="flex shrink-0 items-center gap-1 pt-1 text-sm font-semibold text-green-900">
-                      <Check className="h-4 w-4" aria-hidden="true" />Correct answer
+                      <Check className="h-4 w-4" aria-hidden="true" />{alsoOk ? "Also correct" : "Correct answer"}
                     </span>
                   )}
                 </li>
@@ -160,6 +177,10 @@ export function QuestionCard({ question, edit, skills, pdf, onChange, onNav }: P
               onClick={() => decide("keep_key")}>Keep key ({m.key_answer})</Button>
             <Button type="button" variant="outline" className="min-h-11 bg-background" disabled={!aiPick}
               onClick={() => decide("use_ai")}>Use AI's answer{aiPick ? ` (${aiPick})` : ""}</Button>
+            {canAcceptBoth && (
+              <Button type="button" variant="outline" className="min-h-11 bg-background"
+                onClick={acceptBoth}>Both correct ({m.key_answer} and {aiPick})</Button>
+            )}
             <Button type="button" variant="outline" className="min-h-11 bg-background"
               onClick={() => decide("grace")}>Mark grace</Button>
           </div>
@@ -176,15 +197,30 @@ export function QuestionCard({ question, edit, skills, pdf, onChange, onNav }: P
         </p>
       )}
 
-      <div className="mt-4 grid gap-4 border-t pt-4 sm:grid-cols-2 lg:grid-cols-[auto_auto_1fr_1fr]">
+      <div className="mt-4 grid gap-4 border-t pt-4 sm:grid-cols-2 lg:grid-cols-[auto_auto_auto_1fr_1fr]">
         <div>
           <p className="mb-1 text-sm font-medium" id={`ans-label-${n}`}>Answer</p>
           <div role="group" aria-label={`Answer for question ${n}`} className="flex gap-1">
             {ANSWERS.map((a) => (
               <button key={a} type="button" aria-pressed={!grace && m.correct_answer === a} disabled={grace}
-                onClick={() => onChange(n, { correct_answer: m.correct_answer === a ? null : a })}
+                onClick={() => setAnswer(m.correct_answer === a ? null : a)}
                 className={`h-11 w-11 rounded-md border text-base font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40 ${
                   !grace && m.correct_answer === a ? "border-primary bg-primary text-primary-foreground" : "bg-background hover:bg-muted"}`}>
+                {a}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <p className="mb-1 text-sm font-medium">Also correct</p>
+          <div role="group" aria-label={`Other answers also correct for question ${n}`} className="flex gap-1">
+            {ANSWERS.map((a) => (
+              <button key={a} type="button" aria-pressed={also.includes(a)}
+                disabled={grace || !m.correct_answer || m.correct_answer === a}
+                title={!m.correct_answer ? "Choose the answer first" : undefined}
+                onClick={() => toggleAlso(a)}
+                className={`h-11 w-11 rounded-md border text-base font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40 ${
+                  also.includes(a) ? "border-green-700 bg-green-700 text-white" : "bg-background hover:bg-muted"}`}>
                 {a}
               </button>
             ))}
@@ -194,7 +230,7 @@ export function QuestionCard({ question, edit, skills, pdf, onChange, onNav }: P
           <p className="mb-1 text-sm font-medium">Grace</p>
           <div className="flex min-h-11 items-center gap-2">
             <Switch checked={grace} aria-label={`Grace for question ${n}`}
-              onCheckedChange={(v) => onChange(n, v ? { is_grace: true, correct_answer: null } : { is_grace: false })} />
+              onCheckedChange={(v) => onChange(n, v ? { is_grace: true, correct_answer: null, also_correct: null } : { is_grace: false })} />
             <span className="text-sm">{grace ? "Every student gets this mark" : "Off"}</span>
           </div>
         </div>

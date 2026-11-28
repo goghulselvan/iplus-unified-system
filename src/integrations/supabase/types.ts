@@ -4354,6 +4354,7 @@ export type Database = {
       questions: {
         Row: {
           ai_answer: string | null
+          also_correct: string | null
           ai_confidence: number | null
           ai_reason: string | null
           check_status: string
@@ -4385,6 +4386,7 @@ export type Database = {
         }
         Insert: {
           ai_answer?: string | null
+          also_correct?: string | null
           ai_confidence?: number | null
           ai_reason?: string | null
           check_status?: string
@@ -4416,6 +4418,7 @@ export type Database = {
         }
         Update: {
           ai_answer?: string | null
+          also_correct?: string | null
           ai_confidence?: number | null
           ai_reason?: string | null
           check_status?: string

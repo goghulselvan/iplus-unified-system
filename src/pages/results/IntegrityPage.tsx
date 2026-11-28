@@ -266,7 +266,7 @@ function SideBySide({ students, keyMap }: { students: { enrollmentId: string; na
               <th scope="row" className="whitespace-nowrap pr-3 text-left font-sans text-sm font-medium">{s.name}</th>
               {Array.from({ length: len }, (_, i) => {
                 const a = s.answers![i];
-                const wrong = a && keyMap[i + 1] && keyMap[i + 1] !== a;
+                const wrong = a && keyMap[i + 1] && !keyMap[i + 1].includes(a);
                 return <td key={i} className={`px-0.5 text-center ${same[i] ? "bg-muted" : ""} ${wrong ? "font-bold text-red-700" : ""} ${i % 10 === 9 ? "pr-2" : ""}`}>{a || "-"}</td>;
               })}
             </tr>

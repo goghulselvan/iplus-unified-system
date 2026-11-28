@@ -46,11 +46,28 @@ describe("QuestionCard", () => {
     expect(screen.getByText(/94% sure the answer is D, but the answer key says B/)).toBeTruthy();
     expect(screen.getByText(/Yellow is the colour of the sun/)).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Use AI's answer (D)" }));
-    expect(onChange).toHaveBeenCalledWith(2, { correct_answer: "D", is_grace: false, check_status: "resolved" });
+    expect(onChange).toHaveBeenCalledWith(2, { correct_answer: "D", is_grace: false, check_status: "resolved", also_correct: null });
     await userEvent.click(screen.getByRole("button", { name: "Keep key (B)" }));
-    expect(onChange).toHaveBeenLastCalledWith(2, { correct_answer: "B", is_grace: false, check_status: "resolved" });
+    expect(onChange).toHaveBeenLastCalledWith(2, { correct_answer: "B", is_grace: false, check_status: "resolved", also_correct: null });
+    await userEvent.click(screen.getByRole("button", { name: "Both correct (B and D)" }));
+    expect(onChange).toHaveBeenLastCalledWith(2, { correct_answer: "B", is_grace: false, check_status: "resolved", also_correct: "D" });
     await userEvent.click(screen.getByRole("button", { name: "Mark grace" }));
-    expect(onChange).toHaveBeenLastCalledWith(2, { is_grace: true, correct_answer: "B", check_status: "resolved" });
+    expect(onChange).toHaveBeenLastCalledWith(2, { is_grace: true, correct_answer: "B", check_status: "resolved", also_correct: null });
+  });
+
+  it("marks a second letter as also correct and shows both options green", async () => {
+    const onChange = vi.fn();
+    card(q(4, { also_correct: "A" }), onChange);
+    expect(screen.getByTestId("option-4-A").getAttribute("data-correct")).toBe("true");
+    expect(screen.getByTestId("option-4-B").getAttribute("data-correct")).toBe("true");
+    expect(screen.getByText("Also correct", { selector: "span" })).toBeTruthy();
+    const group = screen.getByRole("group", { name: "Other answers also correct for question 4" });
+    const btn = (l: string) => Array.from(group.querySelectorAll("button")).find((b) => b.textContent === l)!;
+    expect(btn("B").hasAttribute("disabled")).toBe(true);
+    await userEvent.click(btn("C"));
+    expect(onChange).toHaveBeenLastCalledWith(4, { also_correct: "AC" });
+    await userEvent.click(btn("A"));
+    expect(onChange).toHaveBeenLastCalledWith(4, { also_correct: null });
   });
 
   it("sets the answer with the A to D keys and moves with the arrows", async () => {
@@ -59,9 +76,9 @@ describe("QuestionCard", () => {
     card(q(3), onChange, onNav);
     screen.getByRole("article", { name: /Question 3/ }).focus();
     await userEvent.keyboard("d");
-    expect(onChange).toHaveBeenCalledWith(3, { correct_answer: "D" });
+    expect(onChange).toHaveBeenCalledWith(3, { correct_answer: "D", also_correct: null });
     await userEvent.keyboard("g");
-    expect(onChange).toHaveBeenLastCalledWith(3, { is_grace: true, correct_answer: null });
+    expect(onChange).toHaveBeenLastCalledWith(3, { is_grace: true, correct_answer: null, also_correct: null });
     await userEvent.keyboard("{ArrowDown}");
     expect(onNav).toHaveBeenLastCalledWith(3, 1);
     await userEvent.keyboard("{Enter}");

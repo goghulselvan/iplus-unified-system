@@ -5,6 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import type { StudentResult } from "@/hooks/results/useEvaluations";
 import { CorrectDialog } from "./CorrectDialog";
 import { omrAnswerLabel } from "@/lib/results/omrCounts";
+import { acceptedLabel, answerOk } from "@/lib/results/accepted";
 
 export function AnswerReview({ result }: { result: StudentResult }) {
   const ev = result.evaluation!;
@@ -17,7 +18,7 @@ export function AnswerReview({ result }: { result: StudentResult }) {
     const v = values[i] ?? null;
     let outcome: "right" | "wrong" | "half" | "blank" = "wrong";
     if (q?.is_grace) outcome = "right";
-    else if (kind === "omr") outcome = v !== null && v === q?.correct_answer ? "right" : v === null ? "blank" : "wrong";
+    else if (kind === "omr") outcome = answerOk(v as string | null, q) ? "right" : v === null ? "blank" : "wrong";
     else outcome = Number(v) === 1 ? "right" : Number(v) === 0.5 ? "half" : "wrong";
     return { n: i + 1, v, q, outcome };
   });
@@ -39,7 +40,7 @@ export function AnswerReview({ result }: { result: StudentResult }) {
               <TableRow key={r.n}>
                 <TableCell className="tabular-nums">{r.n}</TableCell>
                 <TableCell>{kind === "omr" ? omrAnswerLabel(r.v as string | null) : r.v === null ? "–" : String(r.v)}</TableCell>
-                <TableCell>{r.q?.is_grace ? "Grace" : kind === "omr" ? r.q?.correct_answer ?? "–" : "1"}</TableCell>
+                <TableCell>{r.q?.is_grace ? "Grace" : kind === "omr" ? acceptedLabel(r.q) || "–" : "1"}</TableCell>
                 <TableCell>
                   {r.outcome === "right" && <span className="inline-flex items-center gap-1 text-green-800"><Check className="h-4 w-4" aria-hidden="true" /><span className="sr-only">Correct</span></span>}
                   {r.outcome === "half" && <span className="font-medium text-amber-800"><span className="sr-only">Half mark</span><span aria-hidden="true">½</span></span>}

@@ -133,7 +133,7 @@ export interface StudentResult {
   } | null;
   score: ScoreRow | null;
   paper: { id: string; total_questions: number; project_id: string } | null;
-  questions: { question_number: number; correct_answer: string | null; is_grace: boolean; skill_category: string | null }[];
+  questions: { question_number: number; correct_answer: string | null; also_correct?: string | null; is_grace: boolean; skill_category: string | null }[];
   totals: { school: number; district: number; state: number; national: number } | null;
   /** The olympiad project this enrolment belongs to (ranks and totals are within it only). */
   projectId?: string;
@@ -178,7 +178,7 @@ export function useStudentResult(enrollmentId?: string) {
         const { data: p } = await supabase.from("question_papers").select("id, total_questions, project_id").eq("id", ev.paper_id).maybeSingle();
         paper = p as StudentResult["paper"];
         const { data: qs } = await supabase
-          .from("questions").select("question_number, correct_answer, is_grace, skill_category")
+          .from("questions").select("question_number, correct_answer, also_correct, is_grace, skill_category")
           .eq("paper_id", ev.paper_id).order("question_number");
         questions = (qs ?? []) as StudentResult["questions"];
         if (score) {
