@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { downloadCSV as downloadCSVFile } from '@/utils/csvExport';
+import { downloadXLSX } from '@/utils/xlsxExport';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -240,24 +240,69 @@ const OlympiadManagement = () => {
     });
   }, [stats, classStats, subjects, subjectLabelMap]);
 
+  const [exporting, setExporting] = useState(false);
+
   const handleExport = async () => {
-    // Export current filtered result — fetch all matching rows (no page limit)
-    const { data } = await supabase.rpc('get_olympiad_participations', {
-      p_project_id:    activeProject!.id,
-      p_search:        debouncedSearch || null,
-      p_olympiad_code: selectedOlympiad !== 'all' ? selectedOlympiad : null,
-      p_class_code:    selectedClass   !== 'all' ? selectedClass   : null,
-      p_school_id:     selectedSchool  !== 'all' ? selectedSchool  : null,
-      p_limit:  100000,
-      p_offset: 0,
-      ...slotParams,
-    });
-    if (!data?.length) { alert('No data to export'); return; }
-    const rows = [
-      ['SS No', 'School Name', 'Student Name', 'Class', 'Olympiad'],
-      ...(data as any[]).map(r => [r.ss_no, r.school_name, r.student_name, CLASS_LABELS[r.class_code] ?? r.class_code, r.olympiad_code]),
-    ];
-    downloadCSVFile(rows, `olympiad-participants-${new Date().toISOString().split('T')[0]}.csv`);
+    // Export current filtered result. Fetched in pages of 1000 because the
+    // API caps a single response at 1000 rows.
+    setExporting(true);
+    try {
+      const EXPORT_PAGE = 1000;
+      const data: any[] = [];
+      for (let offset = 0; ; offset += EXPORT_PAGE) {
+        const { data: chunk, error } = await supabase.rpc('get_olympiad_participations', {
+          p_project_id:    activeProject!.id,
+          p_search:        debouncedSearch || null,
+          p_olympiad_code: selectedOlympiad !== 'all' ? selectedOlympiad : null,
+          p_class_code:    selectedClass   !== 'all' ? selectedClass   : null,
+          p_school_id:     selectedSchool  !== 'all' ? selectedSchool  : null,
+          p_limit:  EXPORT_PAGE,
+          p_offset: offset,
+          ...slotParams,
+        });
+        if (error) throw error;
+        const rowsChunk = (chunk ?? []) as any[];
+        data.push(...rowsChunk);
+        if (rowsChunk.length < EXPORT_PAGE) break;
+      }
+      if (!data.length) { alert('No data to export'); return; }
+
+      // Registration numbers live on the enrolment row, not in the RPC result.
+      const regByEnrollment = new Map<string, string>();
+      const ids = data.map(r => r.enrollment_id);
+      for (let i = 0; i < ids.length; i += 300) {
+        const { data: regs, error } = await supabase
+          .from('portal_student_enrollments')
+          .select('id, registration_number')
+          .in('id', ids.slice(i, i + 300));
+        if (error) throw error;
+        for (const r of (regs ?? []) as unknown as { id: string; registration_number: string | null }[]) {
+          if (r.registration_number) regByEnrollment.set(r.id, r.registration_number.replace(/\D/g, ''));
+        }
+      }
+
+      // Registration numbers go in as text cells so all 12 digits show.
+      const rows = [
+        ['S.No', 'Registration No', 'Student Name', 'Class', 'Olympiad', 'School Name', 'SS No'],
+        ...data.map((r, i) => {
+          const reg = regByEnrollment.get(r.enrollment_id);
+          return [
+            i + 1,
+            reg ?? '',
+            r.student_name,
+            Number(r.class_code) || r.class_code, // 1–8, LKG = 14, UKG = 15
+            subjectLabelMap.get(r.olympiad_code) ?? r.olympiad_code,
+            r.school_name,
+            r.ss_no,
+          ];
+        }),
+      ];
+      await downloadXLSX(rows, `olympiad-participants-${new Date().toISOString().split('T')[0]}.xlsx`, 'Students');
+    } catch (e: any) {
+      alert(`Export failed: ${e?.message ?? 'please try again'}`);
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
@@ -276,8 +321,8 @@ const OlympiadManagement = () => {
               Includes both portal self-registrations and staff-added registrations
             </p>
           </div>
-          <Button onClick={handleExport} variant="outline">
-            <Download className="h-4 w-4 mr-2" /> Export Filtered
+          <Button onClick={handleExport} variant="outline" disabled={exporting || !activeProject?.id}>
+            <Download className="h-4 w-4 mr-2" /> {exporting ? 'Exporting…' : 'Export Filtered'}
           </Button>
         </div>
 

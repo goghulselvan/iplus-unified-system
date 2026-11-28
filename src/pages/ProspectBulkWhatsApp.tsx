@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, KeyboardEvent } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useActiveProject } from '@/hooks/useOlympiadProjects';
+import { toast } from '@/hooks/use-toast';
 import ProspectLayout from '@/components/prospect/ProspectLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
